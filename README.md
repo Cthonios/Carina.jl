@@ -17,7 +17,7 @@
 -  **Designed for Extensibility & Experimentation**
 -  **Scalable Parallel Execution** for HPC applications
 
-## **🛠 Installation**
+## ** Installation**
 ```julia
 using Pkg
 Pkg.add(url="https://github.com/Cthonios/Carina.jl")
