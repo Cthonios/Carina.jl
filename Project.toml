@@ -2,3 +2,8 @@ name = "Carina"
 uuid = "d047b710-4602-46ef-9874-677b04211908"
 authors = ["Alejandro Mota <lxmota@gmail.com>"]
 version = "0.1.0"
+
+[deps]
+ConstitutiveModels = "fc6ee7eb-129a-416f-804b-d7271ece6a3a"
+FiniteElementContainers = "d08262e4-672f-4e7f-a976-f2cea5767631"
+ReferenceFiniteElements = "6dc62d09-f8eb-43fd-9672-074e490a997f"
