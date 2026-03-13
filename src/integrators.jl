@@ -122,7 +122,18 @@ function FEC.evolve!(integrator::NewmarkIntegrator, p)
     )
 
     # 3. Newton iterations
-    initial_norm = 0.0
+    # Assemble the initial residual for iteration [0] log (before any Newton step).
+    FEC.assemble_vector!(asm, FEC.residual, U, p)
+    FEC.assemble_vector_neumann_bc!(asm, U, p)
+    @. dU = U - U_pred
+    FEC.assemble_matrix_action!(asm, FEC.mass, U, dU, p)
+    R_int = FEC.residual(asm)
+    M_dU  = FEC.hvp(asm, dU)
+    @. R_eff = -(R_int + c_M * M_dU)
+    initial_norm = sqrt(sum(abs2, R_eff))
+    _carina_logf(8, :solve, "Iter [0] |R| = %.3e : |r| = %.3e : %s",
+                 initial_norm, 1.0, _status_str(false))
+
     for iter in 1:solver.max_iters
         # Assemble residual
         FEC.assemble_vector!(asm, FEC.residual, U, p)
@@ -139,25 +150,25 @@ function FEC.evolve!(integrator::NewmarkIntegrator, p)
         @. R_eff = -(R_int + c_M * M_dU)
 
         norm_R = sqrt(sum(abs2, R_eff))
-        if iter == 1
-            initial_norm = norm_R
-        end
-        rel_R = initial_norm > 0.0 ? norm_R / initial_norm : norm_R
-        @debug "Newmark Newton" iter norm_R rel_R
+        rel_R  = initial_norm > 0.0 ? norm_R / initial_norm : norm_R
 
         Krylov.solve!(krylov_solver, K_eff_op, R_eff;
                       atol=solver.abs_residual_tol,
                       rtol=sqrt(eps(Float64)),
                       itmax=5 * n)
-        ΔUu = Krylov.solution(krylov_solver)
+        ΔUu       = Krylov.solution(krylov_solver)
+        kry_iters = krylov_solver.stats.niter
 
         U .+= ΔUu
 
-        if sqrt(sum(abs2, ΔUu)) < solver.abs_increment_tol ||
-           norm_R < solver.abs_residual_tol                 ||
-           rel_R  < solver.rel_residual_tol
-            break
-        end
+        converged = sqrt(sum(abs2, ΔUu)) < solver.abs_increment_tol ||
+                    norm_R < solver.abs_residual_tol                 ||
+                    rel_R  < solver.rel_residual_tol
+        _carina_logf(8, :solve, "Iter [%d] |R| = %.3e : |r| = %.3e : Krylov = %d : %s",
+                     iter, norm_R, rel_R, kry_iters, _status_str(converged))
+        @debug "Newmark Newton" iter norm_R rel_R kry_iters
+
+        converged && break
     end
 
     # 4. Corrector

@@ -17,6 +17,7 @@ import YAML
 # Submodules / source files
 # ---------------------------------------------------------------------------
 
+include("logging.jl")
 include("simulation_types.jl")
 include("physics.jl")
 include("integrators.jl")

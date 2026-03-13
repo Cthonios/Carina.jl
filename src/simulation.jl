@@ -38,16 +38,23 @@ end
 Load `yaml_file`, create a simulation, run it, and close the output file.
 """
 function run(yaml_file::String)
+    t_start = time()
+    _carina_log(0, :carina, "BEGIN SIMULATION")
+    _carina_log(0, :setup,  "Reading from $yaml_file")
+
     dict = YAML.load_file(yaml_file; dicttype=Dict{String,Any})
     sim_type = lowercase(get(dict, "type", "single"))
     if sim_type == "single"
         sim = create_simulation(dict, dirname(abspath(yaml_file)))
         evolve!(sim)
         FEC.close(sim.post_processor)
-        @info "Done. Output written to $(sim.post_processor.field_output_db.file_name)"
     else
         error("Simulation type \"$sim_type\" not yet supported. Only \"single\" is implemented.")
     end
+
+    _carina_log(0, :done, "Simulation complete")
+    _carina_logf(0, :time, "Total wall time = %.1fs", time() - t_start)
+    _carina_log(0, :carina, "END SIMULATION")
     return nothing
 end
 
@@ -66,11 +73,14 @@ function create_simulation(dict::Dict{String,Any}, basedir::String="")
     device_str = lowercase(get(dict, "device", "cpu"))
     use_gpu = device_str == "rocm"
     use_gpu && _require_amdgpu!()
+    _carina_log(0, :device, use_gpu ? "ROCm GPU" : "CPU")
 
     # --- files ---
     input_mesh  = _resolve(dict, "input mesh file",  basedir)
     output_file = _resolve(dict, "output mesh file", basedir)
     output_interval = Int(get(dict, "output interval", 1))
+    _carina_log(0, :setup, "Mesh:   $input_mesh")
+    _carina_log(0, :setup, "Output: $output_file")
 
     # --- material / physics ---
     cm, density, props_inputs = _parse_material_section(dict)
@@ -102,6 +112,8 @@ function create_simulation(dict::Dict{String,Any}, basedir::String="")
     pp = FEC.PostProcessor(mesh, output_file, u)
     FEC.write_times(pp, 1, 0.0)
     FEC.write_field(pp, 1, ("displ_x", "displ_y", "displ_z"), p_cpu.h1_field)
+    _carina_logf(0, :stop,   "[0/%d,  0%%] : Time = %.4e", n_steps, FEC.current_time(times))
+    _carina_log(0,  :output, output_file)
 
     # --- GPU adaptation (after step-0 I/O so Exodus sees CPU arrays) ---
     if use_gpu
@@ -136,7 +148,16 @@ Run the full time loop, writing Exodus output at every `output_interval` steps.
 """
 function evolve!(sim::SingleDomainSimulation)
     (; params, integrator, post_processor, n_steps, output_interval, use_gpu) = sim
+
     for n in 1:n_steps
+        t_prev = use_gpu ? Base.invokelatest(FEC.current_time, params.times) :
+                           FEC.current_time(params.times)
+        Δt = FEC.time_step(params.times)
+        _carina_logf(4, :advance, "Time = [%.4e, %.4e] : Δt = %.4e",
+                     t_prev, t_prev + Δt, Δt)
+
+        t_step = time()
+
         # When running on GPU, FEC methods dispatching on ROCArray types are
         # defined in a newer Julia world (AMDGPU was loaded via Base.require).
         # invokelatest lets the entire call chain see those methods.
@@ -145,8 +166,12 @@ function evolve!(sim::SingleDomainSimulation)
         else
             FEC.evolve!(integrator, params)
         end
+
         t = use_gpu ? Base.invokelatest(FEC.current_time, params.times) :
                       FEC.current_time(params.times)
+        wall = time() - t_step
+        pct  = round(Int, 100 * n / n_steps)
+
         if n % output_interval == 0
             # PostProcessor step index starts at 2 (step 1 = initial state).
             # Adapt to CPU; when on GPU, Adapt.adapt(ROCArray→Array) dispatches
@@ -157,8 +182,13 @@ function evolve!(sim::SingleDomainSimulation)
             FEC.write_times(post_processor, step, t)
             FEC.write_field(post_processor, step,
                 ("displ_x", "displ_y", "displ_z"), h1_cpu)
-            @info "Step $n  t=$(round(t, digits=6))  " *
-                  "max|u_z|=$(round(maximum(abs, h1_cpu[3,:]), sigdigits=4))"
+            u_max = maximum(abs, h1_cpu.data)
+            _carina_logf(0, :stop,   "[%d/%d, %3d%%] : Time = %.4e : |U|_max = %.3e : wall = %.2fs",
+                         n, n_steps, pct, t, u_max, wall)
+            _carina_log(0,  :output, post_processor.field_output_db.file_name)
+        else
+            _carina_logf(0, :stop, "[%d/%d, %3d%%] : Time = %.4e : wall = %.2fs",
+                         n, n_steps, pct, t, wall)
         end
     end
 end
@@ -243,13 +273,20 @@ function _parse_solver(dict, asm, use_gpu=false)
     # GPU requires iterative solver (direct \ is CPU-only).
     sol_type  = use_gpu ? "iterative" : lowercase(get(sol_dict, "type", "direct"))
 
-    # FEC.NewtonSolver takes (max_iters, abs_increment_tol, abs_residual_tol, rel_residual_tol, linear_solver, timer)
+    # Per-iteration logging callback for FEC.NewtonSolver (quasi-static path).
+    newton_cb = (iter, norm_ΔUu, norm_R, rel_R, converged) -> begin
+        status = _status_str(converged)
+        _carina_logf(8, :solve, "Iter [%d] |R| = %.3e : |r| = %.3e : %s",
+                     iter, norm_R, rel_R, status)
+    end
+
+    # FEC.NewtonSolver takes (max_iters, abs_increment_tol, abs_residual_tol, rel_residual_tol, linear_solver, timer, log_callback)
     if sol_type == "direct"
         linear = FEC.DirectLinearSolver(asm)
-        return FEC.NewtonSolver(max_iters, abs_tol, abs_tol, rel_tol, linear, linear.timer)
+        return FEC.NewtonSolver(max_iters, abs_tol, abs_tol, rel_tol, linear, linear.timer, newton_cb)
     elseif sol_type in ("iterative", "krylov", "gmres")
         linear = FEC.IterativeLinearSolver(asm, :GmresSolver)
-        return FEC.NewtonSolver(max_iters, abs_tol, abs_tol, rel_tol, linear, linear.timer)
+        return FEC.NewtonSolver(max_iters, abs_tol, abs_tol, rel_tol, linear, linear.timer, newton_cb)
     else
         error("Unknown solver type \"$sol_type\". Supported: \"direct\", \"iterative\".")
     end
