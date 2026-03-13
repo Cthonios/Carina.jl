@@ -128,10 +128,12 @@ function create_simulation(dict::Dict{String,Any}, basedir::String="")
     # Use invokelatest when on GPU: AMDGPU was loaded via Base.require, so its
     # methods (e.g. similar(::ROCArray)) are in a newer world than Carina's
     # compilation world; invokelatest lets the whole call chain see them.
+    # asm_cpu and p_cpu are passed for optional Jacobi preconditioner setup
+    # (Jacobi diagonal computed on CPU, then transferred to device).
     integrator = if use_gpu
-        Base.invokelatest(_parse_integrator, dict, asm, use_gpu)
+        Base.invokelatest(_parse_integrator, dict, asm, asm_cpu, p_cpu, use_gpu)
     else
-        _parse_integrator(dict, asm, use_gpu)
+        _parse_integrator(dict, asm, asm_cpu, p_cpu, use_gpu)
     end
 
     # --- initial conditions ---
@@ -250,7 +252,7 @@ end
 
 # ---- integrator ----
 
-function _parse_integrator(dict, asm, use_gpu=false)
+function _parse_integrator(dict, asm, asm_cpu, p_cpu, use_gpu=false)
     ti_dict = get(dict, "time integrator", nothing)
     ti_dict === nothing && error("Missing \"time integrator:\" section.")
     type_str = lowercase(get(ti_dict, "type", "quasi static"))
@@ -259,20 +261,69 @@ function _parse_integrator(dict, asm, use_gpu=false)
         solver = _parse_solver(dict, asm, use_gpu)
         return FEC.QuasiStaticIntegrator(solver)
     elseif type_str in ("newmark", "newmark-beta", "newmark beta")
-        β            = Float64(get(ti_dict, "beta",  0.25))
-        γ            = Float64(get(ti_dict, "gamma", 0.5))
-        kry_itmax    = Int(get(ti_dict, "krylov iterations", 1000))
-        kry_rtol     = Float64(get(ti_dict, "krylov tolerance", 1e-8))
-        # Newmark uses matrix-free MINRES and never calls linear_solver.solve!.
+        β = Float64(get(ti_dict, "beta",  0.25))
+        γ = Float64(get(ti_dict, "gamma", 0.5))
+
+        # Linear solver config lives under solver: linear solver:
+        # Falls back to time integrator: krylov iterations / krylov tolerance
+        # for backward compatibility.
+        sol_dict    = get(dict, "solver", Dict{String,Any}())
+        ls_dict     = get(sol_dict, "linear solver", Dict{String,Any}())
+        kry_type    = lowercase(get(ls_dict, "type", "minres"))
+        kry_itmax   = Int(get(ls_dict, "maximum iterations",
+                            Int(get(ti_dict, "krylov iterations", 1000))))
+        kry_rtol    = Float64(get(ls_dict, "tolerance",
+                            Float64(get(ti_dict, "krylov tolerance", 1e-8))))
+        kry_method  = kry_type in ("cg", "conjugate gradient") ? :cg : :minres
+
+        precond_dict = get(ls_dict, "preconditioner", Dict{String,Any}())
+        precond_type = Symbol(lowercase(get(precond_dict, "type", "none")))
+
+        # Newmark uses matrix-free Krylov and never calls linear_solver.solve!.
         # Always use DirectLinearSolver so no sparse K is materialized (on GPU
-        # this avoids an OOM from IterativeLinearSolver's eager stiffness build).
+        # this avoids OOM from IterativeLinearSolver's eager stiffness build).
         solver = _parse_solver(dict, asm, use_gpu; force_direct=true)
+
+        precond = if precond_type == :jacobi
+            _compute_jacobi_precond(β, Float64(ti_dict["time step"]),
+                                    asm_cpu, p_cpu,
+                                    solver.linear_solver.ΔUu)
+        else
+            NoPreconditioner()
+        end
+
         return NewmarkIntegrator(solver, β, γ;
-                                  krylov_itmax=kry_itmax, krylov_rtol=kry_rtol)
+                                  krylov_method=kry_method,
+                                  krylov_itmax=kry_itmax,
+                                  krylov_rtol=kry_rtol,
+                                  precond=precond)
     else
         error("Unknown time integrator type: \"$type_str\". " *
               "Supported: \"quasi static\", \"Newmark\".")
     end
+end
+
+# Compute the Jacobi (diagonal) preconditioner for the Newmark effective
+# stiffness K + c_M·M using the mass-only approximation d_ii ≈ c_M·M_ii.
+#
+# The diagonal is computed on CPU (asm_cpu, p_cpu) and then transferred to
+# the target device (ΔUu_template may be a GPU array).
+function _compute_jacobi_precond(β, Δt, asm_cpu, p_cpu, ΔUu_template)
+    c_M   = 1.0 / (β * Δt^2)
+    n_cpu = length(ΔUu_template)
+    ones_v  = ones(Float64, n_cpu)
+    U_zeros = zeros(Float64, n_cpu)
+
+    # M · ones  gives the lumped-mass row sums for each unknown DOF.
+    FEC.assemble_matrix_action!(asm_cpu, FEC.mass, U_zeros, ones_v, p_cpu)
+    m_diag = copy(FEC.hvp(asm_cpu, ones_v))   # copy before next assembly overwrites
+
+    inv_diag_cpu = 1.0 ./ (c_M .* m_diag)
+
+    # Transfer to device (no-op if already CPU).
+    inv_diag = similar(ΔUu_template)
+    copyto!(inv_diag, inv_diag_cpu)
+    return JacobiPreconditioner(inv_diag)
 end
 
 # ---- solver ----

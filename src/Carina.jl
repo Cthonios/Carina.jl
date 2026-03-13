@@ -20,6 +20,7 @@ import YAML
 include("logging.jl")
 include("simulation_types.jl")
 include("physics.jl")
+include("solvers.jl")
 include("integrators.jl")
 include("materials.jl")
 include("simulation.jl")

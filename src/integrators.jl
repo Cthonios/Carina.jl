@@ -8,7 +8,7 @@
 #   Predictor:
 #     Ũ = U_n + Δt·V_n + Δt²·(0.5-β)·A_n
 #     Ṽ = V_n + Δt·(1-γ)·A_n
-#   Newton (matrix-free MINRES):
+#   Newton (matrix-free CG or MINRES):
 #     R_eff = R_int + c_M·M·(U - Ũ)      c_M = 1/(β·Δt²)
 #     K_eff·ΔU = -R_eff                  K_eff = K + c_M·M
 #     U += ΔU
@@ -25,12 +25,13 @@ import LinearOperators: LinearOperator
 # Struct
 # --------------------------------------------------------------------------- #
 
-struct NewmarkIntegrator{Solver <: FEC.NewtonSolver, Vec, KrySolver}
+struct NewmarkIntegrator{Solver <: FEC.NewtonSolver, Vec, KrySolver, PC <: Preconditioner}
     solver::Solver
     β::Float64
     γ::Float64
-    krylov_itmax::Int     # max MINRES iterations per Newton step
-    krylov_rtol::Float64  # relative residual tolerance for MINRES
+    krylov_method::Symbol     # :cg or :minres
+    krylov_itmax::Int         # max Krylov iterations per Newton step
+    krylov_rtol::Float64      # relative residual tolerance for Krylov solver
     # State vectors (n_total_dofs for condensed DOF manager)
     U::Vec;      V::Vec;      A::Vec
     U_prev::Vec; V_prev::Vec; A_prev::Vec
@@ -40,10 +41,15 @@ struct NewmarkIntegrator{Solver <: FEC.NewtonSolver, Vec, KrySolver}
     U_pred::Vec                # Newmark predictor Ũ
     dU::Vec                    # U - Ũ  (inertial RHS scratch)
     R_eff::Vec                 # effective residual (negated for Krylov RHS)
+    # Preconditioner (NoPreconditioner or JacobiPreconditioner)
+    precond::PC
 end
 
 function NewmarkIntegrator(solver::FEC.NewtonSolver, β::Float64, γ::Float64;
-                            krylov_itmax::Int=1000, krylov_rtol::Float64=1e-8)
+                            krylov_method::Symbol=:minres,
+                            krylov_itmax::Int=1000,
+                            krylov_rtol::Float64=1e-8,
+                            precond::Preconditioner=NoPreconditioner())
     ΔUu = solver.linear_solver.ΔUu
     n   = length(ΔUu)
     T   = eltype(ΔUu)
@@ -55,11 +61,17 @@ function NewmarkIntegrator(solver::FEC.NewtonSolver, β::Float64, γ::Float64;
     U_prev, V_prev, A_prev = mk(), mk(), mk()
     scratch, U_pred, dU, R_eff = mk(), mk(), mk(), mk()
 
-    kry = Krylov.MinresWorkspace(n, n, S)
+    kry = if krylov_method == :cg
+        Krylov.CgWorkspace(n, n, S)
+    else
+        Krylov.MinresWorkspace(n, n, S)
+    end
+
     return NewmarkIntegrator(
-        solver, β, γ, krylov_itmax, krylov_rtol,
+        solver, β, γ, krylov_method, krylov_itmax, krylov_rtol,
         U, V, A, U_prev, V_prev, A_prev,
         kry, scratch, U_pred, dU, R_eff,
+        precond,
     )
 end
 
@@ -96,6 +108,7 @@ end
 
 function FEC.evolve!(integrator::NewmarkIntegrator, p)
     (; solver, β, γ,
+       krylov_method, krylov_itmax, krylov_rtol, precond,
        U, V, A, U_prev, V_prev, A_prev,
        krylov_solver, scratch, U_pred, dU, R_eff) = integrator
 
@@ -123,6 +136,16 @@ function FEC.evolve!(integrator::NewmarkIntegrator, p)
         Float64, n, n, true, true,
         (y, v) -> _eff_stiffness_matvec!(y, v, asm, U, c_M, p, scratch),
     )
+
+    # Build preconditioner operator (M⁻¹·v).
+    M_op = if precond isa NoPreconditioner
+        nothing
+    else
+        LinearOperator(
+            Float64, n, n, true, true,
+            (y, v) -> (@. y = precond.inv_diag * v; y),
+        )
+    end
 
     # 3. Newton iterations
     # Assemble the initial residual for iteration [0] log (before any Newton step).
@@ -155,10 +178,18 @@ function FEC.evolve!(integrator::NewmarkIntegrator, p)
         norm_R = sqrt(sum(abs2, R_eff))
         rel_R  = initial_norm > 0.0 ? norm_R / initial_norm : norm_R
 
-        Krylov.krylov_solve!(krylov_solver, K_eff_op, R_eff;
-                      atol=solver.abs_residual_tol,
-                      rtol=integrator.krylov_rtol,
-                      itmax=integrator.krylov_itmax)
+        if M_op === nothing
+            Krylov.krylov_solve!(krylov_solver, K_eff_op, R_eff;
+                          atol=solver.abs_residual_tol,
+                          rtol=krylov_rtol,
+                          itmax=krylov_itmax)
+        else
+            Krylov.krylov_solve!(krylov_solver, K_eff_op, R_eff;
+                          M=M_op,
+                          atol=solver.abs_residual_tol,
+                          rtol=krylov_rtol,
+                          itmax=krylov_itmax)
+        end
         ΔUu       = Krylov.solution(krylov_solver)
         kry_iters = krylov_solver.stats.niter
         norm_dU   = sqrt(sum(abs2, ΔUu))
