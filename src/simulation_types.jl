@@ -18,4 +18,5 @@ struct SingleDomainSimulation{Params, Integrator, PP}
     post_processor  ::PP            # FEC.PostProcessor
     n_steps         ::Int
     output_interval ::Int           # write output every N steps
+    use_gpu         ::Bool          # true when params/integrator live on the GPU
 end

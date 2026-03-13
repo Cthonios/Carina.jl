@@ -1,51 +1,90 @@
-# Newmark time integrator for second-order (dynamic) problems.
-# Self-contained implementation that uses FEC only for assembly.
+# Newmark-β time integrator for second-order (dynamic) problems.
+#
+# GPU-ready design: the effective stiffness K_eff = K + c_M * M is applied
+# matrix-free via two calls to FEC.assemble_matrix_action! per Krylov
+# iteration.  No sparse matrix is ever materialised.
 #
 # Algorithm (displacement-based Newmark-β):
-#   Predictor (free DOFs):
-#     Ũ_u = U_n + Δt * V_n + Δt² * (0.5 - β) * A_n
-#     Ṽ_u = V_n + Δt * (1 - γ) * A_n
-#   Newton:
-#     K_eff = K_int + c_M * M_uu,    c_M = 1/(β Δt²)
-#     R_eff = R_int + M_uu * c_M * (Uu - Ũ_u)
-#     ΔUu   = -K_eff \ R_eff;   Uu += ΔUu
+#   Predictor:
+#     Ũ = U_n + Δt·V_n + Δt²·(0.5-β)·A_n
+#     Ṽ = V_n + Δt·(1-γ)·A_n
+#   Newton (matrix-free MINRES):
+#     R_eff = R_int + c_M·M·(U - Ũ)      c_M = 1/(β·Δt²)
+#     K_eff·ΔU = -R_eff                  K_eff = K + c_M·M
+#     U += ΔU
 #   Corrector:
-#     A_{n+1} = c_M * (Uu - Ũ_u)
-#     V_{n+1} = Ṽ_u + Δt * γ * A_{n+1}
+#     A_{n+1} = c_M·(U - Ũ)
+#     V_{n+1} = Ṽ + Δt·γ·A_{n+1}
 
 import FiniteElementContainers as FEC
 using LinearAlgebra
+import Krylov
+import LinearOperators: LinearOperator
 
 # --------------------------------------------------------------------------- #
 # Struct
 # --------------------------------------------------------------------------- #
 
-"""
-    NewmarkIntegrator(solver, β, γ)
-
-Second-order Newmark-β integrator.  `solver` must be an `FEC.NewtonSolver`
-that wraps an `FEC.DirectLinearSolver` (condensed DOF manager required).
-
-`β = 0.25, γ = 0.5` gives the unconditionally stable average acceleration
-method (trapezoidal rule).
-"""
-struct NewmarkIntegrator{Solver <: FEC.NewtonSolver, Vec <: AbstractVector{Float64}}
+struct NewmarkIntegrator{Solver <: FEC.NewtonSolver, Vec, KrySolver}
     solver::Solver
     β::Float64
     γ::Float64
-    # Free-DOF state vectors (size = n_free)
-    U::Vec      # displacement at t_n
-    V::Vec      # velocity
-    A::Vec      # acceleration
-    U_prev::Vec # displacement at t_{n-1}
-    V_prev::Vec
-    A_prev::Vec
+    # State vectors (n_total_dofs for condensed DOF manager)
+    U::Vec;      V::Vec;      A::Vec
+    U_prev::Vec; V_prev::Vec; A_prev::Vec
+    # Preallocated scratch to avoid per-iteration allocations
+    krylov_solver::KrySolver  # reused across Newton iterations
+    scratch::Vec               # holds K·v during effective-stiffness matvec
+    U_pred::Vec                # Newmark predictor Ũ
+    dU::Vec                    # U - Ũ  (inertial RHS scratch)
+    R_eff::Vec                 # effective residual (negated for Krylov RHS)
 end
 
 function NewmarkIntegrator(solver::FEC.NewtonSolver, β::Float64, γ::Float64)
-    n = length(solver.linear_solver.ΔUu)
-    U = zeros(n); V = zeros(n); A = zeros(n)
-    return NewmarkIntegrator(solver, β, γ, U, V, A, copy(U), copy(V), copy(A))
+    ΔUu = solver.linear_solver.ΔUu
+    n   = length(ΔUu)
+    T   = eltype(ΔUu)
+    S   = typeof(ΔUu)
+
+    mk() = (v = similar(ΔUu); fill!(v, zero(T)); v)
+
+    U, V, A             = mk(), mk(), mk()
+    U_prev, V_prev, A_prev = mk(), mk(), mk()
+    scratch, U_pred, dU, R_eff = mk(), mk(), mk(), mk()
+
+    kry = Krylov.MinresSolver(n, n, S)
+    return NewmarkIntegrator(
+        solver, β, γ,
+        U, V, A, U_prev, V_prev, A_prev,
+        kry, scratch, U_pred, dU, R_eff,
+    )
+end
+
+# --------------------------------------------------------------------------- #
+# Matrix-free effective stiffness: y = (K + c_M·M)·v  with identity at
+# constrained DOFs.
+#
+# Writes into asm.stiffness_action_storage (shared buffer); safe because
+# this function is only called during the Krylov inner loop where no other
+# code touches that storage.
+# --------------------------------------------------------------------------- #
+
+function _eff_stiffness_matvec!(y, v, asm, U, c_M, p, scratch)
+    # K·v (raw, no constraint adjustment yet)
+    FEC.assemble_matrix_action!(asm, FEC.stiffness, U, v, p)
+    copyto!(scratch, asm.stiffness_action_storage.data)
+
+    # M·v (raw)
+    FEC.assemble_matrix_action!(asm, FEC.mass, U, v, p)
+
+    # K·v + c_M·M·v  in stiffness_action_storage
+    @. asm.stiffness_action_storage.data =
+        scratch + c_M * asm.stiffness_action_storage.data
+
+    # Apply constraint adjustment once: (I-G)·(K_eff·v) + G·v
+    # FEC.hvp modifies stiffness_action_storage.data in-place and returns it.
+    copyto!(y, FEC.hvp(asm, v))
+    return y
 end
 
 # --------------------------------------------------------------------------- #
@@ -53,7 +92,9 @@ end
 # --------------------------------------------------------------------------- #
 
 function FEC.evolve!(integrator::NewmarkIntegrator, p)
-    (; solver, β, γ, U, V, A, U_prev, V_prev, A_prev) = integrator
+    (; solver, β, γ,
+       U, V, A, U_prev, V_prev, A_prev,
+       krylov_solver, scratch, U_pred, dU, R_eff) = integrator
 
     FEC.update_time!(p)
     FEC.update_bc_values!(p)
@@ -61,46 +102,62 @@ function FEC.evolve!(integrator::NewmarkIntegrator, p)
     Δt  = FEC.time_step(p.times)
     c_M = 1.0 / (β * Δt^2)
 
-    # 1. Save state at t_n
-    copyto!(U_prev, U)
-    copyto!(V_prev, V)
-    copyto!(A_prev, A)
-
-    # 2. Newmark predictor (free DOFs)
-    @. U = U_prev + Δt * V_prev + Δt^2 * (0.5 - β) * A_prev   # Ũ_u
-    V_pred = @. V_prev + Δt * (1.0 - γ) * A_prev               # Ṽ_u (temp)
-    U_pred = copy(U)                                             # keep Ũ_u
-
     asm = solver.linear_solver.assembler
     dof = asm.dof
+    n   = length(U)
+
+    # 1. Save state at t_n
+    copyto!(U_prev, U); copyto!(V_prev, V); copyto!(A_prev, A)
+
+    # 2. Predictor
+    @. U = U_prev + Δt * V_prev + Δt^2 * (0.5 - β) * A_prev  # Ũ
+    @. V = V_prev + Δt * (1.0 - γ) * A_prev                   # Ṽ  (V = V_pred)
+    copyto!(U_pred, U)
+
+    # Build matrix-free operator once per time step.
+    # The closure captures U by reference: in-place U .+= ΔUu keeps it current.
+    K_eff_op = LinearOperator(
+        Float64, n, n, true, true,
+        (y, v) -> _eff_stiffness_matvec!(y, v, asm, U, c_M, p, scratch),
+    )
 
     # 3. Newton iterations
-    for iter in 1:solver.max_iters
+    for _ in 1:solver.max_iters
+        # Assemble residual
         FEC.assemble_vector!(asm, FEC.residual, U, p)
         FEC.assemble_vector_neumann_bc!(asm, U, p)
-        FEC.assemble_stiffness!(asm, FEC.stiffness, U, p)
-        FEC.assemble_mass!(asm, FEC.mass, U, p)
 
+        # Inertial RHS:  c_M · M·(U - Ũ)
+        @. dU = U - U_pred
+        FEC.assemble_matrix_action!(asm, FEC.mass, U, dU, p)
+        # hvp applies: (I-G)·M·dU + G·dU.  For constrained DOFs dU[i]=0 → 0. ✓
+
+        # R_eff = R_int + c_M·M·dU   (negated for Krylov: K_eff·ΔU = -R_eff)
         R_int = FEC.residual(asm)
-        K_int = copy(FEC.stiffness(asm))  # copy: stiffness/mass share pattern.cscnzval
-        M_uu  = FEC.mass(asm)
+        M_dU  = FEC.hvp(asm, dU)
+        @. R_eff = -(R_int + c_M * M_dU)
 
-        R_eff = R_int .+ M_uu * (c_M .* (U .- U_pred))
-        K_eff = K_int .+ c_M .* M_uu
+        norm_R = sqrt(sum(abs2, R_eff))
+        @debug "Newmark Newton" norm_R
 
-        ΔUu = -K_eff \ R_eff
-        U  .+= ΔUu
+        Krylov.solve!(krylov_solver, K_eff_op, R_eff;
+                      atol=solver.abs_residual_tol,
+                      rtol=sqrt(eps(Float64)),
+                      itmax=5 * n)
+        ΔUu = Krylov.solution(krylov_solver)
 
-        if norm(ΔUu) < solver.abs_increment_tol && norm(R_eff) < solver.abs_residual_tol
+        U .+= ΔUu
+
+        if sqrt(sum(abs2, ΔUu)) < solver.abs_increment_tol || norm_R < solver.abs_residual_tol
             break
         end
     end
 
     # 4. Corrector
     @. A = c_M * (U - U_pred)
-    @. V = V_pred + Δt * γ * A
+    @. V = V + Δt * γ * A          # V = Ṽ + Δt·γ·A_{n+1}
 
-    # 5. Sync full field
+    # 5. Sync full field and save old
     FEC._update_for_assembly!(p, dof, U)
     p.h1_field_old.data .= p.h1_field.data
 

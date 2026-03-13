@@ -9,6 +9,8 @@ import ConstitutiveModels as CM
 using LinearAlgebra
 using StaticArrays
 using Tensors
+import Krylov
+import LinearOperators
 import YAML
 
 # ---------------------------------------------------------------------------
