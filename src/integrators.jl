@@ -29,6 +29,8 @@ struct NewmarkIntegrator{Solver <: FEC.NewtonSolver, Vec, KrySolver}
     solver::Solver
     β::Float64
     γ::Float64
+    krylov_itmax::Int     # max MINRES iterations per Newton step
+    krylov_rtol::Float64  # relative residual tolerance for MINRES
     # State vectors (n_total_dofs for condensed DOF manager)
     U::Vec;      V::Vec;      A::Vec
     U_prev::Vec; V_prev::Vec; A_prev::Vec
@@ -40,7 +42,8 @@ struct NewmarkIntegrator{Solver <: FEC.NewtonSolver, Vec, KrySolver}
     R_eff::Vec                 # effective residual (negated for Krylov RHS)
 end
 
-function NewmarkIntegrator(solver::FEC.NewtonSolver, β::Float64, γ::Float64)
+function NewmarkIntegrator(solver::FEC.NewtonSolver, β::Float64, γ::Float64;
+                            krylov_itmax::Int=1000, krylov_rtol::Float64=1e-8)
     ΔUu = solver.linear_solver.ΔUu
     n   = length(ΔUu)
     T   = eltype(ΔUu)
@@ -52,9 +55,9 @@ function NewmarkIntegrator(solver::FEC.NewtonSolver, β::Float64, γ::Float64)
     U_prev, V_prev, A_prev = mk(), mk(), mk()
     scratch, U_pred, dU, R_eff = mk(), mk(), mk(), mk()
 
-    kry = Krylov.MinresSolver(n, n, S)
+    kry = Krylov.MinresWorkspace(n, n, S)
     return NewmarkIntegrator(
-        solver, β, γ,
+        solver, β, γ, krylov_itmax, krylov_rtol,
         U, V, A, U_prev, V_prev, A_prev,
         kry, scratch, U_pred, dU, R_eff,
     )
@@ -152,20 +155,21 @@ function FEC.evolve!(integrator::NewmarkIntegrator, p)
         norm_R = sqrt(sum(abs2, R_eff))
         rel_R  = initial_norm > 0.0 ? norm_R / initial_norm : norm_R
 
-        Krylov.solve!(krylov_solver, K_eff_op, R_eff;
+        Krylov.krylov_solve!(krylov_solver, K_eff_op, R_eff;
                       atol=solver.abs_residual_tol,
-                      rtol=sqrt(eps(Float64)),
-                      itmax=5 * n)
+                      rtol=integrator.krylov_rtol,
+                      itmax=integrator.krylov_itmax)
         ΔUu       = Krylov.solution(krylov_solver)
         kry_iters = krylov_solver.stats.niter
+        norm_dU   = sqrt(sum(abs2, ΔUu))
 
         U .+= ΔUu
 
         converged = sqrt(sum(abs2, ΔUu)) < solver.abs_increment_tol ||
                     norm_R < solver.abs_residual_tol                 ||
                     rel_R  < solver.rel_residual_tol
-        _carina_logf(8, :solve, "Iter [%d] |R| = %.3e : |r| = %.3e : Krylov = %d : %s",
-                     iter, norm_R, rel_R, kry_iters, _status_str(converged))
+        _carina_logf(8, :solve, "Iter [%d] |R| = %.3e : |r| = %.3e : |ΔU| = %.3e : Krylov = %d : %s",
+                     iter, norm_R, rel_R, norm_dU, kry_iters, _status_str(converged))
         @debug "Newmark Newton" iter norm_R rel_R kry_iters
 
         converged && break

@@ -134,6 +134,12 @@ function create_simulation(dict::Dict{String,Any}, basedir::String="")
         _parse_integrator(dict, asm, use_gpu)
     end
 
+    # --- initial conditions ---
+    # asm_cpu passed explicitly so IC evaluation always uses CPU dof/coords,
+    # then copyto! transfers the result to integrator.V (CPU or GPU array).
+    _apply_initial_velocity_ics!(integrator, mesh, asm_cpu, p_cpu,
+                                  _parse_velocity_ics(dict))
+
     return SingleDomainSimulation(p, integrator, pp, n_steps, output_interval, use_gpu)
 end
 
@@ -152,7 +158,8 @@ function evolve!(sim::SingleDomainSimulation)
     for n in 1:n_steps
         t_prev = use_gpu ? Base.invokelatest(FEC.current_time, params.times) :
                            FEC.current_time(params.times)
-        Δt = FEC.time_step(params.times)
+        Δt = use_gpu ? Base.invokelatest(FEC.time_step, params.times) :
+                       FEC.time_step(params.times)
         _carina_logf(4, :advance, "Time = [%.4e, %.4e] : Δt = %.4e",
                      t_prev, t_prev + Δt, Δt)
 
@@ -248,14 +255,20 @@ function _parse_integrator(dict, asm, use_gpu=false)
     ti_dict === nothing && error("Missing \"time integrator:\" section.")
     type_str = lowercase(get(ti_dict, "type", "quasi static"))
 
-    solver = _parse_solver(dict, asm, use_gpu)
-
     if type_str in ("quasi static", "quasistatic", "static")
+        solver = _parse_solver(dict, asm, use_gpu)
         return FEC.QuasiStaticIntegrator(solver)
     elseif type_str in ("newmark", "newmark-beta", "newmark beta")
-        β = Float64(get(ti_dict, "beta",  0.25))
-        γ = Float64(get(ti_dict, "gamma", 0.5))
-        return NewmarkIntegrator(solver, β, γ)
+        β            = Float64(get(ti_dict, "beta",  0.25))
+        γ            = Float64(get(ti_dict, "gamma", 0.5))
+        kry_itmax    = Int(get(ti_dict, "krylov iterations", 1000))
+        kry_rtol     = Float64(get(ti_dict, "krylov tolerance", 1e-8))
+        # Newmark uses matrix-free MINRES and never calls linear_solver.solve!.
+        # Always use DirectLinearSolver so no sparse K is materialized (on GPU
+        # this avoids an OOM from IterativeLinearSolver's eager stiffness build).
+        solver = _parse_solver(dict, asm, use_gpu; force_direct=true)
+        return NewmarkIntegrator(solver, β, γ;
+                                  krylov_itmax=kry_itmax, krylov_rtol=kry_rtol)
     else
         error("Unknown time integrator type: \"$type_str\". " *
               "Supported: \"quasi static\", \"Newmark\".")
@@ -264,14 +277,16 @@ end
 
 # ---- solver ----
 
-function _parse_solver(dict, asm, use_gpu=false)
+function _parse_solver(dict, asm, use_gpu=false; force_direct=false)
     # Solver section is optional; Newton with defaults if absent.
     sol_dict  = get(dict, "solver", Dict{String,Any}())
     max_iters = Int(get(sol_dict, "maximum iterations", 20))
     abs_tol   = Float64(get(sol_dict, "absolute tolerance", 1e-10))
     rel_tol   = Float64(get(sol_dict, "relative tolerance", 1e-14))
-    # GPU requires iterative solver (direct \ is CPU-only).
-    sol_type  = use_gpu ? "iterative" : lowercase(get(sol_dict, "type", "direct"))
+    # GPU quasi-static requires iterative solver (direct \ is CPU-only).
+    # force_direct overrides this (used by Newmark which never calls linear solve).
+    sol_type  = (!force_direct && use_gpu) ? "iterative" :
+                lowercase(get(sol_dict, "type", "direct"))
 
     # Per-iteration logging callback for FEC.NewtonSolver (quasi-static path).
     newton_cb = (iter, norm_ΔUu, norm_R, rel_R, converged) -> begin
@@ -285,7 +300,7 @@ function _parse_solver(dict, asm, use_gpu=false)
         linear = FEC.DirectLinearSolver(asm)
         return FEC.NewtonSolver(max_iters, abs_tol, abs_tol, rel_tol, linear, linear.timer, newton_cb)
     elseif sol_type in ("iterative", "krylov", "gmres")
-        linear = FEC.IterativeLinearSolver(asm, :GmresSolver)
+        linear = FEC.IterativeLinearSolver(asm, :gmres)
         return FEC.NewtonSolver(max_iters, abs_tol, abs_tol, rel_tol, linear, linear.timer, newton_cb)
     else
         error("Unknown solver type \"$sol_type\". Supported: \"direct\", \"iterative\".")
@@ -357,8 +372,59 @@ end
 # emit calls to Julia runtime functions like jl_f_invokelatest.
 function _make_function(expr_str::String)
     body = Meta.parse(expr_str)
+    # Multi-statement strings like "a=8000; expr" parse as Expr(:toplevel,...),
+    # which is invalid inside a function body; convert to Expr(:block,...).
+    if body isa Expr && body.head === :toplevel
+        body = Expr(:block, body.args...)
+    end
     return @eval (coords, t) -> begin
         x = coords[1]; y = coords[2]; z = coords[3]
         $body
     end
+end
+
+# ---- initial conditions ----
+
+function _parse_velocity_ics(dict)
+    ic_dict = get(dict, "initial conditions", nothing)
+    ic_dict === nothing && return Any[]
+    vel_ics = get(ic_dict, "velocity", Any[])
+    vel_ics isa Vector || error("\"initial conditions: velocity:\" must be a list.")
+    return vel_ics
+end
+
+# Apply initial velocity ICs to the Newmark velocity vector V.
+# Each entry: {node set: <name>, component: x|y|z, function: <expr>}
+function _apply_initial_velocity_ics!(integrator::NewmarkIntegrator, mesh, asm_cpu, p_cpu, vel_ics)
+    isempty(vel_ics) && return
+    dof = asm_cpu.dof                # always CPU dof manager for index arithmetic
+    X   = p_cpu.h1_coords.data       # flat, node-major: [x₁,y₁,z₁, x₂,y₂,z₂, ...]
+
+    # Inverse map: full_dof_idx -> index in unknown_dofs (0 = constrained DOF)
+    n_unk   = length(dof.unknown_dofs)
+    inv_map = zeros(Int, length(dof))
+    for (i, fd) in enumerate(dof.unknown_dofs)
+        inv_map[fd] = i
+    end
+
+    # Build on CPU first, then copy to integrator.V (which may be a GPU array).
+    V_init = zeros(Float64, n_unk)
+    for entry in vel_ics
+        var_sym  = _component_to_symbol(entry["component"])
+        func     = _make_function(entry["function"])
+        nset_sym = Symbol(entry["node set"])
+        bk       = FEC.BCBookKeeping(mesh, dof, var_sym; nset_name=nset_sym)
+        for (full_dof, node) in zip(bk.dofs, bk.nodes)
+            unk_idx = inv_map[full_dof]
+            unk_idx == 0 && continue   # skip constrained DOFs
+            coords = @view X[(node-1)*3+1 : (node-1)*3+3]
+            V_init[unk_idx] = Base.invokelatest(func, coords, 0.0)
+        end
+    end
+    Base.invokelatest(copyto!, integrator.V, V_init)
+end
+
+# No-op for non-Newmark integrators.
+function _apply_initial_velocity_ics!(integrator, mesh, asm_cpu, p_cpu, vel_ics)
+    isempty(vel_ics) || @warn "Initial velocity ICs ignored for non-Newmark integrator."
 end
