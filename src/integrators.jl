@@ -122,7 +122,8 @@ function FEC.evolve!(integrator::NewmarkIntegrator, p)
     )
 
     # 3. Newton iterations
-    for _ in 1:solver.max_iters
+    initial_norm = 0.0
+    for iter in 1:solver.max_iters
         # Assemble residual
         FEC.assemble_vector!(asm, FEC.residual, U, p)
         FEC.assemble_vector_neumann_bc!(asm, U, p)
@@ -138,7 +139,11 @@ function FEC.evolve!(integrator::NewmarkIntegrator, p)
         @. R_eff = -(R_int + c_M * M_dU)
 
         norm_R = sqrt(sum(abs2, R_eff))
-        @debug "Newmark Newton" norm_R
+        if iter == 1
+            initial_norm = norm_R
+        end
+        rel_R = initial_norm > 0.0 ? norm_R / initial_norm : norm_R
+        @debug "Newmark Newton" iter norm_R rel_R
 
         Krylov.solve!(krylov_solver, K_eff_op, R_eff;
                       atol=solver.abs_residual_tol,
@@ -148,7 +153,9 @@ function FEC.evolve!(integrator::NewmarkIntegrator, p)
 
         U .+= ΔUu
 
-        if sqrt(sum(abs2, ΔUu)) < solver.abs_increment_tol || norm_R < solver.abs_residual_tol
+        if sqrt(sum(abs2, ΔUu)) < solver.abs_increment_tol ||
+           norm_R < solver.abs_residual_tol                 ||
+           rel_R  < solver.rel_residual_tol
             break
         end
     end

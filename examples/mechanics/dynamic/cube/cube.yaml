@@ -38,5 +38,6 @@ boundary conditions:
       function:  "1.0e-3 * t"
 
 solver:
-  maximum iterations: 20
-  absolute tolerance: 1.0e-10
+  maximum iterations: 16
+  relative tolerance: 1.0e-10
+  absolute tolerance: 1.0e-06

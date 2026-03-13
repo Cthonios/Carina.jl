@@ -239,16 +239,17 @@ function _parse_solver(dict, asm, use_gpu=false)
     sol_dict  = get(dict, "solver", Dict{String,Any}())
     max_iters = Int(get(sol_dict, "maximum iterations", 20))
     abs_tol   = Float64(get(sol_dict, "absolute tolerance", 1e-10))
+    rel_tol   = Float64(get(sol_dict, "relative tolerance", 1e-14))
     # GPU requires iterative solver (direct \ is CPU-only).
     sol_type  = use_gpu ? "iterative" : lowercase(get(sol_dict, "type", "direct"))
 
-    # FEC.NewtonSolver takes (max_iters, abs_increment_tol, abs_residual_tol, linear_solver, timer)
+    # FEC.NewtonSolver takes (max_iters, abs_increment_tol, abs_residual_tol, rel_residual_tol, linear_solver, timer)
     if sol_type == "direct"
         linear = FEC.DirectLinearSolver(asm)
-        return FEC.NewtonSolver(max_iters, abs_tol, abs_tol, linear, linear.timer)
+        return FEC.NewtonSolver(max_iters, abs_tol, abs_tol, rel_tol, linear, linear.timer)
     elseif sol_type in ("iterative", "krylov", "gmres")
         linear = FEC.IterativeLinearSolver(asm, :GmresSolver)
-        return FEC.NewtonSolver(max_iters, abs_tol, abs_tol, linear, linear.timer)
+        return FEC.NewtonSolver(max_iters, abs_tol, abs_tol, rel_tol, linear, linear.timer)
     else
         error("Unknown solver type \"$sol_type\". Supported: \"direct\", \"iterative\".")
     end
