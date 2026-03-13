@@ -55,7 +55,7 @@ function run(yaml_file::String)
     _carina_log(0, :done, "Simulation complete")
     _carina_logf(0, :time, "Total wall time = %.1fs", time() - t_start)
     _carina_log(0, :carina, "END SIMULATION")
-    return nothing
+    return sim
 end
 
 # ---------------------------------------------------------------------------
