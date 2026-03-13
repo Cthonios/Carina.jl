@@ -1,0 +1,139 @@
+# SolidMechanics physics kernel for 3D solid mechanics.
+# Connects FiniteElementContainers.jl assembly machinery with
+# ConstitutiveModels.jl constitutive models.
+
+import FiniteElementContainers as FEC
+import ConstitutiveModels as CM
+using StaticArrays
+using Tensors
+
+# --------------------------------------------------------------------------- #
+# SolidMechanics struct
+# NP: number of material properties (from the constitutive model)
+# --------------------------------------------------------------------------- #
+
+struct SolidMechanics{Model <: CM.AbstractConstitutiveModel, NP} <: FEC.AbstractPhysics{3, NP, 0}
+    constitutive_model::Model
+    density::Float64
+end
+
+"""
+    SolidMechanics(cm, density)
+
+Construct a `SolidMechanics` physics object wrapping constitutive model `cm`.
+`density` is used for the mass matrix (dynamics).
+"""
+function SolidMechanics(
+    cm::CM.AbstractConstitutiveModel{NP, 0},
+    density::Float64 = 0.0,
+) where {NP}
+    return SolidMechanics{typeof(cm), NP}(cm, density)
+end
+
+# --------------------------------------------------------------------------- #
+# FEC interface: properties
+# --------------------------------------------------------------------------- #
+
+"""
+    create_solid_mechanics_properties(cm, material_inputs)
+
+Compute a flat `SVector` of material properties (e.g. κ, μ for NeoHookean)
+from a `Dict{String}` of material inputs (e.g. "Young's modulus", "Poisson's ratio").
+The returned vector is passed as `props_el` to each physics kernel call.
+"""
+function create_solid_mechanics_properties(
+    cm::CM.AbstractConstitutiveModel{NP, 0},
+    material_inputs::Dict{String},
+) where {NP}
+    props_vec = CM.initialize_props(cm, material_inputs)
+    return SVector{NP, Float64}(props_vec)
+end
+
+# `create_properties` tells FEC how to allocate the per-block property storage.
+# We return zeros here; the caller is responsible for filling in the actual values
+# (see `create_solid_mechanics_properties`).
+function FEC.create_properties(::SolidMechanics{Model, NP}) where {Model, NP}
+    return SVector{NP, Float64}(zeros(NP))
+end
+
+# --------------------------------------------------------------------------- #
+# FEC interface: residual (internal force vector, per quadrature point)
+# --------------------------------------------------------------------------- #
+
+@inline function FEC.residual(
+    physics::SolidMechanics,
+    interps, x_el,
+    t, dt,
+    u_el, u_el_old,
+    state_old_q, state_new_q,
+    props_el,
+)
+    # Map reference interpolants to physical coordinates
+    cell = FEC.map_interpolants(interps, x_el)
+    (; ∇N_X, JxW) = cell
+
+    # Displacement gradient at quadrature point: SMatrix{3,3} → Tensor{2,3}
+    ∇u_q = FEC.interpolate_field_gradients(physics, cell, u_el)
+    ∇u_q = FEC.modify_field_gradients(FEC.ThreeDimensional(), ∇u_q)
+
+    # PK1 stress via automatic differentiation of the strain energy
+    P_q = Tensors.gradient(
+        F -> CM.helmholtz_free_energy(
+            physics.constitutive_model, props_el, dt, F, 0.0, state_old_q, state_new_q,
+        ),
+        ∇u_q,
+    )
+
+    # Voigt-ordered stress vector and B-matrix, then internal force
+    P_v = FEC.extract_stress(FEC.ThreeDimensional(), P_q)
+    G   = FEC.discrete_gradient(FEC.ThreeDimensional(), ∇N_X)
+    return JxW * G * P_v
+end
+
+# --------------------------------------------------------------------------- #
+# FEC interface: stiffness (tangent stiffness matrix, per quadrature point)
+# --------------------------------------------------------------------------- #
+
+@inline function FEC.stiffness(
+    physics::SolidMechanics,
+    interps, x_el,
+    t, dt,
+    u_el, u_el_old,
+    state_old_q, state_new_q,
+    props_el,
+)
+    cell = FEC.map_interpolants(interps, x_el)
+    (; ∇N_X, JxW) = cell
+
+    ∇u_q = FEC.interpolate_field_gradients(physics, cell, u_el)
+    ∇u_q = FEC.modify_field_gradients(FEC.ThreeDimensional(), ∇u_q)
+
+    # Material tangent ∂P/∂F via AD of pk1_stress
+    A_q = CM.material_tangent(
+        physics.constitutive_model, props_el, dt, ∇u_q, 0.0, state_old_q, state_new_q,
+    )
+
+    A_v = FEC.extract_stiffness(FEC.ThreeDimensional(), A_q)
+    G   = FEC.discrete_gradient(FEC.ThreeDimensional(), ∇N_X)
+    return JxW * G * A_v * G'
+end
+
+# --------------------------------------------------------------------------- #
+# FEC interface: mass (consistent mass matrix, per quadrature point)
+# --------------------------------------------------------------------------- #
+
+@inline function FEC.mass(
+    physics::SolidMechanics,
+    interps, x_el,
+    t, dt,
+    u_el, u_el_old,
+    state_old_q, state_new_q,
+    props_el,
+)
+    cell = FEC.map_interpolants(interps, x_el)
+    (; N, JxW) = cell
+
+    # N_vec: shape function vector expanded for all DOF components
+    N_vec = FEC.discrete_values(FEC.ThreeDimensional(), N)
+    return JxW * physics.density * N_vec * N_vec'
+end

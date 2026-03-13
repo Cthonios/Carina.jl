@@ -1,0 +1,17 @@
+#!/usr/bin/env julia
+# CLI entry point for Carina.jl
+#
+# Usage (from anywhere):
+#   /path/to/Carina.jl/bin/carina input.yaml
+
+import Pkg
+Pkg.activate(joinpath(@__DIR__, ".."); io=devnull)
+
+using Carina
+
+if length(ARGS) != 1
+    println(stderr, "Usage: carina <input.yaml>")
+    exit(1)
+end
+
+Carina.run(ARGS[1])

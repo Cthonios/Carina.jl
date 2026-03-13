@@ -1,0 +1,40 @@
+type: single
+
+input mesh file:  cube.g
+output mesh file: cube.e
+output interval:  1
+
+model:
+  type: solid mechanics
+  material:
+    blocks:
+      cube: neohookean
+    neohookean:
+      elastic modulus: 10.0e9
+      Poisson's ratio: 0.25
+      density: 1000.0
+
+time integrator:
+  type: quasi static
+  initial time: 0.0
+  final time:   1.0
+  time step:    0.1
+
+boundary conditions:
+  Dirichlet:
+    - sideset:   ssx-
+      component: x
+      function:  "0.0"
+    - sideset:   ssy-
+      component: y
+      function:  "0.0"
+    - sideset:   ssz-
+      component: z
+      function:  "0.0"
+    - sideset:   ssz+
+      component: z
+      function:  "1.0e-3 * t"
+
+solver:
+  maximum iterations: 20
+  absolute tolerance: 1.0e-10
