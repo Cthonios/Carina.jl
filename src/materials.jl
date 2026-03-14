@@ -17,6 +17,16 @@ const _MODEL_CONSTRUCTORS = Dict{String, Function}(
     "linear elasto plasticity"=> () -> CM.LinearElastoPlasticity(
                                     CM.VonMisesYieldSurface(),
                                     CM.LinearIsotropicHardening()),
+    "saint venant kirchhoff"  => () -> CM.SaintVenantKirchhoff(),
+    "saintvenant-kirchhoff"   => () -> CM.SaintVenantKirchhoff(),
+    "saintvenantkirchhoff"    => () -> CM.SaintVenantKirchhoff(),
+    "svk"                     => () -> CM.SaintVenantKirchhoff(),
+    "seth-hill"               => () -> CM.SethHill(),
+    "seth hill"               => () -> CM.SethHill(),
+    "sethhill"                => () -> CM.SethHill(),
+    "j2 plasticity"           => () -> CM.FiniteDefJ2Plasticity(),
+    "finitedefj2plasticity"   => () -> CM.FiniteDefJ2Plasticity(),
+    "finite def j2 plasticity"=> () -> CM.FiniteDefJ2Plasticity(),
 )
 
 # ---------------------------------------------------------------------------
@@ -34,6 +44,12 @@ const _ELASTIC_KEY_ALIASES = Dict{String, String}(
     "lame's first constant"  => "Lamé's first constant",
     "lames first constant"   => "Lamé's first constant",
     "lamé's first constant"  => "Lamé's first constant",
+    # Plasticity
+    "yield stress"        => "yield stress",
+    "hardening modulus"   => "hardening modulus",
+    # Seth-Hill exponents
+    "m"                   => "m",
+    "n"                   => "n",
 )
 
 # ---------------------------------------------------------------------------

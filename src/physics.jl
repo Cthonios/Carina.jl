@@ -12,7 +12,7 @@ using Tensors
 # NP: number of material properties (from the constitutive model)
 # --------------------------------------------------------------------------- #
 
-struct SolidMechanics{Model <: CM.AbstractConstitutiveModel, NP} <: FEC.AbstractPhysics{3, NP, 0}
+struct SolidMechanics{Model <: CM.AbstractConstitutiveModel, NP, NS} <: FEC.AbstractPhysics{3, NP, NS}
     constitutive_model::Model
     density::Float64
 end
@@ -24,10 +24,10 @@ Construct a `SolidMechanics` physics object wrapping constitutive model `cm`.
 `density` is used for the mass matrix (dynamics).
 """
 function SolidMechanics(
-    cm::CM.AbstractConstitutiveModel{NP, 0},
+    cm::CM.AbstractConstitutiveModel{NP, NS},
     density::Float64 = 0.0,
-) where {NP}
-    return SolidMechanics{typeof(cm), NP}(cm, density)
+) where {NP, NS}
+    return SolidMechanics{typeof(cm), NP, NS}(cm, density)
 end
 
 # --------------------------------------------------------------------------- #
@@ -42,9 +42,9 @@ from a `Dict{String}` of material inputs (e.g. "Young's modulus", "Poisson's rat
 The returned vector is passed as `props_el` to each physics kernel call.
 """
 function create_solid_mechanics_properties(
-    cm::CM.AbstractConstitutiveModel{NP, 0},
+    cm::CM.AbstractConstitutiveModel{NP, NS},
     material_inputs::Dict{String},
-) where {NP}
+) where {NP, NS}
     props_vec = CM.initialize_props(cm, material_inputs)
     return SVector{NP, Float64}(props_vec)
 end
@@ -52,8 +52,15 @@ end
 # `create_properties` tells FEC how to allocate the per-block property storage.
 # We return zeros here; the caller is responsible for filling in the actual values
 # (see `create_solid_mechanics_properties`).
-function FEC.create_properties(::SolidMechanics{Model, NP}) where {Model, NP}
+function FEC.create_properties(::SolidMechanics{Model, NP, NS}) where {Model, NP, NS}
     return SVector{NP, Float64}(zeros(NP))
+end
+
+# `create_initial_state` returns the initial per-quadrature-point state vector.
+# For NS=0 (hyperelastic) the default FEC fallback handles this.
+# For NS>0 (e.g. plasticity) we call CM.initialize_state.
+function FEC.create_initial_state(physics::SolidMechanics{Model, NP, NS}) where {Model, NP, NS}
+    return CM.initialize_state(physics.constitutive_model)
 end
 
 # --------------------------------------------------------------------------- #
@@ -76,12 +83,9 @@ end
     ∇u_q = FEC.interpolate_field_gradients(physics, cell, u_el)
     ∇u_q = FEC.modify_field_gradients(FEC.ThreeDimensional(), ∇u_q)
 
-    # PK1 stress via automatic differentiation of the strain energy
-    P_q = Tensors.gradient(
-        F -> CM.helmholtz_free_energy(
-            physics.constitutive_model, props_el, dt, F, 0.0, state_old_q, state_new_q,
-        ),
-        ∇u_q,
+    # PK1 stress (analytical or AD-backed depending on the model)
+    P_q = CM.pk1_stress(
+        physics.constitutive_model, props_el, dt, ∇u_q, 0.0, state_old_q, state_new_q,
     )
 
     # Voigt-ordered stress vector and B-matrix, then internal force
