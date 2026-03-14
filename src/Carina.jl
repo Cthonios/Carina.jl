@@ -11,6 +11,7 @@ using StaticArrays
 using Tensors
 import Krylov
 import LinearOperators
+import SparseArrays
 import YAML
 
 # ---------------------------------------------------------------------------

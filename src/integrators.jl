@@ -4,11 +4,15 @@
 # matrix-free via two calls to FEC.assemble_matrix_action! per Krylov
 # iteration.  No sparse matrix is ever materialised.
 #
+# For CPU-only workflows a direct (sparse LU) path is also available.
+# Set use_direct=true and K_eff is assembled as a SparseMatrixCSC, factored
+# once per Newton step with UMFPACK, and solved in one backsolve.
+#
 # Algorithm (displacement-based Newmark-β):
 #   Predictor:
 #     Ũ = U_n + Δt·V_n + Δt²·(0.5-β)·A_n
 #     Ṽ = V_n + Δt·(1-γ)·A_n
-#   Newton (matrix-free CG or MINRES):
+#   Newton:
 #     R_eff = R_int + c_M·M·(U - Ũ)      c_M = 1/(β·Δt²)
 #     K_eff·ΔU = -R_eff                  K_eff = K + c_M·M
 #     U += ΔU
@@ -29,23 +33,25 @@ struct NewmarkIntegrator{Solver <: FEC.NewtonSolver, Vec, KrySolver, PC <: Preco
     solver::Solver
     β::Float64
     γ::Float64
-    krylov_method::Symbol     # :cg or :minres
+    use_direct::Bool          # true → sparse LU per Newton step (CPU only)
+    krylov_method::Symbol     # :cg or :minres (used when use_direct=false)
     krylov_itmax::Int         # max Krylov iterations per Newton step
     krylov_rtol::Float64      # relative residual tolerance for Krylov solver
     # State vectors (n_total_dofs for condensed DOF manager)
     U::Vec;      V::Vec;      A::Vec
     U_prev::Vec; V_prev::Vec; A_prev::Vec
     # Preallocated scratch to avoid per-iteration allocations
-    krylov_solver::KrySolver  # reused across Newton iterations
+    krylov_solver::KrySolver  # Krylov workspace, or Nothing when use_direct=true
     scratch::Vec               # holds K·v during effective-stiffness matvec
     U_pred::Vec                # Newmark predictor Ũ
     dU::Vec                    # U - Ũ  (inertial RHS scratch)
     R_eff::Vec                 # effective residual (negated for Krylov RHS)
-    # Preconditioner (NoPreconditioner or JacobiPreconditioner)
+    # Preconditioner (NoPreconditioner or JacobiPreconditioner; unused when use_direct)
     precond::PC
 end
 
 function NewmarkIntegrator(solver::FEC.NewtonSolver, β::Float64, γ::Float64;
+                            use_direct::Bool=false,
                             krylov_method::Symbol=:minres,
                             krylov_itmax::Int=1000,
                             krylov_rtol::Float64=1e-8,
@@ -61,14 +67,17 @@ function NewmarkIntegrator(solver::FEC.NewtonSolver, β::Float64, γ::Float64;
     U_prev, V_prev, A_prev = mk(), mk(), mk()
     scratch, U_pred, dU, R_eff = mk(), mk(), mk(), mk()
 
-    kry = if krylov_method == :cg
+    # No Krylov workspace needed for the direct path.
+    kry = if use_direct
+        nothing
+    elseif krylov_method == :cg
         Krylov.CgWorkspace(n, n, S)
     else
         Krylov.MinresWorkspace(n, n, S)
     end
 
     return NewmarkIntegrator(
-        solver, β, γ, krylov_method, krylov_itmax, krylov_rtol,
+        solver, β, γ, use_direct, krylov_method, krylov_itmax, krylov_rtol,
         U, V, A, U_prev, V_prev, A_prev,
         kry, scratch, U_pred, dU, R_eff,
         precond,
@@ -78,10 +87,6 @@ end
 # --------------------------------------------------------------------------- #
 # Matrix-free effective stiffness: y = (K + c_M·M)·v  with identity at
 # constrained DOFs.
-#
-# Writes into asm.stiffness_action_storage (shared buffer); safe because
-# this function is only called during the Krylov inner loop where no other
-# code touches that storage.
 # --------------------------------------------------------------------------- #
 
 function _eff_stiffness_matvec!(y, v, asm, U, c_M, p, scratch)
@@ -97,7 +102,6 @@ function _eff_stiffness_matvec!(y, v, asm, U, c_M, p, scratch)
         scratch + c_M * asm.stiffness_action_storage.data
 
     # Apply constraint adjustment once: (I-G)·(K_eff·v) + G·v
-    # FEC.hvp modifies stiffness_action_storage.data in-place and returns it.
     copyto!(y, FEC.hvp(asm, v))
     return y
 end
@@ -107,7 +111,7 @@ end
 # --------------------------------------------------------------------------- #
 
 function FEC.evolve!(integrator::NewmarkIntegrator, p)
-    (; solver, β, γ,
+    (; solver, β, γ, use_direct,
        krylov_method, krylov_itmax, krylov_rtol, precond,
        U, V, A, U_prev, V_prev, A_prev,
        krylov_solver, scratch, U_pred, dU, R_eff) = integrator
@@ -127,28 +131,30 @@ function FEC.evolve!(integrator::NewmarkIntegrator, p)
 
     # 2. Predictor
     @. U = U_prev + Δt * V_prev + Δt^2 * (0.5 - β) * A_prev  # Ũ
-    @. V = V_prev + Δt * (1.0 - γ) * A_prev                   # Ṽ  (V = V_pred)
+    @. V = V_prev + Δt * (1.0 - γ) * A_prev                   # Ṽ
     copyto!(U_pred, U)
 
-    # Build matrix-free operator once per time step.
-    # The closure captures U by reference: in-place U .+= ΔUu keeps it current.
-    K_eff_op = LinearOperator(
-        Float64, n, n, true, true,
-        (y, v) -> _eff_stiffness_matvec!(y, v, asm, U, c_M, p, scratch),
-    )
-
-    # Build preconditioner operator (M⁻¹·v).
-    M_op = if precond isa NoPreconditioner
-        nothing
+    # Matrix-free operator (built once; only used in Krylov path).
+    K_eff_op = if !use_direct
+        LinearOperator(
+            Float64, n, n, true, true,
+            (y, v) -> _eff_stiffness_matvec!(y, v, asm, U, c_M, p, scratch),
+        )
     else
+        nothing
+    end
+
+    # Preconditioner operator (Krylov path only).
+    M_op = if !use_direct && !(precond isa NoPreconditioner)
         LinearOperator(
             Float64, n, n, true, true,
             (y, v) -> (@. y = precond.inv_diag * v; y),
         )
+    else
+        nothing
     end
 
-    # 3. Newton iterations
-    # Assemble the initial residual for iteration [0] log (before any Newton step).
+    # 3. Newton iterations — initial residual for [0] log.
     FEC.assemble_vector!(asm, FEC.residual, U, p)
     FEC.assemble_vector_neumann_bc!(asm, U, p)
     @. dU = U - U_pred
@@ -165,12 +171,9 @@ function FEC.evolve!(integrator::NewmarkIntegrator, p)
         FEC.assemble_vector!(asm, FEC.residual, U, p)
         FEC.assemble_vector_neumann_bc!(asm, U, p)
 
-        # Inertial RHS:  c_M · M·(U - Ũ)
         @. dU = U - U_pred
         FEC.assemble_matrix_action!(asm, FEC.mass, U, dU, p)
-        # hvp applies: (I-G)·M·dU + G·dU.  For constrained DOFs dU[i]=0 → 0. ✓
 
-        # R_eff = R_int + c_M·M·dU   (negated for Krylov: K_eff·ΔU = -R_eff)
         R_int = FEC.residual(asm)
         M_dU  = FEC.hvp(asm, dU)
         @. R_eff = -(R_int + c_M * M_dU)
@@ -178,37 +181,64 @@ function FEC.evolve!(integrator::NewmarkIntegrator, p)
         norm_R = sqrt(sum(abs2, R_eff))
         rel_R  = initial_norm > 0.0 ? norm_R / initial_norm : norm_R
 
-        if M_op === nothing
-            Krylov.krylov_solve!(krylov_solver, K_eff_op, R_eff;
-                          atol=solver.abs_residual_tol,
-                          rtol=krylov_rtol,
-                          itmax=krylov_itmax)
+        if use_direct
+            # ------------------------------------------------------------------
+            # Direct sparse LU path (CPU only).
+            # Assemble K_eff = K + c_M·M as a sparse matrix, factor, backsolve.
+            # assemble_stiffness! overwrites stiffness_storage with K (raw).
+            # assemble_mass! overwrites mass_storage with M (raw).
+            # Combining them in stiffness_storage before calling FEC.stiffness
+            # gives the constraint-adjusted K_eff when sparse! runs.
+            # ------------------------------------------------------------------
+            FEC.assemble_stiffness!(asm, FEC.stiffness, U, p)
+            FEC.assemble_mass!(asm, FEC.mass, U, p)
+            @. asm.stiffness_storage += c_M * asm.mass_storage
+            K_eff_sparse = FEC.stiffness(asm)   # SparseMatrixCSC, constraint-adjusted
+            F_lu         = lu(K_eff_sparse)
+            ΔUu          = F_lu \ R_eff
+            norm_dU      = sqrt(sum(abs2, ΔUu))
+            kry_iters    = -1
         else
-            Krylov.krylov_solve!(krylov_solver, K_eff_op, R_eff;
-                          M=M_op,
-                          atol=solver.abs_residual_tol,
-                          rtol=krylov_rtol,
-                          itmax=krylov_itmax)
+            # ------------------------------------------------------------------
+            # Matrix-free Krylov path (CG or MINRES; GPU-compatible).
+            # ------------------------------------------------------------------
+            if M_op === nothing
+                Krylov.krylov_solve!(krylov_solver, K_eff_op, R_eff;
+                              atol=solver.abs_residual_tol,
+                              rtol=krylov_rtol,
+                              itmax=krylov_itmax)
+            else
+                Krylov.krylov_solve!(krylov_solver, K_eff_op, R_eff;
+                              M=M_op,
+                              atol=solver.abs_residual_tol,
+                              rtol=krylov_rtol,
+                              itmax=krylov_itmax)
+            end
+            ΔUu       = Krylov.solution(krylov_solver)
+            kry_iters = krylov_solver.stats.niter
+            norm_dU   = sqrt(sum(abs2, ΔUu))
         end
-        ΔUu       = Krylov.solution(krylov_solver)
-        kry_iters = krylov_solver.stats.niter
-        norm_dU   = sqrt(sum(abs2, ΔUu))
 
         U .+= ΔUu
 
-        converged = sqrt(sum(abs2, ΔUu)) < solver.abs_increment_tol ||
-                    norm_R < solver.abs_residual_tol                 ||
-                    rel_R  < solver.rel_residual_tol
-        _carina_logf(8, :solve, "Iter [%d] |R| = %.3e : |r| = %.3e : |ΔU| = %.3e : Krylov = %d : %s",
-                     iter, norm_R, rel_R, norm_dU, kry_iters, _status_str(converged))
-        @debug "Newmark Newton" iter norm_R rel_R kry_iters
+        converged = norm_dU   < solver.abs_increment_tol ||
+                    norm_R    < solver.abs_residual_tol   ||
+                    rel_R     < solver.rel_residual_tol
+        if use_direct
+            _carina_logf(8, :solve, "Iter [%d] |R| = %.3e : |r| = %.3e : |ΔU| = %.3e : %s",
+                         iter, norm_R, rel_R, norm_dU, _status_str(converged))
+        else
+            _carina_logf(8, :solve, "Iter [%d] |R| = %.3e : |r| = %.3e : |ΔU| = %.3e : Krylov = %d : %s",
+                         iter, norm_R, rel_R, norm_dU, kry_iters, _status_str(converged))
+        end
+        @debug "Newmark Newton" iter norm_R rel_R
 
         converged && break
     end
 
     # 4. Corrector
     @. A = c_M * (U - U_pred)
-    @. V = V + Δt * γ * A          # V = Ṽ + Δt·γ·A_{n+1}
+    @. V = V + Δt * γ * A
 
     # 5. Sync full field and save old
     FEC._update_for_assembly!(p, dof, U)

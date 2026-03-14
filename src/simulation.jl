@@ -274,17 +274,22 @@ function _parse_integrator(dict, asm, asm_cpu, p_cpu, use_gpu=false)
                             Int(get(ti_dict, "krylov iterations", 1000))))
         kry_rtol    = Float64(get(ls_dict, "tolerance",
                             Float64(get(ti_dict, "krylov tolerance", 1e-8))))
+        use_direct  = kry_type == "direct"
+        use_gpu && use_direct && error(
+            "\"linear solver: type: direct\" is CPU-only; remove \"device: rocm\" or use an iterative solver.")
+
         kry_method  = kry_type in ("cg", "conjugate gradient") ? :cg : :minres
 
         precond_dict = get(ls_dict, "preconditioner", Dict{String,Any}())
         precond_type = Symbol(lowercase(get(precond_dict, "type", "none")))
 
-        # Newmark uses matrix-free Krylov and never calls linear_solver.solve!.
-        # Always use DirectLinearSolver so no sparse K is materialized (on GPU
-        # this avoids OOM from IterativeLinearSolver's eager stiffness build).
+        # Newmark uses matrix-free Krylov (or direct LU) and never calls
+        # linear_solver.solve!.  Always use DirectLinearSolver so no sparse K is
+        # materialized at construction time (on GPU this avoids OOM from
+        # IterativeLinearSolver's eager stiffness build).
         solver = _parse_solver(dict, asm, use_gpu; force_direct=true)
 
-        precond = if precond_type == :jacobi
+        precond = if !use_direct && precond_type == :jacobi
             _compute_jacobi_precond(β, Float64(ti_dict["time step"]),
                                     asm_cpu, p_cpu,
                                     solver.linear_solver.ΔUu)
@@ -293,6 +298,7 @@ function _parse_integrator(dict, asm, asm_cpu, p_cpu, use_gpu=false)
         end
 
         return NewmarkIntegrator(solver, β, γ;
+                                  use_direct=use_direct,
                                   krylov_method=kry_method,
                                   krylov_itmax=kry_itmax,
                                   krylov_rtol=kry_rtol,
