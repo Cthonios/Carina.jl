@@ -26,7 +26,73 @@ import Krylov
 import LinearOperators: LinearOperator
 
 # --------------------------------------------------------------------------- #
-# Struct
+# CentralDifferenceIntegrator
+# --------------------------------------------------------------------------- #
+#
+# Explicit Newmark-β with β=0, γ=0.5 (central difference / velocity Verlet).
+# No linear solve required — acceleration is computed element-wise from the
+# lumped mass and the net force.
+#
+# Algorithm:
+#   Predictor:
+#     U_{n+1} = U_n + Δt·V_n + ½·Δt²·A_n
+#     V*      = V_n + Δt·(1-γ)·A_n
+#   Force assembly:
+#     R = f_int(U_{n+1}) - f_ext
+#   Acceleration:
+#     A_{n+1} = -R / m_lumped   (element-wise)
+#   Corrector:
+#     V_{n+1} = V* + Δt·γ·A_{n+1}
+
+struct CentralDifferenceIntegrator{Asm, Vec}
+    γ::Float64
+    asm::Asm          # FEC assembler (needed for force assembly)
+    U::Vec            # displacement (full DOF size)
+    V::Vec            # velocity
+    A::Vec            # acceleration
+    m_lumped::Vec     # diagonal lumped mass (row sums of consistent mass)
+end
+
+function CentralDifferenceIntegrator(γ::Float64, asm, m_lumped::Vec) where {Vec}
+    n  = length(m_lumped)
+    T  = eltype(m_lumped)
+    mk() = (v = similar(m_lumped); fill!(v, zero(T)); v)
+    return CentralDifferenceIntegrator(γ, asm, mk(), mk(), mk(), m_lumped)
+end
+
+function FEC.evolve!(integrator::CentralDifferenceIntegrator, p)
+    (; γ, asm, U, V, A, m_lumped) = integrator
+
+    FEC.update_time!(p)
+    FEC.update_bc_values!(p)
+
+    Δt  = FEC.time_step(p.times)
+    dof = asm.dof
+
+    # 1. Predictor
+    @. U = U + Δt * V + 0.5 * Δt^2 * A
+    @. V = V + (1.0 - γ) * Δt * A
+
+    # 2. Assemble net residual R = f_int - f_ext  (constraint-adjusted)
+    FEC.assemble_vector!(asm, FEC.residual, U, p)
+    FEC.assemble_vector_neumann_bc!(asm, U, p)
+    R = FEC.residual(asm)
+
+    # 3. New acceleration: A = -R / m_lumped  (element-wise)
+    @. A = -R / m_lumped
+
+    # 4. Velocity corrector
+    @. V = V + γ * Δt * A
+
+    # 5. Sync full field and save old
+    FEC._update_for_assembly!(p, dof, U)
+    p.h1_field_old.data .= p.h1_field.data
+
+    return nothing
+end
+
+# --------------------------------------------------------------------------- #
+# NewmarkIntegrator — implicit Newmark-β
 # --------------------------------------------------------------------------- #
 
 struct NewmarkIntegrator{Solver <: FEC.NewtonSolver, Vec, KrySolver, PC <: Preconditioner}

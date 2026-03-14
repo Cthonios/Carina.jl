@@ -17,7 +17,7 @@
     # Tolerances: max u_z is tight (rtol=1e-6, set by BC); averages are loose
     # (rtol=1e-2) to allow for residual dynamic effects.
 
-    example_dir = joinpath(@__DIR__, "..", "examples", "mechanics", "dynamic", "cube")
+    example_dir = joinpath(@__DIR__, "..", "examples", "mechanics", "implicit-dynamic", "cube")
     mktempdir() do dir
         cp(joinpath(example_dir, "cube.g"),    joinpath(dir, "cube.g"))
         cp(joinpath(example_dir, "cube.yaml"), joinpath(dir, "cube.yaml"))

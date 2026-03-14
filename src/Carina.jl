@@ -35,6 +35,7 @@ export SolidMechanics
 export create_solid_mechanics_properties
 
 # Integrators
+export CentralDifferenceIntegrator
 export NewmarkIntegrator
 
 # Simulation

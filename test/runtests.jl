@@ -10,7 +10,8 @@ include("helpers.jl")
 
 const indexed_test_files = [
     (1, "mechanics-quasistatic-cube.jl"),
-    (2, "mechanics-dynamic-cube.jl"),
+    (2, "mechanics-implicit-dynamic-cube.jl"),
+    (3, "mechanics-explicit-dynamic-cube.jl"),
 ]
 
 # ---------------------------------------------------------------------------

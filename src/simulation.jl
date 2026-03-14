@@ -303,9 +303,20 @@ function _parse_integrator(dict, asm, asm_cpu, p_cpu, use_gpu=false)
                                   krylov_itmax=kry_itmax,
                                   krylov_rtol=kry_rtol,
                                   precond=precond)
+    elseif type_str in ("central difference", "centraldifference", "cd")
+        γ = Float64(get(ti_dict, "gamma", get(ti_dict, "γ", 0.5)))
+        # Build a dummy solver only to obtain ΔUu as a device-typed template
+        # vector (ROCArray on GPU, Vector on CPU).  No linear solve is ever
+        # performed in the explicit path.
+        solver = _parse_solver(dict, asm, use_gpu; force_direct=true)
+
+        m_lumped = _compute_lumped_mass(asm_cpu, p_cpu,
+                                         solver.linear_solver.ΔUu)
+
+        return CentralDifferenceIntegrator(γ, asm, m_lumped)
     else
         error("Unknown time integrator type: \"$type_str\". " *
-              "Supported: \"quasi static\", \"Newmark\".")
+              "Supported: \"quasi static\", \"Newmark\", \"central difference\".")
     end
 end
 
@@ -330,6 +341,21 @@ function _compute_jacobi_precond(β, Δt, asm_cpu, p_cpu, ΔUu_template)
     inv_diag = similar(ΔUu_template)
     copyto!(inv_diag, inv_diag_cpu)
     return JacobiPreconditioner(inv_diag)
+end
+
+# Compute the lumped mass vector (diagonal row sums of the consistent mass
+# matrix) via M·ones.  The result is on the same device as ΔUu_template.
+function _compute_lumped_mass(asm_cpu, p_cpu, ΔUu_template)
+    n_cpu   = length(ΔUu_template)
+    ones_v  = ones(Float64, n_cpu)
+    U_zeros = zeros(Float64, n_cpu)
+
+    FEC.assemble_matrix_action!(asm_cpu, FEC.mass, U_zeros, ones_v, p_cpu)
+    m_cpu = copy(FEC.hvp(asm_cpu, ones_v))
+
+    m_out = similar(ΔUu_template)
+    copyto!(m_out, m_cpu)
+    return m_out
 end
 
 # ---- solver ----
@@ -481,7 +507,35 @@ function _apply_initial_velocity_ics!(integrator::NewmarkIntegrator, mesh, asm_c
     Base.invokelatest(copyto!, integrator.V, V_init)
 end
 
-# No-op for non-Newmark integrators.
+# CentralDifferenceIntegrator — same logic as Newmark, copies into integrator.V.
+function _apply_initial_velocity_ics!(integrator::CentralDifferenceIntegrator, mesh, asm_cpu, p_cpu, vel_ics)
+    isempty(vel_ics) && return
+    dof = asm_cpu.dof
+    X   = p_cpu.h1_coords.data
+
+    n_unk   = length(dof.unknown_dofs)
+    inv_map = zeros(Int, length(dof))
+    for (i, fd) in enumerate(dof.unknown_dofs)
+        inv_map[fd] = i
+    end
+
+    V_init = zeros(Float64, n_unk)
+    for entry in vel_ics
+        var_sym  = _component_to_symbol(entry["component"])
+        func     = _make_function(entry["function"])
+        nset_sym = Symbol(entry["node set"])
+        bk       = FEC.BCBookKeeping(mesh, dof, var_sym; nset_name=nset_sym)
+        for (full_dof, node) in zip(bk.dofs, bk.nodes)
+            unk_idx = inv_map[full_dof]
+            unk_idx == 0 && continue
+            coords = @view X[(node-1)*3+1 : (node-1)*3+3]
+            V_init[unk_idx] = Base.invokelatest(func, coords, 0.0)
+        end
+    end
+    Base.invokelatest(copyto!, integrator.V, V_init)
+end
+
+# No-op for integrators that do not support initial velocity ICs.
 function _apply_initial_velocity_ics!(integrator, mesh, asm_cpu, p_cpu, vel_ics)
     isempty(vel_ics) || @warn "Initial velocity ICs ignored for non-Newmark integrator."
 end
