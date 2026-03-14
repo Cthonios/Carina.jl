@@ -46,7 +46,15 @@ function run(yaml_file::String)
     sim_type = lowercase(get(dict, "type", "single"))
     if sim_type == "single"
         sim = create_simulation(dict, dirname(abspath(yaml_file)))
-        evolve!(sim)
+        # invokelatest ensures evolve! and its entire call tree are compiled at
+        # the current world age, where AMDGPU methods (size, copyto!, etc.) are
+        # visible.  Without this, run() is compiled before _require_amdgpu!()
+        # loads AMDGPU, so direct calls see only Base fallbacks (world age error).
+        if sim.use_gpu
+            Base.invokelatest(evolve!, sim)
+        else
+            evolve!(sim)
+        end
         FEC.close(sim.post_processor)
     else
         error("Simulation type \"$sim_type\" not yet supported. Only \"single\" is implemented.")
