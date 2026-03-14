@@ -13,7 +13,7 @@ import ConstitutiveModels as CM
 import YAML
 
 # ---------------------------------------------------------------------------
-# On-demand AMDGPU loading (avoid paying the init cost on CPU-only runs)
+# On-demand GPU backend loading (avoid paying init cost on CPU-only runs)
 # ---------------------------------------------------------------------------
 
 const _AMDGPU_ID = Base.PkgId(
@@ -28,16 +28,30 @@ function _require_amdgpu!()
     end
 end
 
+const _CUDA_ID = Base.PkgId(
+    Base.UUID("052768ef-5323-5732-b1bb-66c8b64840ba"), "CUDA"
+)
+const _cuda_loaded = Ref(false)
+
+function _require_cuda!()
+    if !_cuda_loaded[]
+        Base.require(_CUDA_ID)
+        _cuda_loaded[] = true
+    end
+end
+
 # ---------------------------------------------------------------------------
 # Top-level entry point
 # ---------------------------------------------------------------------------
 
 """
-    Carina.run(yaml_file)
+    Carina.run(yaml_file; device=nothing)
 
 Load `yaml_file`, create a simulation, run it, and close the output file.
+`device` (optional) overrides the `device:` key in the YAML.  Accepted values:
+`"cpu"`, `"rocm"`, `"cuda"`.
 """
-function run(yaml_file::String)
+function run(yaml_file::String; device::Union{String,Nothing}=nothing)
     t_start = time()
     _carina_log(0, :carina, "BEGIN SIMULATION")
     _carina_log(0, :setup,  "Reading from $yaml_file")
@@ -45,12 +59,13 @@ function run(yaml_file::String)
     dict = YAML.load_file(yaml_file; dicttype=Dict{String,Any})
     sim_type = lowercase(get(dict, "type", "single"))
     if sim_type == "single"
-        sim = create_simulation(dict, dirname(abspath(yaml_file)))
+        sim = create_simulation(dict, dirname(abspath(yaml_file));
+                                device_override=device)
         # invokelatest ensures evolve! and its entire call tree are compiled at
-        # the current world age, where AMDGPU methods (size, copyto!, etc.) are
-        # visible.  Without this, run() is compiled before _require_amdgpu!()
-        # loads AMDGPU, so direct calls see only Base fallbacks (world age error).
-        if sim.use_gpu
+        # the current world age, where GPU backend methods are visible.
+        # Without this, run() is compiled before the GPU package is loaded,
+        # so direct calls see only Base fallbacks (world age error).
+        if sim.device != :cpu
             Base.invokelatest(evolve!, sim)
         else
             evolve!(sim)
@@ -71,16 +86,27 @@ end
 # ---------------------------------------------------------------------------
 
 """
-    create_simulation(dict, basedir="") -> SingleDomainSimulation
+    create_simulation(dict, basedir=""; device_override=nothing) -> SingleDomainSimulation
 
 Parse a YAML dict (already loaded) and return a fully initialised simulation.
 `basedir` is used to resolve relative file paths inside the YAML.
+`device_override` (a string) takes priority over the `device:` YAML key.
 """
-function create_simulation(dict::Dict{String,Any}, basedir::String="")
-    device_str = lowercase(get(dict, "device", "cpu"))
-    use_gpu = device_str == "rocm"
-    use_gpu && _require_amdgpu!()
-    _carina_log(0, :device, use_gpu ? "ROCm GPU" : "CPU")
+function create_simulation(dict::Dict{String,Any}, basedir::String="";
+                            device_override::Union{String,Nothing}=nothing)
+    device_str = device_override !== nothing ? lowercase(device_override) :
+                 lowercase(get(dict, "device", "cpu"))
+    device = if device_str == "rocm"
+        :rocm
+    elseif device_str == "cuda"
+        :cuda
+    else
+        :cpu
+    end
+    device == :rocm && _require_amdgpu!()
+    device == :cuda && _require_cuda!()
+    _carina_log(0, :device, device == :rocm ? "ROCm GPU" :
+                             device == :cuda ? "CUDA GPU" : "CPU")
 
     input_mesh  = _resolve(dict, "input mesh file",  basedir)
     output_file = _resolve(dict, "output mesh file", basedir)
@@ -116,24 +142,27 @@ function create_simulation(dict::Dict{String,Any}, basedir::String="")
     _carina_logf(0, :stop, "[0/%d,  0%%] : Time = %.4e", n_steps, controller.initial_time)
     _carina_log(0, :output, output_file)
 
-    if use_gpu
+    if device == :rocm
         asm = Base.invokelatest(FEC.rocm, asm_cpu)
         p   = Base.invokelatest(FEC.rocm, p_cpu)
+    elseif device == :cuda
+        asm = Base.invokelatest(FEC.cuda, asm_cpu)
+        p   = Base.invokelatest(FEC.cuda, p_cpu)
     else
         asm = asm_cpu
         p   = p_cpu
     end
 
-    integrator = if use_gpu
-        Base.invokelatest(_parse_integrator, dict, asm, asm_cpu, p_cpu, controller, use_gpu)
+    integrator = if device != :cpu
+        Base.invokelatest(_parse_integrator, dict, asm, asm_cpu, p_cpu, controller, device)
     else
-        _parse_integrator(dict, asm, asm_cpu, p_cpu, controller, use_gpu)
+        _parse_integrator(dict, asm, asm_cpu, p_cpu, controller, device)
     end
 
     _apply_initial_velocity_ics!(integrator, mesh, asm_cpu, p_cpu,
                                   _parse_velocity_ics(dict))
 
-    return SingleDomainSimulation(p, integrator, pp, controller, output_interval, use_gpu)
+    return SingleDomainSimulation(p, integrator, pp, controller, output_interval, device)
 end
 
 # ---------------------------------------------------------------------------
@@ -146,7 +175,7 @@ end
 Run the full time loop, writing Exodus output at every `output_interval` stops.
 """
 function evolve!(sim::SingleDomainSimulation)
-    (; params, integrator, post_processor, controller, output_interval, use_gpu) = sim
+    (; params, integrator, post_processor, controller, output_interval, device) = sim
     n_steps = controller.num_stops - 1
 
     for _ in 1:n_steps
@@ -169,8 +198,8 @@ function evolve!(sim::SingleDomainSimulation)
 
         if controller.stop % output_interval == 0
             step   = controller.stop + 1
-            h1_cpu = use_gpu ? Base.invokelatest(Adapt.adapt, Array, params.h1_field) :
-                               Adapt.adapt(Array, params.h1_field)
+            h1_cpu = device != :cpu ? Base.invokelatest(Adapt.adapt, Array, params.h1_field) :
+                                      Adapt.adapt(Array, params.h1_field)
             FEC.write_times(post_processor, step, t)
             FEC.write_field(post_processor, step,
                 ("displ_x", "displ_y", "displ_z"), h1_cpu)
@@ -193,7 +222,7 @@ function _advance_controller!(c::TimeController)
 end
 
 function _subcycle!(sim, target::Float64)
-    (; params, integrator, use_gpu) = sim
+    (; params, integrator) = sim
 
     while true
         t  = FEC.current_time(params.times)
@@ -216,13 +245,13 @@ function _adjusted_step(t::Float64, dt::Float64, t_stop::Float64,
 end
 
 function _advance_one_step!(sim)
-    (; params, integrator, use_gpu) = sim
+    (; params, integrator, device) = sim
     _save_state!(integrator, params)
 
     while true
         integrator.failed[] = false
 
-        if use_gpu
+        if device != :cpu
             Base.invokelatest(FEC.evolve!, integrator, params)
         else
             FEC.evolve!(integrator, params)
@@ -322,7 +351,7 @@ end
 
 # ---- integrator ----
 
-function _parse_integrator(dict, asm, asm_cpu, p_cpu, controller, use_gpu=false)
+function _parse_integrator(dict, asm, asm_cpu, p_cpu, controller, device=:cpu)
     ti_dict  = get(dict, "time integrator", nothing)
     ti_dict === nothing && error("Missing \"time integrator:\" section.")
     type_str = lowercase(get(ti_dict, "type", "quasi static"))
@@ -330,7 +359,7 @@ function _parse_integrator(dict, asm, asm_cpu, p_cpu, controller, use_gpu=false)
 
     if type_str in ("quasi static", "quasistatic", "static")
         min_dt, max_dt, dec, inc = _parse_adaptive_stepping(ti_dict, dt)
-        solver = _parse_solver(dict, asm, use_gpu)
+        solver = _parse_solver(dict, asm, device)
         return QuasiStaticIntegrator(solver, dt, min_dt, max_dt, dec, inc)
 
     elseif type_str in ("newmark", "newmark-beta", "newmark beta")
@@ -346,14 +375,14 @@ function _parse_integrator(dict, asm, asm_cpu, p_cpu, controller, use_gpu=false)
         kry_rtol    = Float64(get(ls_dict, "tolerance",
                             Float64(get(ti_dict, "krylov tolerance", 1e-8))))
         use_direct  = kry_type == "direct"
-        use_gpu && use_direct && error(
+        device != :cpu && use_direct && error(
             "\"linear solver: type: direct\" is CPU-only.")
         kry_method  = kry_type in ("cg", "conjugate gradient") ? :cg : :minres
 
         precond_dict = get(ls_dict, "preconditioner", Dict{String,Any}())
         precond_type = Symbol(lowercase(get(precond_dict, "type", "none")))
 
-        solver = _parse_solver(dict, asm, use_gpu; force_direct=true)
+        solver = _parse_solver(dict, asm, device; force_direct=true)
 
         precond = if !use_direct && precond_type == :jacobi
             _compute_jacobi_precond(β, dt, asm_cpu, p_cpu, solver.linear_solver.ΔUu)
@@ -378,7 +407,7 @@ function _parse_integrator(dict, asm, asm_cpu, p_cpu, controller, use_gpu=false)
         min_dt, max_dt, dec, inc = _parse_adaptive_stepping(ti_dict, dt)
         CFL_val = Float64(get(ti_dict, "CFL", get(ti_dict, "cfl", 0.0)))
 
-        solver  = _parse_solver(dict, asm, use_gpu; force_direct=true)
+        solver  = _parse_solver(dict, asm, device; force_direct=true)
         m_lumped = _compute_lumped_mass(asm_cpu, p_cpu, solver.linear_solver.ΔUu)
 
         return CentralDifferenceIntegrator(γ, asm, m_lumped;
@@ -435,7 +464,7 @@ end
 
 # ---- solver ----
 
-function _parse_solver(dict, asm, use_gpu=false; force_direct=false)
+function _parse_solver(dict, asm, device=:cpu; force_direct=false)
     # Solver section is optional; Newton with defaults if absent.
     sol_dict  = get(dict, "solver", Dict{String,Any}())
     max_iters = Int(get(sol_dict, "maximum iterations", 20))
@@ -443,7 +472,7 @@ function _parse_solver(dict, asm, use_gpu=false; force_direct=false)
     rel_tol   = Float64(get(sol_dict, "relative tolerance", 1e-14))
     # GPU quasi-static requires iterative solver (direct \ is CPU-only).
     # force_direct overrides this (used by Newmark which never calls linear solve).
-    sol_type  = (!force_direct && use_gpu) ? "iterative" :
+    sol_type  = (!force_direct && device != :cpu) ? "iterative" :
                 lowercase(get(sol_dict, "type", "direct"))
 
     # Per-iteration logging callback for FEC.NewtonSolver (quasi-static path).

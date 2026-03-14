@@ -39,5 +39,5 @@ struct SingleDomainSimulation{Params, Integrator, PP}
     post_processor  ::PP
     controller      ::TimeController
     output_interval ::Int
-    use_gpu         ::Bool
+    device          ::Symbol   # :cpu, :rocm, or :cuda
 end
