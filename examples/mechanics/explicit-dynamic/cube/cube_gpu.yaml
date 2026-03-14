@@ -1,0 +1,34 @@
+type: single
+device: rocm
+
+input mesh file:  cube.g
+output mesh file: cube_gpu.e
+output interval:  10
+
+model:
+  type: solid mechanics
+  material:
+    blocks:
+      cube: neohookean
+    neohookean:
+      elastic modulus: 1.0e+03
+      Poisson's ratio: 0.25
+      density: 1000.0
+
+time integrator:
+  type:        central difference
+  gamma:       0.5
+  initial time: 0.0
+  final time:   1.0
+  time step:    0.01
+
+initial conditions:
+  velocity:
+    - node set: nsall
+      component: z
+      function: "1.0"
+
+solver:
+  maximum iterations: 1
+  relative tolerance: 1.0e-10
+  absolute tolerance: 1.0e-06
