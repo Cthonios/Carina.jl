@@ -25,6 +25,26 @@ mutable struct TimeController
 end
 
 # ---------------------------------------------------------------------------
+# OutputSpec — controls which fields are written beyond displacement
+# ---------------------------------------------------------------------------
+
+"""
+    OutputSpec
+
+Controls which optional fields are written to the Exodus output file.
+Parsed from the `output:` section of the input YAML.
+"""
+struct OutputSpec
+    velocity            ::Bool
+    acceleration        ::Bool
+    stress              ::Bool
+    deformation_gradient::Bool
+    internal_variables  ::Bool
+end
+
+OutputSpec() = OutputSpec(false, false, false, false, false)
+
+# ---------------------------------------------------------------------------
 # Single-domain simulation
 # ---------------------------------------------------------------------------
 
@@ -33,11 +53,14 @@ end
 
 Holds all objects needed to run one domain.
 """
-struct SingleDomainSimulation{Params, Integrator, PP}
-    params          ::Params
+struct SingleDomainSimulation{Params, ParamsCPU, Asm, Integrator, PP}
+    params          ::Params       # device params (GPU or CPU)
+    params_cpu      ::ParamsCPU    # always-CPU params (coords, physics, props)
+    asm_cpu         ::Asm          # always-CPU assembler (DOF manager, ref_fes)
     integrator      ::Integrator
     post_processor  ::PP
     controller      ::TimeController
     output_interval ::Int
-    device          ::Symbol   # :cpu, :rocm, or :cuda
+    device          ::Symbol       # :cpu, :rocm, or :cuda
+    output_spec     ::OutputSpec
 end

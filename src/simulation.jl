@@ -120,8 +120,7 @@ function create_simulation(dict::Dict{String,Any}, basedir::String="";
 
     mesh    = FEC.UnstructuredMesh(input_mesh)
     V       = FEC.FunctionSpace(mesh, FEC.H1Field, FEC.Lagrange)
-    u       = FEC.VectorFunction(V, :displ)
-    asm_cpu = FEC.SparseMatrixAssembler(u; use_condensed=true)
+    asm_cpu = FEC.SparseMatrixAssembler(FEC.VectorFunction(V, :displ); use_condensed=true)
 
     dbcs = _parse_dirichlet_bcs(dict)
     nbcs = _parse_neumann_bcs(dict)
@@ -135,12 +134,18 @@ function create_simulation(dict::Dict{String,Any}, basedir::String="";
         times         = times,
     )
 
-    pp = FEC.PostProcessor(mesh, output_file, u)
-    FEC.write_times(pp, 1, controller.initial_time)
-    FEC.write_field(pp, 1, ("displ_x", "displ_y", "displ_z"), p_cpu.h1_field)
-    n_steps = controller.num_stops - 1
-    _carina_logf(0, :stop, "[0/%d,  0%%] : Time = %.4e", n_steps, controller.initial_time)
-    _carina_log(0, :output, output_file)
+    output_spec = _parse_output_spec(dict)
+    is_dynamic  = _is_dynamic_integrator(dict)
+
+    # Build VectorFunction list for PostProcessor (all nodal vars in one call).
+    nodal_vars = _build_nodal_vars(V, output_spec, is_dynamic)
+    pp = FEC.PostProcessor(mesh, output_file, nodal_vars...)
+
+    # Register element variable names (stress, F, IVs) before first write.
+    el_names = _element_var_names(asm_cpu, physics, output_spec)
+    if !isempty(el_names)
+        Exodus.write_names(pp.field_output_db, Exodus.ElementVariable, el_names)
+    end
 
     if device == :rocm
         asm = Base.invokelatest(FEC.rocm, asm_cpu)
@@ -162,7 +167,16 @@ function create_simulation(dict::Dict{String,Any}, basedir::String="";
     _apply_initial_velocity_ics!(integrator, mesh, asm_cpu, p_cpu,
                                   _parse_velocity_ics(dict))
 
-    return SingleDomainSimulation(p, integrator, pp, controller, output_interval, device)
+    n_steps = controller.num_stops - 1
+    sim = SingleDomainSimulation(p, p_cpu, asm_cpu, integrator, pp,
+                                  controller, output_interval, device, output_spec)
+
+    # Write initial state (step 1, t=0).
+    write_output!(sim, 1)
+    _carina_logf(0, :stop, "[0/%d,  0%%] : Time = %.4e", n_steps, controller.initial_time)
+    _carina_log(0, :output, output_file)
+
+    return sim
 end
 
 # ---------------------------------------------------------------------------
@@ -175,7 +189,7 @@ end
 Run the full time loop, writing Exodus output at every `output_interval` stops.
 """
 function evolve!(sim::SingleDomainSimulation)
-    (; params, integrator, post_processor, controller, output_interval, device) = sim
+    (; params, post_processor, controller, output_interval, device) = sim
     n_steps = controller.num_stops - 1
 
     for _ in 1:n_steps
@@ -197,13 +211,9 @@ function evolve!(sim::SingleDomainSimulation)
         pct = round(Int, 100 * controller.stop / n_steps)
 
         if controller.stop % output_interval == 0
-            step   = controller.stop + 1
-            h1_cpu = device != :cpu ? Base.invokelatest(Adapt.adapt, Array, params.h1_field) :
-                                      Adapt.adapt(Array, params.h1_field)
-            FEC.write_times(post_processor, step, t)
-            FEC.write_field(post_processor, step,
-                ("displ_x", "displ_y", "displ_z"), h1_cpu)
-            u_max = maximum(abs, h1_cpu.data)
+            step  = controller.stop + 1
+            write_output!(sim, step)
+            u_max = maximum(abs, params.h1_field.data)
             _carina_logf(0, :stop,
                 "[%d/%d, %3d%%] : Time = %.4e : |U|_max = %.3e : wall = %.2fs",
                 controller.stop, n_steps, pct, t, u_max, time() - t_wall)

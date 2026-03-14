@@ -24,6 +24,7 @@ include("physics.jl")
 include("solvers.jl")
 include("integrators.jl")
 include("materials.jl")
+include("io.jl")
 include("simulation.jl")
 
 # ---------------------------------------------------------------------------

@@ -4,6 +4,13 @@ input mesh file:  cube.g
 output mesh file: cube.e
 output interval:  10
 
+output:
+  velocity:             true
+  acceleration:         true
+  stress:               true
+  deformation gradient: false
+  internal variables:   false
+
 model:
   type: solid mechanics
   material:

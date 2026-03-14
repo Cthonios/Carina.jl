@@ -7,6 +7,7 @@ authors = ["Alejandro Mota <lxmota@gmail.com>"]
 AMDGPU = "21141c5a-9bdb-4563-92ae-f87d6854732e"
 Adapt = "79e6a3ab-5dfb-504d-930d-738a2a938a0e"
 ConstitutiveModels = "fc6ee7eb-129a-416f-804b-d7271ece6a3a"
+Exodus = "f57ae99e-f805-4780-bdca-96e224be1e5a"
 FiniteElementContainers = "d08262e4-672f-4e7f-a976-f2cea5767631"
 KernelAbstractions = "63c18a36-062a-441e-b654-da1e3ab1ce7c"
 Krylov = "ba0b0d4f-ebba-5204-a429-3ac8c609bfb7"
@@ -21,9 +22,15 @@ YAML = "ddb6d928-2868-570f-bddf-ab3f9cf99eb6"
 
 [compat]
 AMDGPU = "2.2.1"
+Exodus = "0.14"
 KernelAbstractions = "0.9.40"
 Krylov = "0.10"
 LinearOperators = "2.13.0"
 Printf = "1.11.0"
 SparseArrays = "1.12.0"
 YAML = "0.4.16"
+
+[sources]
+ConstitutiveModels = {url = "git@github.com:Cthonios/ConstitutiveModels.jl.git", rev = "main"}
+FiniteElementContainers = {url = "git@github.com:Cthonios/FiniteElementContainers.jl.git", rev = "main"}
+ReferenceFiniteElements = {url = "git@github.com:Cthonios/ReferenceFiniteElements.jl.git", rev = "main"}
