@@ -69,38 +69,31 @@ Parse a YAML dict (already loaded) and return a fully initialised simulation.
 `basedir` is used to resolve relative file paths inside the YAML.
 """
 function create_simulation(dict::Dict{String,Any}, basedir::String="")
-    # --- device ---
     device_str = lowercase(get(dict, "device", "cpu"))
     use_gpu = device_str == "rocm"
     use_gpu && _require_amdgpu!()
     _carina_log(0, :device, use_gpu ? "ROCm GPU" : "CPU")
 
-    # --- files ---
     input_mesh  = _resolve(dict, "input mesh file",  basedir)
     output_file = _resolve(dict, "output mesh file", basedir)
     output_interval = Int(get(dict, "output interval", 1))
     _carina_log(0, :setup, "Mesh:   $input_mesh")
     _carina_log(0, :setup, "Output: $output_file")
 
-    # --- material / physics ---
     cm, density, props_inputs = _parse_material_section(dict)
     props   = create_solid_mechanics_properties(cm, props_inputs)
     physics = SolidMechanics(cm, density)
 
-    # --- mesh + function space + CPU assembler ---
     mesh    = FEC.UnstructuredMesh(input_mesh)
     V       = FEC.FunctionSpace(mesh, FEC.H1Field, FEC.Lagrange)
     u       = FEC.VectorFunction(V, :displ)
     asm_cpu = FEC.SparseMatrixAssembler(u; use_condensed=true)
 
-    # --- boundary conditions ---
     dbcs = _parse_dirichlet_bcs(dict)
     nbcs = _parse_neumann_bcs(dict)
 
-    # --- time ---
-    times, n_steps = _parse_times(dict)
+    controller, times = _parse_times(dict)
 
-    # --- FEC parameters (always built on CPU) ---
     p_cpu = FEC.create_parameters(
         mesh, asm_cpu, physics, props;
         dirichlet_bcs = dbcs,
@@ -108,14 +101,13 @@ function create_simulation(dict::Dict{String,Any}, basedir::String="")
         times         = times,
     )
 
-    # --- post-processor: step 0 written before GPU adaptation ---
     pp = FEC.PostProcessor(mesh, output_file, u)
-    FEC.write_times(pp, 1, 0.0)
+    FEC.write_times(pp, 1, controller.initial_time)
     FEC.write_field(pp, 1, ("displ_x", "displ_y", "displ_z"), p_cpu.h1_field)
-    _carina_logf(0, :stop,   "[0/%d,  0%%] : Time = %.4e", n_steps, FEC.current_time(times))
-    _carina_log(0,  :output, output_file)
+    n_steps = controller.num_stops - 1
+    _carina_logf(0, :stop, "[0/%d,  0%%] : Time = %.4e", n_steps, controller.initial_time)
+    _carina_log(0, :output, output_file)
 
-    # --- GPU adaptation (after step-0 I/O so Exodus sees CPU arrays) ---
     if use_gpu
         asm = Base.invokelatest(FEC.rocm, asm_cpu)
         p   = Base.invokelatest(FEC.rocm, p_cpu)
@@ -124,25 +116,16 @@ function create_simulation(dict::Dict{String,Any}, basedir::String="")
         p   = p_cpu
     end
 
-    # --- integrator (forces iterative linear solver when use_gpu) ---
-    # Use invokelatest when on GPU: AMDGPU was loaded via Base.require, so its
-    # methods (e.g. similar(::ROCArray)) are in a newer world than Carina's
-    # compilation world; invokelatest lets the whole call chain see them.
-    # asm_cpu and p_cpu are passed for optional Jacobi preconditioner setup
-    # (Jacobi diagonal computed on CPU, then transferred to device).
     integrator = if use_gpu
-        Base.invokelatest(_parse_integrator, dict, asm, asm_cpu, p_cpu, use_gpu)
+        Base.invokelatest(_parse_integrator, dict, asm, asm_cpu, p_cpu, controller, use_gpu)
     else
-        _parse_integrator(dict, asm, asm_cpu, p_cpu, use_gpu)
+        _parse_integrator(dict, asm, asm_cpu, p_cpu, controller, use_gpu)
     end
 
-    # --- initial conditions ---
-    # asm_cpu passed explicitly so IC evaluation always uses CPU dof/coords,
-    # then copyto! transfers the result to integrator.V (CPU or GPU array).
     _apply_initial_velocity_ics!(integrator, mesh, asm_cpu, p_cpu,
                                   _parse_velocity_ics(dict))
 
-    return SingleDomainSimulation(p, integrator, pp, n_steps, output_interval, use_gpu)
+    return SingleDomainSimulation(p, integrator, pp, controller, output_interval, use_gpu)
 end
 
 # ---------------------------------------------------------------------------
@@ -152,53 +135,101 @@ end
 """
     evolve!(sim::SingleDomainSimulation)
 
-Run the full time loop, writing Exodus output at every `output_interval` steps.
+Run the full time loop, writing Exodus output at every `output_interval` stops.
 """
 function evolve!(sim::SingleDomainSimulation)
-    (; params, integrator, post_processor, n_steps, output_interval, use_gpu) = sim
+    (; params, integrator, post_processor, controller, output_interval, use_gpu) = sim
+    n_steps = controller.num_stops - 1
 
-    for n in 1:n_steps
-        t_prev = use_gpu ? Base.invokelatest(FEC.current_time, params.times) :
-                           FEC.current_time(params.times)
-        Δt = use_gpu ? Base.invokelatest(FEC.time_step, params.times) :
-                       FEC.time_step(params.times)
-        _carina_logf(4, :advance, "Time = [%.4e, %.4e] : Δt = %.4e",
-                     t_prev, t_prev + Δt, Δt)
+    for _ in 1:n_steps
+        _advance_controller!(controller)
+        t_prev = controller.prev_time
+        t_stop = controller.time
 
-        t_step = time()
+        _carina_logf(4, :advance,
+            "Control step [%d/%d] : [%.4e, %.4e] : Δt_c = %.4e",
+            controller.stop, n_steps, t_prev, t_stop, controller.control_step)
 
-        # When running on GPU, FEC methods dispatching on ROCArray types are
-        # defined in a newer Julia world (AMDGPU was loaded via Base.require).
-        # invokelatest lets the entire call chain see those methods.
+        # Reset FEC clock to start of this control interval
+        params.times.time_current = t_prev
+
+        t_wall = time()
+        _subcycle!(sim, t_stop)
+
+        t   = controller.time
+        pct = round(Int, 100 * controller.stop / n_steps)
+
+        if controller.stop % output_interval == 0
+            step   = controller.stop + 1
+            h1_cpu = use_gpu ? Base.invokelatest(Adapt.adapt, Array, params.h1_field) :
+                               Adapt.adapt(Array, params.h1_field)
+            FEC.write_times(post_processor, step, t)
+            FEC.write_field(post_processor, step,
+                ("displ_x", "displ_y", "displ_z"), h1_cpu)
+            u_max = maximum(abs, h1_cpu.data)
+            _carina_logf(0, :stop,
+                "[%d/%d, %3d%%] : Time = %.4e : |U|_max = %.3e : wall = %.2fs",
+                controller.stop, n_steps, pct, t, u_max, time() - t_wall)
+            _carina_log(0, :output, post_processor.field_output_db.file_name)
+        else
+            _carina_logf(0, :stop, "[%d/%d, %3d%%] : Time = %.4e : wall = %.2fs",
+                         controller.stop, n_steps, pct, t, time() - t_wall)
+        end
+    end
+end
+
+function _advance_controller!(c::TimeController)
+    c.prev_time = c.time
+    c.stop     += 1
+    c.time      = c.initial_time + c.stop * c.control_step
+end
+
+function _subcycle!(sim, target::Float64)
+    (; params, integrator, use_gpu) = sim
+
+    while true
+        t  = FEC.current_time(params.times)
+        dt = _adjusted_step(t, integrator.time_step, target)
+        params.times.Δt = dt
+
+        _pre_step_hook!(integrator, params)
+        _advance_one_step!(sim)
+
+        isapprox(FEC.current_time(params.times), target;
+                 rtol=1e-6, atol=1e-12) && break
+    end
+end
+
+function _adjusted_step(t::Float64, dt::Float64, t_stop::Float64,
+                         eps::Float64=0.01)::Float64
+    gap    = t_stop - t
+    t_next = t + dt
+    return t_next >= t_stop - eps * dt ? gap : dt
+end
+
+function _advance_one_step!(sim)
+    (; params, integrator, use_gpu) = sim
+    _save_state!(integrator, params)
+
+    while true
+        integrator.failed[] = false
+
         if use_gpu
             Base.invokelatest(FEC.evolve!, integrator, params)
         else
             FEC.evolve!(integrator, params)
         end
 
-        t = use_gpu ? Base.invokelatest(FEC.current_time, params.times) :
-                      FEC.current_time(params.times)
-        wall = time() - t_step
-        pct  = round(Int, 100 * n / n_steps)
-
-        if n % output_interval == 0
-            # PostProcessor step index starts at 2 (step 1 = initial state).
-            # Adapt to CPU; when on GPU, Adapt.adapt(ROCArray→Array) dispatches
-            # methods from the AMDGPU world, so invokelatest is required.
-            step   = n + 1
-            h1_cpu = use_gpu ? Base.invokelatest(Adapt.adapt, Array, params.h1_field) :
-                                Adapt.adapt(Array, params.h1_field)
-            FEC.write_times(post_processor, step, t)
-            FEC.write_field(post_processor, step,
-                ("displ_x", "displ_y", "displ_z"), h1_cpu)
-            u_max = maximum(abs, h1_cpu.data)
-            _carina_logf(0, :stop,   "[%d/%d, %3d%%] : Time = %.4e : |U|_max = %.3e : wall = %.2fs",
-                         n, n_steps, pct, t, u_max, wall)
-            _carina_log(0,  :output, post_processor.field_output_db.file_name)
-        else
-            _carina_logf(0, :stop, "[%d/%d, %3d%%] : Time = %.4e : wall = %.2fs",
-                         n, n_steps, pct, t, wall)
+        if !integrator.failed[]
+            _increase_step!(integrator, params)
+            break
         end
+
+        # Step failed: restore state, reduce step, undo time advance, retry
+        _restore_state!(integrator, params)
+        _decrease_step!(integrator, params)
+        params.times.time_current -= params.times.Δt
+        params.times.Δt = integrator.time_step
     end
 end
 
@@ -242,31 +273,63 @@ end
 function _parse_times(dict)
     ti_dict = get(dict, "time integrator", nothing)
     ti_dict === nothing && error("Missing \"time integrator:\" section.")
-    t0 = Float64(get(ti_dict, "initial time", 0.0))
-    tf = Float64(ti_dict["final time"])
-    dt = Float64(ti_dict["time step"])
-    n_steps = round(Int, (tf - t0) / dt)
-    times   = FEC.TimeStepper(t0, tf, n_steps)
-    return times, n_steps
+    t0  = Float64(get(ti_dict, "initial time", 0.0))
+    tf  = Float64(ti_dict["final time"])
+    dt  = Float64(ti_dict["time step"])
+    num_stops = round(Int, (tf - t0) / dt) + 1
+    controller = TimeController(t0, tf, dt, t0, t0, num_stops, 0)
+    # FEC.TimeStepper: used by FEC internals (BC evaluation, time queries).
+    # Δt will be overwritten each sub-step during subcycling.
+    times = FEC.TimeStepper(t0, tf, round(Int, (tf - t0) / dt))
+    return controller, times
+end
+
+# ---- adaptive stepping ----
+
+function _parse_adaptive_stepping(ti_dict, dt_nominal)
+    has_min = haskey(ti_dict, "minimum time step")
+    has_max = haskey(ti_dict, "maximum time step")
+    has_dec = haskey(ti_dict, "decrease factor")
+    has_inc = haskey(ti_dict, "increase factor")
+    has_any = has_min || has_max || has_dec || has_inc
+    has_all = has_min && has_max && has_dec && has_inc
+    has_any && !has_all &&
+        error("Adaptive time stepping requires all four: " *
+              "\"minimum time step\", \"maximum time step\", " *
+              "\"decrease factor\", \"increase factor\".")
+    if has_all
+        min_dt = Float64(ti_dict["minimum time step"])
+        max_dt = Float64(ti_dict["maximum time step"])
+        dec    = Float64(ti_dict["decrease factor"])
+        inc    = Float64(ti_dict["increase factor"])
+        dec >= 1.0 && error("\"decrease factor\" must be < 1.0")
+        inc <= 1.0 && error("\"increase factor\" must be > 1.0")
+        min_dt > max_dt && error("\"minimum time step\" > \"maximum time step\"")
+    else
+        min_dt = max_dt = dt_nominal
+        dec = inc = 1.0
+    end
+    return min_dt, max_dt, dec, inc
 end
 
 # ---- integrator ----
 
-function _parse_integrator(dict, asm, asm_cpu, p_cpu, use_gpu=false)
-    ti_dict = get(dict, "time integrator", nothing)
+function _parse_integrator(dict, asm, asm_cpu, p_cpu, controller, use_gpu=false)
+    ti_dict  = get(dict, "time integrator", nothing)
     ti_dict === nothing && error("Missing \"time integrator:\" section.")
     type_str = lowercase(get(ti_dict, "type", "quasi static"))
+    dt       = controller.control_step
 
     if type_str in ("quasi static", "quasistatic", "static")
+        min_dt, max_dt, dec, inc = _parse_adaptive_stepping(ti_dict, dt)
         solver = _parse_solver(dict, asm, use_gpu)
-        return FEC.QuasiStaticIntegrator(solver)
+        return QuasiStaticIntegrator(solver, dt, min_dt, max_dt, dec, inc)
+
     elseif type_str in ("newmark", "newmark-beta", "newmark beta")
         β = Float64(get(ti_dict, "beta",  0.25))
         γ = Float64(get(ti_dict, "gamma", 0.5))
+        min_dt, max_dt, dec, inc = _parse_adaptive_stepping(ti_dict, dt)
 
-        # Linear solver config lives under solver: linear solver:
-        # Falls back to time integrator: krylov iterations / krylov tolerance
-        # for backward compatibility.
         sol_dict    = get(dict, "solver", Dict{String,Any}())
         ls_dict     = get(sol_dict, "linear solver", Dict{String,Any}())
         kry_type    = lowercase(get(ls_dict, "type", "minres"))
@@ -276,23 +339,16 @@ function _parse_integrator(dict, asm, asm_cpu, p_cpu, use_gpu=false)
                             Float64(get(ti_dict, "krylov tolerance", 1e-8))))
         use_direct  = kry_type == "direct"
         use_gpu && use_direct && error(
-            "\"linear solver: type: direct\" is CPU-only; remove \"device: rocm\" or use an iterative solver.")
-
+            "\"linear solver: type: direct\" is CPU-only.")
         kry_method  = kry_type in ("cg", "conjugate gradient") ? :cg : :minres
 
         precond_dict = get(ls_dict, "preconditioner", Dict{String,Any}())
         precond_type = Symbol(lowercase(get(precond_dict, "type", "none")))
 
-        # Newmark uses matrix-free Krylov (or direct LU) and never calls
-        # linear_solver.solve!.  Always use DirectLinearSolver so no sparse K is
-        # materialized at construction time (on GPU this avoids OOM from
-        # IterativeLinearSolver's eager stiffness build).
         solver = _parse_solver(dict, asm, use_gpu; force_direct=true)
 
         precond = if !use_direct && precond_type == :jacobi
-            _compute_jacobi_precond(β, Float64(ti_dict["time step"]),
-                                    asm_cpu, p_cpu,
-                                    solver.linear_solver.ΔUu)
+            _compute_jacobi_precond(β, dt, asm_cpu, p_cpu, solver.linear_solver.ΔUu)
         else
             NoPreconditioner()
         end
@@ -302,18 +358,29 @@ function _parse_integrator(dict, asm, asm_cpu, p_cpu, use_gpu=false)
                                   krylov_method=kry_method,
                                   krylov_itmax=kry_itmax,
                                   krylov_rtol=kry_rtol,
-                                  precond=precond)
+                                  precond=precond,
+                                  time_step=dt,
+                                  min_time_step=min_dt,
+                                  max_time_step=max_dt,
+                                  decrease_factor=dec,
+                                  increase_factor=inc)
+
     elseif type_str in ("central difference", "centraldifference", "cd")
         γ = Float64(get(ti_dict, "gamma", get(ti_dict, "γ", 0.5)))
-        # Build a dummy solver only to obtain ΔUu as a device-typed template
-        # vector (ROCArray on GPU, Vector on CPU).  No linear solve is ever
-        # performed in the explicit path.
-        solver = _parse_solver(dict, asm, use_gpu; force_direct=true)
+        min_dt, max_dt, dec, inc = _parse_adaptive_stepping(ti_dict, dt)
+        CFL_val = Float64(get(ti_dict, "CFL", get(ti_dict, "cfl", 0.0)))
 
-        m_lumped = _compute_lumped_mass(asm_cpu, p_cpu,
-                                         solver.linear_solver.ΔUu)
+        solver  = _parse_solver(dict, asm, use_gpu; force_direct=true)
+        m_lumped = _compute_lumped_mass(asm_cpu, p_cpu, solver.linear_solver.ΔUu)
 
-        return CentralDifferenceIntegrator(γ, asm, m_lumped)
+        return CentralDifferenceIntegrator(γ, asm, m_lumped;
+                                            time_step=dt,
+                                            min_time_step=min_dt,
+                                            max_time_step=max_dt,
+                                            decrease_factor=dec,
+                                            increase_factor=inc,
+                                            CFL=CFL_val,
+                                            c_p_max=Inf)
     else
         error("Unknown time integrator type: \"$type_str\". " *
               "Supported: \"quasi static\", \"Newmark\", \"central difference\".")

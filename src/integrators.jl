@@ -1,24 +1,18 @@
-# Newmark-β time integrator for second-order (dynamic) problems.
+# Time integrators for Carina.
 #
-# GPU-ready design: the effective stiffness K_eff = K + c_M * M is applied
-# matrix-free via two calls to FEC.assemble_matrix_action! per Krylov
-# iteration.  No sparse matrix is ever materialised.
+# Three integrators are provided:
 #
-# For CPU-only workflows a direct (sparse LU) path is also available.
-# Set use_direct=true and K_eff is assembled as a SparseMatrixCSC, factored
-# once per Newton step with UMFPACK, and solved in one backsolve.
+#   QuasiStaticIntegrator   — pseudo-time quasi-static Newton (no inertia)
+#   NewmarkIntegrator       — implicit Newmark-β (GPU-ready matrix-free + direct LU)
+#   CentralDifferenceIntegrator — explicit central difference (GPU-ready)
 #
-# Algorithm (displacement-based Newmark-β):
-#   Predictor:
-#     Ũ = U_n + Δt·V_n + Δt²·(0.5-β)·A_n
-#     Ṽ = V_n + Δt·(1-γ)·A_n
-#   Newton:
-#     R_eff = R_int + c_M·M·(U - Ũ)      c_M = 1/(β·Δt²)
-#     K_eff·ΔU = -R_eff                  K_eff = K + c_M·M
-#     U += ΔU
-#   Corrector:
-#     A_{n+1} = c_M·(U - Ũ)
-#     V_{n+1} = Ṽ + Δt·γ·A_{n+1}
+# All integrators follow the same protocol with the TimeController:
+#   • time_step       — current (adaptive) integration step
+#   • min/max_time_step, decrease/increase_factor — adaptive stepping bounds
+#   • failed          — Ref{Bool} set by FEC.evolve! to signal non-convergence
+#   • _save_state! / _restore_state! — rollback on step failure
+#   • _increase_step! / _decrease_step! — adjust time_step
+#   • _pre_step_hook! — called before each sub-step (CFL update, no-op today)
 
 import FiniteElementContainers as FEC
 using LinearAlgebra
@@ -26,66 +20,55 @@ import Krylov
 import LinearOperators: LinearOperator
 
 # --------------------------------------------------------------------------- #
-# CentralDifferenceIntegrator
+# QuasiStaticIntegrator
 # --------------------------------------------------------------------------- #
-#
-# Explicit Newmark-β with β=0, γ=0.5 (central difference / velocity Verlet).
-# No linear solve required — acceleration is computed element-wise from the
-# lumped mass and the net force.
-#
-# Algorithm:
-#   Predictor:
-#     U_{n+1} = U_n + Δt·V_n + ½·Δt²·A_n
-#     V*      = V_n + Δt·(1-γ)·A_n
-#   Force assembly:
-#     R = f_int(U_{n+1}) - f_ext
-#   Acceleration:
-#     A_{n+1} = -R / m_lumped   (element-wise)
-#   Corrector:
-#     V_{n+1} = V* + Δt·γ·A_{n+1}
 
-struct CentralDifferenceIntegrator{Asm, Vec}
-    γ::Float64
-    asm::Asm          # FEC assembler (needed for force assembly)
-    U::Vec            # displacement (full DOF size)
-    V::Vec            # velocity
-    A::Vec            # acceleration
-    m_lumped::Vec     # diagonal lumped mass (row sums of consistent mass)
+mutable struct QuasiStaticIntegrator{Solver <: FEC.NewtonSolver, Vec}
+    solver          ::Solver
+    solution        ::Vec     # preallocated unknown vector (size = n_unknowns)
+    time_step       ::Float64
+    min_time_step   ::Float64
+    max_time_step   ::Float64
+    decrease_factor ::Float64
+    increase_factor ::Float64
+    failed          ::Base.RefValue{Bool}
 end
 
-function CentralDifferenceIntegrator(γ::Float64, asm, m_lumped::Vec) where {Vec}
-    n  = length(m_lumped)
-    T  = eltype(m_lumped)
-    mk() = (v = similar(m_lumped); fill!(v, zero(T)); v)
-    return CentralDifferenceIntegrator(γ, asm, mk(), mk(), mk(), m_lumped)
+function QuasiStaticIntegrator(solver::FEC.NewtonSolver,
+                                time_step::Float64,
+                                min_time_step::Float64,
+                                max_time_step::Float64,
+                                decrease_factor::Float64,
+                                increase_factor::Float64)
+    solution = similar(solver.linear_solver.ΔUu)
+    fill!(solution, zero(eltype(solution)))
+    return QuasiStaticIntegrator(solver, solution, time_step, min_time_step, max_time_step,
+                                  decrease_factor, increase_factor, Ref(false))
 end
 
-function FEC.evolve!(integrator::CentralDifferenceIntegrator, p)
-    (; γ, asm, U, V, A, m_lumped) = integrator
+function FEC.evolve!(integrator::QuasiStaticIntegrator, p)
+    solver   = integrator.solver
+    asm      = solver.linear_solver.assembler
+    dof      = asm.dof
+    solution = integrator.solution
 
     FEC.update_time!(p)
     FEC.update_bc_values!(p)
 
-    Δt  = FEC.time_step(p.times)
-    dof = asm.dof
+    FEC.solve!(solver, solution, p)
 
-    # 1. Predictor
-    @. U = U + Δt * V + 0.5 * Δt^2 * A
-    @. V = V + (1.0 - γ) * Δt * A
+    # Check convergence by inspecting the last Newton increment and residual.
+    norm_ΔUu = sqrt(sum(abs2, solver.linear_solver.ΔUu))
+    norm_R   = sqrt(sum(abs2, FEC.residual(asm)))
 
-    # 2. Assemble net residual R = f_int - f_ext  (constraint-adjusted)
-    FEC.assemble_vector!(asm, FEC.residual, U, p)
-    FEC.assemble_vector_neumann_bc!(asm, U, p)
-    R = FEC.residual(asm)
+    # Non-finite residual signals a constitutive failure (e.g. J ≤ 0).
+    converged = isfinite(norm_R) &&
+                (norm_ΔUu < solver.abs_increment_tol ||
+                 norm_R   < solver.abs_residual_tol)
 
-    # 3. New acceleration: A = -R / m_lumped  (element-wise)
-    @. A = -R / m_lumped
+    integrator.failed[] = !converged
 
-    # 4. Velocity corrector
-    @. V = V + γ * Δt * A
-
-    # 5. Sync full field and save old
-    FEC._update_for_assembly!(p, dof, U)
+    FEC._update_for_assembly!(p, dof, solution)
     p.h1_field_old.data .= p.h1_field.data
 
     return nothing
@@ -95,25 +78,31 @@ end
 # NewmarkIntegrator — implicit Newmark-β
 # --------------------------------------------------------------------------- #
 
-struct NewmarkIntegrator{Solver <: FEC.NewtonSolver, Vec, KrySolver, PC <: Preconditioner}
+mutable struct NewmarkIntegrator{Solver <: FEC.NewtonSolver, Vec, KrySolver, PC <: Preconditioner}
     solver::Solver
     β::Float64
     γ::Float64
-    use_direct::Bool          # true → sparse LU per Newton step (CPU only)
-    krylov_method::Symbol     # :cg or :minres (used when use_direct=false)
-    krylov_itmax::Int         # max Krylov iterations per Newton step
-    krylov_rtol::Float64      # relative residual tolerance for Krylov solver
-    # State vectors (n_total_dofs for condensed DOF manager)
+    use_direct::Bool
+    krylov_method::Symbol
+    krylov_itmax::Int
+    krylov_rtol::Float64
     U::Vec;      V::Vec;      A::Vec
     U_prev::Vec; V_prev::Vec; A_prev::Vec
-    # Preallocated scratch to avoid per-iteration allocations
-    krylov_solver::KrySolver  # Krylov workspace, or Nothing when use_direct=true
-    scratch::Vec               # holds K·v during effective-stiffness matvec
-    U_pred::Vec                # Newmark predictor Ũ
-    dU::Vec                    # U - Ũ  (inertial RHS scratch)
-    R_eff::Vec                 # effective residual (negated for Krylov RHS)
-    # Preconditioner (NoPreconditioner or JacobiPreconditioner; unused when use_direct)
+    krylov_solver::KrySolver
+    scratch::Vec
+    U_pred::Vec
+    dU::Vec
+    R_eff::Vec
     precond::PC
+    # Adaptive time stepping
+    time_step       ::Float64
+    min_time_step   ::Float64
+    max_time_step   ::Float64
+    decrease_factor ::Float64
+    increase_factor ::Float64
+    failed          ::Base.RefValue{Bool}
+    # Rollback state
+    U_save::Vec; V_save::Vec; A_save::Vec
 end
 
 function NewmarkIntegrator(solver::FEC.NewtonSolver, β::Float64, γ::Float64;
@@ -121,7 +110,12 @@ function NewmarkIntegrator(solver::FEC.NewtonSolver, β::Float64, γ::Float64;
                             krylov_method::Symbol=:minres,
                             krylov_itmax::Int=1000,
                             krylov_rtol::Float64=1e-8,
-                            precond::Preconditioner=NoPreconditioner())
+                            precond::Preconditioner=NoPreconditioner(),
+                            time_step::Float64=0.0,
+                            min_time_step::Float64=0.0,
+                            max_time_step::Float64=0.0,
+                            decrease_factor::Float64=1.0,
+                            increase_factor::Float64=1.0)
     ΔUu = solver.linear_solver.ΔUu
     n   = length(ΔUu)
     T   = eltype(ΔUu)
@@ -132,8 +126,8 @@ function NewmarkIntegrator(solver::FEC.NewtonSolver, β::Float64, γ::Float64;
     U, V, A             = mk(), mk(), mk()
     U_prev, V_prev, A_prev = mk(), mk(), mk()
     scratch, U_pred, dU, R_eff = mk(), mk(), mk(), mk()
+    U_save, V_save, A_save = mk(), mk(), mk()
 
-    # No Krylov workspace needed for the direct path.
     kry = if use_direct
         nothing
     elseif krylov_method == :cg
@@ -147,34 +141,22 @@ function NewmarkIntegrator(solver::FEC.NewtonSolver, β::Float64, γ::Float64;
         U, V, A, U_prev, V_prev, A_prev,
         kry, scratch, U_pred, dU, R_eff,
         precond,
+        time_step, min_time_step, max_time_step, decrease_factor, increase_factor,
+        Ref(false),
+        U_save, V_save, A_save,
     )
 end
 
-# --------------------------------------------------------------------------- #
-# Matrix-free effective stiffness: y = (K + c_M·M)·v  with identity at
-# constrained DOFs.
-# --------------------------------------------------------------------------- #
-
+# Matrix-free effective stiffness: y = (K + c_M·M)·v
 function _eff_stiffness_matvec!(y, v, asm, U, c_M, p, scratch)
-    # K·v (raw, no constraint adjustment yet)
     FEC.assemble_matrix_action!(asm, FEC.stiffness, U, v, p)
     copyto!(scratch, asm.stiffness_action_storage.data)
-
-    # M·v (raw)
     FEC.assemble_matrix_action!(asm, FEC.mass, U, v, p)
-
-    # K·v + c_M·M·v  in stiffness_action_storage
     @. asm.stiffness_action_storage.data =
         scratch + c_M * asm.stiffness_action_storage.data
-
-    # Apply constraint adjustment once: (I-G)·(K_eff·v) + G·v
     copyto!(y, FEC.hvp(asm, v))
     return y
 end
-
-# --------------------------------------------------------------------------- #
-# evolve!
-# --------------------------------------------------------------------------- #
 
 function FEC.evolve!(integrator::NewmarkIntegrator, p)
     (; solver, β, γ, use_direct,
@@ -192,15 +174,12 @@ function FEC.evolve!(integrator::NewmarkIntegrator, p)
     dof = asm.dof
     n   = length(U)
 
-    # 1. Save state at t_n
     copyto!(U_prev, U); copyto!(V_prev, V); copyto!(A_prev, A)
 
-    # 2. Predictor
-    @. U = U_prev + Δt * V_prev + Δt^2 * (0.5 - β) * A_prev  # Ũ
-    @. V = V_prev + Δt * (1.0 - γ) * A_prev                   # Ṽ
+    @. U = U_prev + Δt * V_prev + Δt^2 * (0.5 - β) * A_prev
+    @. V = V_prev + Δt * (1.0 - γ) * A_prev
     copyto!(U_pred, U)
 
-    # Matrix-free operator (built once; only used in Krylov path).
     K_eff_op = if !use_direct
         LinearOperator(
             Float64, n, n, true, true,
@@ -210,7 +189,6 @@ function FEC.evolve!(integrator::NewmarkIntegrator, p)
         nothing
     end
 
-    # Preconditioner operator (Krylov path only).
     M_op = if !use_direct && !(precond isa NoPreconditioner)
         LinearOperator(
             Float64, n, n, true, true,
@@ -220,20 +198,26 @@ function FEC.evolve!(integrator::NewmarkIntegrator, p)
         nothing
     end
 
-    # 3. Newton iterations — initial residual for [0] log.
     FEC.assemble_vector!(asm, FEC.residual, U, p)
     FEC.assemble_vector_neumann_bc!(asm, U, p)
     @. dU = U - U_pred
     FEC.assemble_matrix_action!(asm, FEC.mass, U, dU, p)
     R_int = FEC.residual(asm)
+
+    # Detect constitutive failures (e.g. J ≤ 0 → NaN in neo-Hookean).
+    if !isfinite(sqrt(sum(abs2, R_int)))
+        integrator.failed[] = true
+        return nothing
+    end
+
     M_dU  = FEC.hvp(asm, dU)
     @. R_eff = -(R_int + c_M * M_dU)
     initial_norm = sqrt(sum(abs2, R_eff))
     _carina_logf(8, :solve, "Iter [0] |R| = %.3e : |r| = %.3e : %s",
                  initial_norm, 1.0, _status_str(false))
 
+    converged = false
     for iter in 1:solver.max_iters
-        # Assemble residual
         FEC.assemble_vector!(asm, FEC.residual, U, p)
         FEC.assemble_vector_neumann_bc!(asm, U, p)
 
@@ -248,26 +232,15 @@ function FEC.evolve!(integrator::NewmarkIntegrator, p)
         rel_R  = initial_norm > 0.0 ? norm_R / initial_norm : norm_R
 
         if use_direct
-            # ------------------------------------------------------------------
-            # Direct sparse LU path (CPU only).
-            # Assemble K_eff = K + c_M·M as a sparse matrix, factor, backsolve.
-            # assemble_stiffness! overwrites stiffness_storage with K (raw).
-            # assemble_mass! overwrites mass_storage with M (raw).
-            # Combining them in stiffness_storage before calling FEC.stiffness
-            # gives the constraint-adjusted K_eff when sparse! runs.
-            # ------------------------------------------------------------------
             FEC.assemble_stiffness!(asm, FEC.stiffness, U, p)
             FEC.assemble_mass!(asm, FEC.mass, U, p)
             @. asm.stiffness_storage += c_M * asm.mass_storage
-            K_eff_sparse = FEC.stiffness(asm)   # SparseMatrixCSC, constraint-adjusted
+            K_eff_sparse = FEC.stiffness(asm)
             F_lu         = lu(K_eff_sparse)
             ΔUu          = F_lu \ R_eff
             norm_dU      = sqrt(sum(abs2, ΔUu))
             kry_iters    = -1
         else
-            # ------------------------------------------------------------------
-            # Matrix-free Krylov path (CG or MINRES; GPU-compatible).
-            # ------------------------------------------------------------------
             if M_op === nothing
                 Krylov.krylov_solve!(krylov_solver, K_eff_op, R_eff;
                               atol=solver.abs_residual_tol,
@@ -302,13 +275,158 @@ function FEC.evolve!(integrator::NewmarkIntegrator, p)
         converged && break
     end
 
-    # 4. Corrector
+    integrator.failed[] = !converged
+
     @. A = c_M * (U - U_pred)
     @. V = V + Δt * γ * A
 
-    # 5. Sync full field and save old
     FEC._update_for_assembly!(p, dof, U)
     p.h1_field_old.data .= p.h1_field.data
 
     return nothing
 end
+
+# --------------------------------------------------------------------------- #
+# CentralDifferenceIntegrator — explicit central difference
+# --------------------------------------------------------------------------- #
+
+mutable struct CentralDifferenceIntegrator{Asm, Vec}
+    γ::Float64
+    asm::Asm
+    U::Vec; V::Vec; A::Vec
+    m_lumped::Vec
+    # Adaptive time stepping
+    time_step       ::Float64
+    min_time_step   ::Float64
+    max_time_step   ::Float64
+    decrease_factor ::Float64
+    increase_factor ::Float64
+    # CFL (deferred — CFL=0.0 means disabled)
+    CFL             ::Float64
+    c_p_max         ::Float64
+    failed          ::Base.RefValue{Bool}
+    # Rollback state
+    U_save::Vec; V_save::Vec; A_save::Vec
+end
+
+function CentralDifferenceIntegrator(γ::Float64, asm, m_lumped::Vec;
+                                      time_step::Float64=0.0,
+                                      min_time_step::Float64=0.0,
+                                      max_time_step::Float64=0.0,
+                                      decrease_factor::Float64=1.0,
+                                      increase_factor::Float64=1.0,
+                                      CFL::Float64=0.0,
+                                      c_p_max::Float64=Inf) where {Vec}
+    T  = eltype(m_lumped)
+    mk() = (v = similar(m_lumped); fill!(v, zero(T)); v)
+    U, V, A = mk(), mk(), mk()
+    U_save, V_save, A_save = mk(), mk(), mk()
+    return CentralDifferenceIntegrator(
+        γ, asm, U, V, A, m_lumped,
+        time_step, min_time_step, max_time_step, decrease_factor, increase_factor,
+        CFL, c_p_max,
+        Ref(false),
+        U_save, V_save, A_save,
+    )
+end
+
+function FEC.evolve!(integrator::CentralDifferenceIntegrator, p)
+    (; γ, asm, U, V, A, m_lumped) = integrator
+
+    FEC.update_time!(p)
+    FEC.update_bc_values!(p)
+
+    Δt  = FEC.time_step(p.times)
+    dof = asm.dof
+
+    @. U = U + Δt * V + 0.5 * Δt^2 * A
+    @. V = V + (1.0 - γ) * Δt * A
+
+    FEC.assemble_vector!(asm, FEC.residual, U, p)
+    FEC.assemble_vector_neumann_bc!(asm, U, p)
+    R = FEC.residual(asm)
+
+    # Detect inverted elements or other constitutive failures (e.g. J ≤ 0 → NaN in
+    # neo-Hookean energy) that produce non-finite residual entries.
+    if !isfinite(sqrt(sum(abs2, R)))
+        integrator.failed[] = true
+        return nothing
+    end
+
+    @. A = -R / m_lumped
+
+    @. V = V + γ * Δt * A
+
+    integrator.failed[] = false
+
+    FEC._update_for_assembly!(p, dof, U)
+    p.h1_field_old.data .= p.h1_field.data
+
+    return nothing
+end
+
+# --------------------------------------------------------------------------- #
+# Shared adaptive-stepping helpers
+# --------------------------------------------------------------------------- #
+
+# --- State save/restore ---
+
+function _save_state!(ig::NewmarkIntegrator, p)
+    copyto!(ig.U_save, ig.U)
+    copyto!(ig.V_save, ig.V)
+    copyto!(ig.A_save, ig.A)
+end
+
+function _restore_state!(ig::NewmarkIntegrator, p)
+    copyto!(ig.U, ig.U_save)
+    copyto!(ig.V, ig.V_save)
+    copyto!(ig.A, ig.A_save)
+    dof = ig.solver.linear_solver.assembler.dof
+    FEC._update_for_assembly!(p, dof, ig.U)
+    p.h1_field_old.data .= p.h1_field.data
+end
+
+function _save_state!(ig::CentralDifferenceIntegrator, p)
+    copyto!(ig.U_save, ig.U)
+    copyto!(ig.V_save, ig.V)
+    copyto!(ig.A_save, ig.A)
+end
+
+function _restore_state!(ig::CentralDifferenceIntegrator, p)
+    copyto!(ig.U, ig.U_save)
+    copyto!(ig.V, ig.V_save)
+    copyto!(ig.A, ig.A_save)
+    FEC._update_for_assembly!(p, ig.asm.dof, ig.U)
+    p.h1_field_old.data .= p.h1_field.data
+end
+
+# QuasiStatic: FEC.solve! writes into solution then syncs to h1_field via
+# _update_for_assembly!.  On rollback, copy old field back and reset solution.
+_save_state!(ig::QuasiStaticIntegrator, p)    = nothing
+function _restore_state!(ig::QuasiStaticIntegrator, p)
+    copyto!(p.h1_field.data, p.h1_field_old.data)
+    dof = ig.solver.linear_solver.assembler.dof
+    FEC._update_for_assembly!(p, dof, ig.solution)
+end
+
+# --- Step size adjustment ---
+
+function _increase_step!(ig, params)
+    ig.increase_factor == 1.0 && return
+    new_dt = min(ig.time_step * ig.increase_factor, ig.max_time_step)
+    new_dt > ig.time_step && (ig.time_step = new_dt)
+end
+
+function _decrease_step!(ig, params)
+    ig.decrease_factor == 1.0 &&
+        error("Step failed but decrease_factor = 1.0 (adaptive stepping disabled). " *
+              "Specify minimum/maximum time step and decrease/increase factors.")
+    new_dt = ig.time_step * ig.decrease_factor
+    new_dt < ig.min_time_step &&
+        error("Cannot reduce time step to $(new_dt): below minimum $(ig.min_time_step).")
+    ig.time_step = new_dt
+    _carina_logf(0, :recover, "Step failed → reducing Δt to %.3e", new_dt)
+end
+
+# --- CFL hook (no-op today; add dispatch for CentralDifferenceIntegrator later) ---
+_pre_step_hook!(integrator, params) = nothing

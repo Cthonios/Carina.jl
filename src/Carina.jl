@@ -35,11 +35,13 @@ export SolidMechanics
 export create_solid_mechanics_properties
 
 # Integrators
+export QuasiStaticIntegrator
 export CentralDifferenceIntegrator
 export NewmarkIntegrator
 
 # Simulation
 export SingleDomainSimulation
+export TimeController
 export create_simulation
 export evolve!
 
