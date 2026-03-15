@@ -385,6 +385,7 @@ function _parse_integrator(dict, asm, asm_cpu, p_cpu, controller, device=:cpu)
         kry_rtol    = Float64(get(ls_dict, "tolerance",
                             Float64(get(ti_dict, "krylov tolerance", 1e-8))))
         use_direct  = kry_type == "direct"
+        use_lbfgs   = kry_type == "lbfgs"
         device != :cpu && use_direct && error(
             "\"linear solver: type: direct\" is CPU-only.")
         kry_method  = kry_type in ("cg", "conjugate gradient") ? :cg : :minres
@@ -393,6 +394,22 @@ function _parse_integrator(dict, asm, asm_cpu, p_cpu, controller, device=:cpu)
         precond_type = Symbol(lowercase(get(precond_dict, "type", "none")))
 
         solver = _parse_solver(dict, asm, device; force_direct=true)
+
+        if use_lbfgs
+            lbfgs_m = Int(get(ls_dict, "history size", 10))
+            # Jacobi preconditioner for H₀: essential when c_M = 1/(β·Δt²) ≫ 1.
+            # Without it, the first step direction has units of force, α=1 overshoots
+            # by ~c_M, and all 10 backtracking halves fail to reduce the residual.
+            lbfgs_precond = _compute_jacobi_precond(β, dt, asm_cpu, p_cpu,
+                                                     solver.linear_solver.ΔUu)
+            return NewmarkLBFGSIntegrator(solver, β, γ, lbfgs_m;
+                                           precond=lbfgs_precond,
+                                           time_step=dt,
+                                           min_time_step=min_dt,
+                                           max_time_step=max_dt,
+                                           decrease_factor=dec,
+                                           increase_factor=inc)
+        end
 
         precond = if !use_direct && precond_type == :jacobi
             _compute_jacobi_precond(β, dt, asm_cpu, p_cpu, solver.linear_solver.ΔUu)
@@ -614,6 +631,34 @@ function _apply_initial_velocity_ics!(integrator::NewmarkIntegrator, mesh, asm_c
         for (full_dof, node) in zip(bk.dofs, bk.nodes)
             unk_idx = inv_map[full_dof]
             unk_idx == 0 && continue   # skip constrained DOFs
+            coords = @view X[(node-1)*3+1 : (node-1)*3+3]
+            V_init[unk_idx] = Base.invokelatest(func, coords, 0.0)
+        end
+    end
+    Base.invokelatest(copyto!, integrator.V, V_init)
+end
+
+# NewmarkLBFGSIntegrator — identical logic to NewmarkIntegrator.
+function _apply_initial_velocity_ics!(integrator::NewmarkLBFGSIntegrator, mesh, asm_cpu, p_cpu, vel_ics)
+    isempty(vel_ics) && return
+    dof = asm_cpu.dof
+    X   = p_cpu.h1_coords.data
+
+    n_unk   = length(dof.unknown_dofs)
+    inv_map = zeros(Int, length(dof))
+    for (i, fd) in enumerate(dof.unknown_dofs)
+        inv_map[fd] = i
+    end
+
+    V_init = zeros(Float64, n_unk)
+    for entry in vel_ics
+        var_sym  = _component_to_symbol(entry["component"])
+        func     = _make_function(entry["function"])
+        nset_sym = Symbol(entry["node set"])
+        bk       = FEC.BCBookKeeping(mesh, dof, var_sym; nset_name=nset_sym)
+        for (full_dof, node) in zip(bk.dofs, bk.nodes)
+            unk_idx = inv_map[full_dof]
+            unk_idx == 0 && continue
             coords = @view X[(node-1)*3+1 : (node-1)*3+3]
             V_init[unk_idx] = Base.invokelatest(func, coords, 0.0)
         end
