@@ -123,6 +123,34 @@ end
 end
 
 # --------------------------------------------------------------------------- #
+# FEC interface: stiffness_action (K·v per quadrature point, no matrix formed)
+# --------------------------------------------------------------------------- #
+
+@inline function FEC.stiffness_action(
+    physics::SolidMechanics,
+    interps, x_el,
+    t, dt,
+    u_el, u_el_old, v_el,
+    state_old_q, state_new_q,
+    props_el,
+)
+    cell = FEC.map_interpolants(interps, x_el)
+    (; ∇N_X, JxW) = cell
+
+    ∇u_q = FEC.interpolate_field_gradients(physics, cell, u_el)
+    ∇u_q = FEC.modify_field_gradients(FEC.ThreeDimensional(), ∇u_q)
+
+    A_q = CM.material_tangent(
+        physics.constitutive_model, props_el, dt, ∇u_q, 0.0, state_old_q, state_new_q,
+    )
+
+    A_v = FEC.extract_stiffness(FEC.ThreeDimensional(), A_q)
+    G   = FEC.discrete_gradient(FEC.ThreeDimensional(), ∇N_X)
+    # K_q·v_el = JxW·G·A_v·(G'·v_el) — avoids forming K_q (24×24)
+    return JxW * G * (A_v * (G' * v_el))
+end
+
+# --------------------------------------------------------------------------- #
 # FEC interface: mass (consistent mass matrix, per quadrature point)
 # --------------------------------------------------------------------------- #
 
@@ -140,4 +168,24 @@ end
     # N_vec: shape function vector expanded for all DOF components
     N_vec = FEC.discrete_values(FEC.ThreeDimensional(), N)
     return JxW * physics.density * N_vec * N_vec'
+end
+
+# --------------------------------------------------------------------------- #
+# FEC interface: mass_action (M·v per quadrature point, no matrix formed)
+# --------------------------------------------------------------------------- #
+
+@inline function FEC.mass_action(
+    physics::SolidMechanics,
+    interps, x_el,
+    t, dt,
+    u_el, u_el_old, v_el,
+    state_old_q, state_new_q,
+    props_el,
+)
+    cell = FEC.map_interpolants(interps, x_el)
+    (; N, JxW) = cell
+
+    N_vec = FEC.discrete_values(FEC.ThreeDimensional(), N)
+    # M_q·v_el = JxW·ρ·(N_vec·v_el)·N_vec — avoids forming M_q (24×24)
+    return JxW * physics.density * dot(N_vec, v_el) * N_vec
 end

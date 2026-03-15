@@ -148,10 +148,13 @@ function NewmarkIntegrator(solver::FEC.NewtonSolver, β::Float64, γ::Float64;
 end
 
 # Matrix-free effective stiffness: y = (K + c_M·M)·v
+# Uses action kernels (stiffness_action / mass_action) that compute K_q·v and
+# M_q·v per quadrature point without forming the 24×24 element matrices,
+# eliminating GPU register spilling (Level 2 fix).
 function _eff_stiffness_matvec!(y, v, asm, U, c_M, p, scratch)
-    FEC.assemble_matrix_action!(asm, FEC.stiffness, U, v, p)
+    FEC.assemble_matrix_free_action!(asm, FEC.stiffness_action, U, v, p)
     copyto!(scratch, asm.stiffness_action_storage.data)
-    FEC.assemble_matrix_action!(asm, FEC.mass, U, v, p)
+    FEC.assemble_matrix_free_action!(asm, FEC.mass_action, U, v, p)
     @. asm.stiffness_action_storage.data =
         scratch + c_M * asm.stiffness_action_storage.data
     copyto!(y, FEC.hvp(asm, v))
@@ -201,7 +204,7 @@ function FEC.evolve!(integrator::NewmarkIntegrator, p)
     FEC.assemble_vector!(asm, FEC.residual, U, p)
     FEC.assemble_vector_neumann_bc!(asm, U, p)
     @. dU = U - U_pred
-    FEC.assemble_matrix_action!(asm, FEC.mass, U, dU, p)
+    FEC.assemble_matrix_free_action!(asm, FEC.mass_action, U, dU, p)
     R_int = FEC.residual(asm)
 
     # Detect constitutive failures (e.g. J ≤ 0 → NaN in neo-Hookean).
@@ -223,7 +226,7 @@ function FEC.evolve!(integrator::NewmarkIntegrator, p)
             FEC.assemble_vector_neumann_bc!(asm, U, p)
 
             @. dU = U - U_pred
-            FEC.assemble_matrix_action!(asm, FEC.mass, U, dU, p)
+            FEC.assemble_matrix_free_action!(asm, FEC.mass_action, U, dU, p)
         end
 
         R_int = FEC.residual(asm)
@@ -500,7 +503,7 @@ function FEC.evolve!(integrator::NewmarkLBFGSIntegrator, p)
 
         # ---- Precompute M·d for incremental line-search evaluations ----
         t_Md = @elapsed begin
-            FEC.assemble_matrix_action!(asm, FEC.mass, U, d, p)
+            FEC.assemble_matrix_free_action!(asm, FEC.mass_action, U, d, p)
             copyto!(M_d, FEC.hvp(asm, d))
         end
 
