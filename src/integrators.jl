@@ -259,6 +259,7 @@ mutable struct NewmarkIntegrator{Solver <: FEC.NewtonSolver, Vec, KrySolver, PC 
     U_prev::Vec; V_prev::Vec; A_prev::Vec
     krylov_solver::KrySolver
     scratch::Vec
+    ones_v::Vec   # all-ones vector for preconditioner diagonal refresh
     U_pred::Vec
     dU::Vec
     R_eff::Vec
@@ -294,6 +295,7 @@ function NewmarkIntegrator(solver::FEC.NewtonSolver, β::Float64, γ::Float64;
 
     U, V, A             = mk(), mk(), mk()
     U_prev, V_prev, A_prev = mk(), mk(), mk()
+    ones_v = (v = similar(ΔUu); fill!(v, one(T)); v)
     scratch, U_pred, dU, R_eff = mk(), mk(), mk(), mk()
     U_save, V_save, A_save = mk(), mk(), mk()
 
@@ -308,13 +310,32 @@ function NewmarkIntegrator(solver::FEC.NewtonSolver, β::Float64, γ::Float64;
     return NewmarkIntegrator(
         solver, β, γ, use_direct, krylov_method, krylov_itmax, krylov_rtol,
         U, V, A, U_prev, V_prev, A_prev,
-        kry, scratch, U_pred, dU, R_eff,
+        kry, scratch, ones_v, U_pred, dU, R_eff,
         precond,
         time_step, min_time_step, max_time_step, decrease_factor, increase_factor,
         Ref(false),
         U_save, V_save, A_save,
     )
 end
+
+# Refresh the Jacobi preconditioner diagonal from K(U) + c_M·M at the current
+# iterate U.  Uses the Level-2 action kernels (no 24×24 K_el formed) so the
+# cost is two matrix-free matvecs (~130 ms on RX 7600 for 530k DOF).
+#
+# The result is written into precond.inv_diag in-place.  Because M_op closes
+# over the same array, CG sees fresh diagonal values on the next solve.
+#
+# The no-op overload for NoPreconditioner is a compile-time no-op.
+function _update_jacobi_precond!(precond::JacobiPreconditioner, asm, U, ones_v, c_M, p, scratch)
+    FEC.assemble_matrix_free_action!(asm, FEC.stiffness_action, U, ones_v, p)
+    copyto!(scratch, asm.stiffness_action_storage.data)
+    FEC.assemble_matrix_free_action!(asm, FEC.mass_action, U, ones_v, p)
+    @. asm.stiffness_action_storage.data = scratch + c_M * asm.stiffness_action_storage.data
+    d_eff = FEC.hvp(asm, ones_v)
+    @. precond.inv_diag = 1.0 / max(abs(d_eff), eps(Float64))
+    return nothing
+end
+_update_jacobi_precond!(::NoPreconditioner, args...) = nothing
 
 # Matrix-free effective stiffness: y = (K + c_M·M)·v
 # Uses action kernels (stiffness_action / mass_action) that compute K_q·v and
@@ -334,7 +355,7 @@ function FEC.evolve!(integrator::NewmarkIntegrator, p)
     (; solver, β, γ, use_direct,
        krylov_method, krylov_itmax, krylov_rtol, precond,
        U, V, A, U_prev, V_prev, A_prev,
-       krylov_solver, scratch, U_pred, dU, R_eff) = integrator
+       krylov_solver, scratch, ones_v, U_pred, dU, R_eff) = integrator
 
     FEC.update_time!(p)
     FEC.update_bc_values!(p)
@@ -391,6 +412,10 @@ function FEC.evolve!(integrator::NewmarkIntegrator, p)
     converged = false
     for iter in 1:solver.max_iters
         t_asm = @elapsed begin
+            # Refresh Jacobi diagonal from K(U) + c_M·M at current iterate.
+            # No-op when precond isa NoPreconditioner.
+            _update_jacobi_precond!(precond, asm, U, ones_v, c_M, p, scratch)
+
             FEC.assemble_vector!(asm, FEC.residual, U, p)
             FEC.assemble_vector_neumann_bc!(asm, U, p)
 
