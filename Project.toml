@@ -34,5 +34,5 @@ YAML = "0.4.16"
 
 [sources]
 ConstitutiveModels = {url = "git@github.com:Cthonios/ConstitutiveModels.jl.git", rev = "main"}
-FiniteElementContainers = {path = "/home/mota/Repos/FiniteElementContainers.jl"}
+FiniteElementContainers = {url = "git@github.com:Cthonios/FiniteElementContainers.jl.git", rev = "main"}
 ReferenceFiniteElements = {url = "git@github.com:Cthonios/ReferenceFiniteElements.jl.git", rev = "main"}

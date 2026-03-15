@@ -75,6 +75,175 @@ function FEC.evolve!(integrator::QuasiStaticIntegrator, p)
 end
 
 # --------------------------------------------------------------------------- #
+# QuasiStaticLBFGSIntegrator — L-BFGS quasi-static
+# --------------------------------------------------------------------------- #
+#
+# Minimises the total potential energy  Π(U) = ∫W(∇u)dV − f·u
+# using L-BFGS instead of Newton-Krylov.
+#
+# Each outer iteration needs only one residual assembly per line-search trial
+# (~13 ms on the RX 7600 for 530k DOF). No stiffness matvec is ever called.
+#
+# History is reset each load step; BB scaling (γ₀ = sy/yy from the last pair)
+# provides curvature information once the first step is accepted.
+
+mutable struct QuasiStaticLBFGSIntegrator{Sol, Vec, PC <: Preconditioner}
+    solver   ::Sol
+    m        ::Int          # L-BFGS history size (ring buffer capacity)
+    U        ::Vec          # current unknown vector
+    R_eff    ::Vec          # current −R(U)
+    R_old    ::Vec          # R_eff snapshot before each step (for y = R_old − R_new)
+    d        ::Vec          # L-BFGS descent direction
+    q        ::Vec          # two-loop work vector / trial-point scratch
+    S        ::Vector{Vec}  # ring-buffer position differences  s_k = α·d_k
+    Y        ::Vector{Vec}  # ring-buffer gradient differences  y_k = Δg_k
+    ρ        ::Vector{Float64}
+    alpha_buf::Vector{Float64}
+    head     ::Int
+    hist_fill::Int
+    precond  ::PC
+    # Adaptive time stepping
+    time_step       ::Float64
+    min_time_step   ::Float64
+    max_time_step   ::Float64
+    decrease_factor ::Float64
+    increase_factor ::Float64
+    failed          ::Base.RefValue{Bool}
+    # Rollback state
+    U_save   ::Vec
+end
+
+function QuasiStaticLBFGSIntegrator(solver::Sol, m::Int;
+                                     precond::Preconditioner=NoPreconditioner(),
+                                     time_step::Float64=0.0,
+                                     min_time_step::Float64=0.0,
+                                     max_time_step::Float64=0.0,
+                                     decrease_factor::Float64=1.0,
+                                     increase_factor::Float64=1.0) where {Sol}
+    ΔUu = solver.linear_solver.ΔUu
+    T   = eltype(ΔUu)
+    mk() = (v = similar(ΔUu); fill!(v, zero(T)); v)
+
+    U, R_eff, R_old, d, q, U_save = mk(), mk(), mk(), mk(), mk(), mk()
+    S = [mk() for _ in 1:m]
+    Y = [mk() for _ in 1:m]
+    ρ         = zeros(Float64, m)
+    alpha_buf = zeros(Float64, m)
+
+    return QuasiStaticLBFGSIntegrator(
+        solver, m,
+        U, R_eff, R_old, d, q,
+        S, Y, ρ, alpha_buf, 0, 0,
+        precond,
+        time_step, min_time_step, max_time_step,
+        decrease_factor, increase_factor,
+        Ref(false),
+        U_save,
+    )
+end
+
+function FEC.evolve!(integrator::QuasiStaticLBFGSIntegrator, p)
+    (; solver, m, precond, U, R_eff, R_old, d, q, S, Y, ρ, alpha_buf) = integrator
+
+    FEC.update_time!(p)
+    FEC.update_bc_values!(p)
+
+    asm = solver.linear_solver.assembler
+    dof = asm.dof
+
+    # Reset L-BFGS history each load step.
+    integrator.head      = 0
+    integrator.hist_fill = 0
+
+    # Initial residual.
+    FEC.assemble_vector!(asm, FEC.residual, U, p)
+    FEC.assemble_vector_neumann_bc!(asm, U, p)
+    R_int0 = FEC.residual(asm)
+    if !isfinite(sqrt(sum(abs2, R_int0)))
+        integrator.failed[] = true
+        return nothing
+    end
+    @. R_eff = -R_int0
+
+    initial_norm = sqrt(sum(abs2, R_eff))
+    _carina_logf(8, :solve, "Iter [0] |R| = %.3e : |r| = %.3e : %s",
+                 initial_norm, 1.0, _status_str(false))
+
+    max_iters   = solver.max_iters
+    abs_res_tol = solver.abs_residual_tol
+    rel_res_tol = solver.rel_residual_tol
+    abs_inc_tol = solver.abs_increment_tol
+
+    converged = false
+    for iter in 1:max_iters
+        norm_R = sqrt(sum(abs2, R_eff))
+        rel_R  = initial_norm > 0.0 ? norm_R / initial_norm : norm_R
+
+        # L-BFGS descent direction  d = H·R_eff
+        t_dir = @elapsed begin
+            _lbfgs_two_loop!(d, q, R_eff, S, Y, ρ, alpha_buf,
+                              integrator.head, integrator.hist_fill, m, precond)
+        end
+
+        copyto!(R_old, R_eff)
+
+        # Backtracking line search on ‖R(U + α·d)‖.
+        α        = 1.0
+        ls_iters = 0
+        t_ls = @elapsed begin
+            for ls in 1:10
+                ls_iters = ls
+                @. q = U + α * d
+                FEC.assemble_vector!(asm, FEC.residual, q, p)
+                FEC.assemble_vector_neumann_bc!(asm, q, p)
+                R_int_trial = FEC.residual(asm)
+                @. R_eff = -R_int_trial
+                norm_R_trial = sqrt(sum(abs2, R_eff))
+                if isfinite(norm_R_trial) && norm_R_trial < norm_R
+                    break
+                end
+                α *= 0.5
+            end
+        end
+
+        @. U = U + α * d
+
+        norm_dU    = α * sqrt(sum(abs2, d))
+        new_norm_R = sqrt(sum(abs2, R_eff))
+        new_rel_R  = initial_norm > 0.0 ? new_norm_R / initial_norm : new_norm_R
+
+        converged = norm_dU    < abs_inc_tol ||
+                    new_norm_R < abs_res_tol  ||
+                    new_rel_R  < rel_res_tol
+
+        _carina_logf(8, :solve,
+            "Iter [%d] |R| = %.3e : |r| = %.3e : |ΔU| = %.3e : α = %.2e : LS = %d : t_dir = %.0fms : t_ls = %.0fms : %s",
+            iter, new_norm_R, new_rel_R, norm_dU, α, ls_iters,
+            t_dir * 1e3, t_ls * 1e3, _status_str(converged))
+
+        # L-BFGS history update: s_k = α·d,  y_k = R_old − R_eff_new
+        new_head = mod1(integrator.head + 1, m)
+        @. S[new_head] = α * d
+        @. Y[new_head] = R_old - R_eff
+        ys = dot(Y[new_head], S[new_head])
+        if ys > 0.0
+            ρ[new_head]          = 1.0 / ys
+            integrator.head      = new_head
+            integrator.hist_fill = min(integrator.hist_fill + 1, m)
+        end
+
+        converged && break
+    end
+
+    integrator.failed[] = !converged
+
+    FEC._update_for_assembly!(p, dof, U)
+    p.h1_field_old.data .= p.h1_field.data
+
+    return nothing
+end
+
+# --------------------------------------------------------------------------- #
 # NewmarkIntegrator — implicit Newmark-β
 # --------------------------------------------------------------------------- #
 
@@ -712,6 +881,16 @@ function _restore_state!(ig::QuasiStaticIntegrator, p)
     copyto!(p.h1_field.data, p.h1_field_old.data)
     dof = ig.solver.linear_solver.assembler.dof
     FEC._update_for_assembly!(p, dof, ig.solution)
+end
+
+function _save_state!(ig::QuasiStaticLBFGSIntegrator, p)
+    copyto!(ig.U_save, ig.U)
+end
+function _restore_state!(ig::QuasiStaticLBFGSIntegrator, p)
+    copyto!(ig.U, ig.U_save)
+    dof = ig.solver.linear_solver.assembler.dof
+    FEC._update_for_assembly!(p, dof, ig.U)
+    p.h1_field_old.data .= p.h1_field.data
 end
 
 # --- Step size adjustment ---

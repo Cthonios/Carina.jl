@@ -37,6 +37,7 @@ export create_solid_mechanics_properties
 
 # Integrators
 export QuasiStaticIntegrator
+export QuasiStaticLBFGSIntegrator
 export CentralDifferenceIntegrator
 export NewmarkIntegrator
 

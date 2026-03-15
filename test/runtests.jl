@@ -14,6 +14,7 @@ const indexed_test_files = [
     (3, "mechanics-explicit-dynamic-cube.jl"),
     (4, "mechanics-quasistatic-cube-linear-elastic.jl"),
     (5, "mechanics-implicit-dynamic-cube-lbfgs.jl"),
+    (6, "mechanics-quasistatic-cube-lbfgs.jl"),
 ]
 
 # ---------------------------------------------------------------------------

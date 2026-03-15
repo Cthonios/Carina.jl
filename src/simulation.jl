@@ -369,7 +369,28 @@ function _parse_integrator(dict, asm, asm_cpu, p_cpu, controller, device=:cpu)
 
     if type_str in ("quasi static", "quasistatic", "static")
         min_dt, max_dt, dec, inc = _parse_adaptive_stepping(ti_dict, dt)
-        solver = _parse_solver(dict, asm, device)
+        sol_dict  = get(dict, "solver", Dict{String,Any}())
+        ls_dict   = get(sol_dict, "linear solver", Dict{String,Any}())
+        kry_type  = lowercase(get(ls_dict, "type", "direct"))
+        use_lbfgs = kry_type == "lbfgs"
+
+        solver = _parse_solver(dict, asm, device; force_direct=!use_lbfgs)
+
+        if use_lbfgs
+            lbfgs_m       = Int(get(ls_dict, "history size", 10))
+            # Jacobi(K) preconditioner: scales H₀ so first step has units of
+            # displacement (m) rather than force (N).  Without it, α=1 overshoots
+            # by ~E and all backtracking halvings fail to reduce the residual.
+            lbfgs_precond = _compute_stiffness_jacobi_precond(asm_cpu, p_cpu,
+                                                               solver.linear_solver.ΔUu)
+            return QuasiStaticLBFGSIntegrator(solver, lbfgs_m;
+                                               precond=lbfgs_precond,
+                                               time_step=dt,
+                                               min_time_step=min_dt,
+                                               max_time_step=max_dt,
+                                               decrease_factor=dec,
+                                               increase_factor=inc)
+        end
         return QuasiStaticIntegrator(solver, dt, min_dt, max_dt, dec, inc)
 
     elseif type_str in ("newmark", "newmark-beta", "newmark beta")
@@ -469,6 +490,24 @@ function _compute_jacobi_precond(β, Δt, asm_cpu, p_cpu, ΔUu_template)
     inv_diag_cpu = 1.0 ./ (c_M .* m_diag)
 
     # Transfer to device (no-op if already CPU).
+    inv_diag = similar(ΔUu_template)
+    copyto!(inv_diag, inv_diag_cpu)
+    return JacobiPreconditioner(inv_diag)
+end
+
+# Compute the Jacobi (diagonal) preconditioner for the quasi-static tangent
+# stiffness K(U=0) via K·ones.  Used as H₀ in L-BFGS so that the first step
+# has units of displacement rather than force.
+function _compute_stiffness_jacobi_precond(asm_cpu, p_cpu, ΔUu_template)
+    n_cpu   = length(ΔUu_template)
+    ones_v  = ones(Float64, n_cpu)
+    U_zeros = zeros(Float64, n_cpu)
+
+    FEC.assemble_matrix_action!(asm_cpu, FEC.stiffness, U_zeros, ones_v, p_cpu)
+    k_diag = copy(FEC.hvp(asm_cpu, ones_v))
+
+    inv_diag_cpu = 1.0 ./ max.(abs.(k_diag), eps(Float64))
+
     inv_diag = similar(ΔUu_template)
     copyto!(inv_diag, inv_diag_cpu)
     return JacobiPreconditioner(inv_diag)
