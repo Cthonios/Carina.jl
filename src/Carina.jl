@@ -49,6 +49,7 @@ export evolve!
 
 # Entry point
 export run
+export best_device
 
 # Re-export frequently-used FEC and CM aliases so callers need only `using Carina`
 export FEC

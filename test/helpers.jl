@@ -1,5 +1,10 @@
 using Statistics
 
+# Copy a file from the examples tree into a temp directory, following symlinks
+# so that mesh files (which are symlinks into examples/meshes/) are copied as
+# real files rather than broken relative symlinks.
+cp_example(src, dst) = cp(src, dst; follow_symlinks=true)
+
 # ---------------------------------------------------------------------------
 # Field extraction helpers for Carina test assertions.
 #
@@ -46,4 +51,15 @@ Return the minimum displacement in each direction.
 function minimum_components(sim::Carina.SingleDomainSimulation)
     u = _field_matrix(sim)
     return [minimum(u[i, :]) for i in 1:size(u, 1)]
+end
+
+"""
+    maximum_magnitude(sim) -> Float64
+
+Return the maximum displacement magnitude over all nodes:
+    max_i  sqrt(ux_i² + uy_i² + uz_i²)
+"""
+function maximum_magnitude(sim::Carina.SingleDomainSimulation)
+    u = _field_matrix(sim)   # 3 × n_nodes
+    return maximum(sqrt.(sum(u.^2, dims=1)))
 end

@@ -41,6 +41,33 @@ function _require_cuda!()
 end
 
 # ---------------------------------------------------------------------------
+# Device detection
+# ---------------------------------------------------------------------------
+
+"""
+    Carina.best_device() -> String
+
+Return the best available compute device as a string: `"rocm"` if a
+functional AMD GPU is found, `"cuda"` if a functional NVIDIA GPU is found,
+or `"cpu"` otherwise.  The relevant backend package is loaded on first call.
+"""
+function best_device()
+    try
+        _require_amdgpu!()
+        mod = Base.loaded_modules[_AMDGPU_ID]
+        Base.invokelatest(mod.functional) && return "rocm"
+    catch
+    end
+    try
+        _require_cuda!()
+        mod = Base.loaded_modules[_CUDA_ID]
+        Base.invokelatest(mod.functional) && return "cuda"
+    catch
+    end
+    return "cpu"
+end
+
+# ---------------------------------------------------------------------------
 # Top-level entry point
 # ---------------------------------------------------------------------------
 
