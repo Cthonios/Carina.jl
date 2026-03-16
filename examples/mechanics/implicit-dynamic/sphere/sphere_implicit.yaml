@@ -1,0 +1,47 @@
+type: single
+device: cpu
+
+input mesh file:  sphere.g
+output mesh file: sphere_implicit.e
+output interval:  1
+
+model:
+  type: solid mechanics
+  material:
+    blocks:
+      sphere: neohookean
+    neohookean:
+      elastic modulus: 1.0e+04
+      Poisson's ratio: 0.33
+      density: 1000.0
+
+time integrator:
+  type:         Newmark
+  beta:         0.25
+  gamma:        0.5
+  initial time: 0.0
+  final time:   1.0e-02
+  time step:    1.0e-02
+
+# TODO: implement HHT-alpha integrator for controllable algorithmic damping
+# (Newmark beta=0.25, gamma=0.5 is undamped; central difference also undamped)
+
+initial conditions:
+  velocity:
+    - node set: sphere_surf
+      component: x
+      function: "a=10.0; -a*y*z"
+    - node set: sphere_surf
+      component: y
+      function: "a=10.0; a*x*z"
+    - node set: sphere_surf
+      component: z
+      function: "0.0"
+
+solver:
+  maximum iterations: 20
+  relative tolerance: 1.0e-10
+  absolute tolerance: 1.0e-06
+
+  linear solver:
+    type: direct
