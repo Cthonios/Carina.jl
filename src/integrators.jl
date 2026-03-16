@@ -217,9 +217,10 @@ function FEC.evolve!(integrator::QuasiStaticLBFGSIntegrator, p)
                     new_rel_R  < rel_res_tol
 
         _carina_logf(8, :solve,
-            "Iter [%d] |R| = %.3e : |r| = %.3e : |ΔU| = %.3e : α = %.2e : LS = %d : t_dir = %.0fms : t_ls = %.0fms : %s",
-            iter, new_norm_R, new_rel_R, norm_dU, α, ls_iters,
-            t_dir * 1e3, t_ls * 1e3, _status_str(converged))
+            "Iter [%d] |R| = %.3e : |r| = %.3e : %s\n" *
+            "                  |ΔU|=%.3e : α=%.2e : LS=%d : t_dir=%.0fms : t_ls=%.0fms",
+            iter, new_norm_R, new_rel_R, _status_str(converged),
+            norm_dU, α, ls_iters, t_dir * 1e3, t_ls * 1e3)
 
         # L-BFGS history update: s_k = α·d,  y_k = R_old − R_eff_new
         new_head = mod1(integrator.head + 1, m)
@@ -453,8 +454,9 @@ function FEC.evolve!(integrator::NewmarkIntegrator, p)
                         norm_R    < solver.abs_residual_tol   ||
                         rel_R     < solver.rel_residual_tol
             _carina_logf(8, :solve,
-                "Iter [%d] |R| = %.3e : |r| = %.3e : |ΔU| = %.3e : t_asm = %.3fs : t_lu = %.3fs : %s",
-                iter, norm_R, rel_R, norm_dU, t_asm, t_kry, _status_str(converged))
+                "Iter [%d] |R| = %.3e : |r| = %.3e : %s\n" *
+                "                  |ΔU|=%.3e : t_asm=%.3fs : t_lu=%.3fs",
+                iter, norm_R, rel_R, _status_str(converged), norm_dU, t_asm, t_kry)
         else
             t_kry = @elapsed begin
                 if M_op === nothing
@@ -478,11 +480,11 @@ function FEC.evolve!(integrator::NewmarkIntegrator, p)
                         norm_R    < solver.abs_residual_tol   ||
                         rel_R     < solver.rel_residual_tol
             _carina_logf(8, :solve,
-                "Iter [%d] |R| = %.3e : |r| = %.3e : |ΔU| = %.3e : t_asm = %.3fs : t_kry = %.3fs : Krylov = %d/%d (%s) : %s",
-                iter, norm_R, rel_R, norm_dU,
-                t_asm, t_kry,
-                kry_iters, krylov_itmax, kry_solved ? "conv" : "STALL",
-                _status_str(converged))
+                "Iter [%d] |R| = %.3e : |r| = %.3e : %s\n" *
+                "                  |ΔU|=%.3e : t_asm=%.3fs : t_kry=%.3fs : %d/%d(%s)",
+                iter, norm_R, rel_R, _status_str(converged), norm_dU,
+                t_asm, t_kry, kry_iters, krylov_itmax,
+                kry_solved ? "conv" : "STALL")
         end
         @debug "Newmark Newton" iter norm_R rel_R
 
@@ -738,9 +740,10 @@ function FEC.evolve!(integrator::NewmarkLBFGSIntegrator, p)
                     new_rel_R  < rel_res_tol
 
         _carina_logf(8, :solve,
-            "Iter [%d] |R| = %.3e : |r| = %.3e : |ΔU| = %.3e : α = %.2e : LS = %d : t_dir = %.0fms : t_Md = %.0fms : t_ls = %.0fms : %s",
-            iter, new_norm_R, new_rel_R, norm_dU, α, ls_iters,
-            t_dir * 1e3, t_Md * 1e3, t_ls * 1e3, _status_str(converged))
+            "Iter [%d] |R| = %.3e : |r| = %.3e : %s\n" *
+            "                  |ΔU|=%.3e : α=%.2e : LS=%d : t_dir=%.0fms : t_ls=%.0fms",
+            iter, new_norm_R, new_rel_R, _status_str(converged),
+            norm_dU, α, ls_iters, (t_dir + t_Md) * 1e3, t_ls * 1e3)
         @debug "Newmark L-BFGS" iter new_norm_R new_rel_R norm_dU
 
         # ---- L-BFGS history update ----

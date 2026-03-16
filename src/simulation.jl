@@ -224,9 +224,8 @@ function evolve!(sim::SingleDomainSimulation)
         t_prev = controller.prev_time
         t_stop = controller.time
 
-        _carina_logf(4, :advance,
-            "Control step [%d/%d] : [%.4e, %.4e] : Δt_c = %.4e",
-            controller.stop, n_steps, t_prev, t_stop, controller.control_step)
+        _carina_logf(4, :advance, "[%.4e, %.4e] : Δt = %.4e",
+            t_prev, t_stop, controller.control_step)
 
         # Reset FEC clock to start of this control interval
         params.times.time_current = t_prev
