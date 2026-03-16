@@ -219,6 +219,8 @@ function evolve!(sim::SingleDomainSimulation)
     (; params, post_processor, controller, output_interval, device) = sim
     n_steps = controller.num_stops - 1
 
+    output_step = 2  # step 1 is the initial frame written in create_simulation
+
     for _ in 1:n_steps
         _advance_controller!(controller)
         t_prev = controller.prev_time
@@ -237,8 +239,8 @@ function evolve!(sim::SingleDomainSimulation)
         pct = round(Int, 100 * controller.stop / n_steps)
 
         if controller.stop % output_interval == 0
-            step  = controller.stop + 1
-            write_output!(sim, step)
+            write_output!(sim, output_step)
+            output_step += 1
             u_max = maximum(abs, params.h1_field.data)
             _carina_logf(0, :stop,
                 "[%d/%d, %3d%%] : Time = %.4e : |U|_max = %.3e : wall = %.2fs",

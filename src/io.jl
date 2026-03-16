@@ -137,20 +137,20 @@ _has_acceleration(::Any)                          = false
 # Bring velocity vector to CPU (no-op if already CPU).
 function _get_velocity_cpu(ig::NewmarkIntegrator, device::Symbol)
     device == :cpu && return Vector{Float64}(ig.V)
-    return Vector{Float64}(Adapt.adapt(Array, ig.V))
+    return Vector{Float64}(Base.invokelatest(Adapt.adapt, Array, ig.V))
 end
 function _get_velocity_cpu(ig::CentralDifferenceIntegrator, device::Symbol)
     device == :cpu && return Vector{Float64}(ig.V)
-    return Vector{Float64}(Adapt.adapt(Array, ig.V))
+    return Vector{Float64}(Base.invokelatest(Adapt.adapt, Array, ig.V))
 end
 
 function _get_acceleration_cpu(ig::NewmarkIntegrator, device::Symbol)
     device == :cpu && return Vector{Float64}(ig.A)
-    return Vector{Float64}(Adapt.adapt(Array, ig.A))
+    return Vector{Float64}(Base.invokelatest(Adapt.adapt, Array, ig.A))
 end
 function _get_acceleration_cpu(ig::CentralDifferenceIntegrator, device::Symbol)
     device == :cpu && return Vector{Float64}(ig.A)
-    return Vector{Float64}(Adapt.adapt(Array, ig.A))
+    return Vector{Float64}(Base.invokelatest(Adapt.adapt, Array, ig.A))
 end
 
 # ---------------------------------------------------------------------------
