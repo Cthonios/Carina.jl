@@ -397,9 +397,8 @@ function _parse_integrator(dict, asm, asm_cpu, p_cpu, controller, device=:cpu)
 
     if type_str in ("quasi static", "quasistatic", "static")
         min_dt, max_dt, dec, inc = _parse_adaptive_stepping(ti_dict, dt)
-        sol_dict  = get(dict, "solver", Dict{String,Any}())
-        ls_dict   = get(sol_dict, "linear solver", Dict{String,Any}())
-        kry_type  = lowercase(get(ls_dict, "type", "direct"))
+        sol_dict, ls_dict = _read_solver_dicts(dict)
+        kry_type  = lowercase(ls_dict["type"])
         use_lbfgs = kry_type == "lbfgs"
 
         solver = _parse_solver(dict, asm, device; force_direct=!use_lbfgs)
@@ -422,21 +421,21 @@ function _parse_integrator(dict, asm, asm_cpu, p_cpu, controller, device=:cpu)
         return QuasiStaticIntegrator(solver, dt, min_dt, max_dt, dec, inc)
 
     elseif type_str in ("newmark", "newmark-beta", "newmark beta")
-        β = Float64(get(ti_dict, "beta",  0.25))
-        γ = Float64(get(ti_dict, "gamma", 0.5))
+        α_hht = Float64(get(ti_dict, "alpha", 0.0))
+        β = α_hht != 0.0 ? (1.0 - α_hht)^2 / 4.0 : Float64(get(ti_dict, "beta",  0.25))
+        γ = α_hht != 0.0 ? (1.0 - 2.0*α_hht) / 2.0 : Float64(get(ti_dict, "gamma", 0.5))
         min_dt, max_dt, dec, inc = _parse_adaptive_stepping(ti_dict, dt)
 
-        sol_dict    = get(dict, "solver", Dict{String,Any}())
-        ls_dict     = get(sol_dict, "linear solver", Dict{String,Any}())
-        kry_type    = lowercase(get(ls_dict, "type", "minres"))
-        kry_itmax   = Int(get(ls_dict, "maximum iterations",
+        sol_dict, ls_dict = _read_solver_dicts(dict)
+        kry_type  = lowercase(ls_dict["type"])
+        kry_itmax = Int(get(ls_dict, "maximum iterations",
                             Int(get(ti_dict, "krylov iterations", 1000))))
-        kry_rtol    = Float64(get(ls_dict, "tolerance",
+        kry_rtol  = Float64(get(ls_dict, "tolerance",
                             Float64(get(ti_dict, "krylov tolerance", 1e-8))))
-        use_direct  = kry_type == "direct"
-        use_lbfgs   = kry_type == "lbfgs"
+        use_direct = kry_type == "direct"
+        use_lbfgs  = kry_type == "lbfgs"
         device != :cpu && use_direct && error(
-            "\"linear solver: type: direct\" is CPU-only.")
+            "\"solver: linear solver: type: direct\" is CPU-only.")
         kry_method  = kry_type in ("cg", "conjugate gradient") ? :cg : :minres
 
         precond_dict = get(ls_dict, "preconditioner", Dict{String,Any}())
@@ -452,6 +451,7 @@ function _parse_integrator(dict, asm, asm_cpu, p_cpu, controller, device=:cpu)
             lbfgs_precond = _compute_jacobi_precond(β, dt, asm_cpu, p_cpu,
                                                      solver.linear_solver.ΔUu)
             return NewmarkLBFGSIntegrator(solver, β, γ, lbfgs_m;
+                                           α=α_hht,
                                            precond=lbfgs_precond,
                                            time_step=dt,
                                            min_time_step=min_dt,
@@ -459,6 +459,11 @@ function _parse_integrator(dict, asm, asm_cpu, p_cpu, controller, device=:cpu)
                                            decrease_factor=dec,
                                            increase_factor=inc)
         end
+
+        # On CPU with Krylov, assemble K_eff as a sparse matrix each Newton
+        # iteration and use standard sparse matvec — much faster than the
+        # matrix-free GPU path where each matvec reruns the element loop.
+        use_assembled_krylov = !use_direct && !use_lbfgs && device == :cpu
 
         precond = if !use_direct && precond_type == :jacobi
             _compute_jacobi_precond(β, dt, asm_cpu, p_cpu, solver.linear_solver.ΔUu)
@@ -468,6 +473,7 @@ function _parse_integrator(dict, asm, asm_cpu, p_cpu, controller, device=:cpu)
 
         return NewmarkIntegrator(solver, β, γ;
                                   use_direct=use_direct,
+                                  use_assembled_krylov=use_assembled_krylov,
                                   krylov_method=kry_method,
                                   krylov_itmax=kry_itmax,
                                   krylov_rtol=kry_rtol,
@@ -558,16 +564,50 @@ end
 
 # ---- solver ----
 
+# Validate and return the solver and linear-solver sub-dicts.
+# Errors if the required two-level structure is absent.
+function _read_solver_dicts(dict)
+    haskey(dict, "solver") ||
+        error("Missing required \"solver:\" section.")
+    sol_dict = dict["solver"]
+
+    haskey(sol_dict, "type") ||
+        error("Missing required \"solver: type:\". " *
+              "Supported values: \"newton\", \"hessian minimizer\".")
+    nl_type = lowercase(sol_dict["type"])
+    nl_type in ("newton", "hessian minimizer") ||
+        error("Unknown \"solver: type: $(sol_dict["type"])\". " *
+              "Supported values: \"newton\", \"hessian minimizer\".")
+
+    haskey(sol_dict, "linear solver") ||
+        error("Missing required \"solver: linear solver:\" section.")
+    ls_dict = sol_dict["linear solver"]
+
+    haskey(ls_dict, "type") ||
+        error("Missing required \"solver: linear solver: type:\". " *
+              "Supported values: \"direct\", \"iterative\", \"cg\", \"minres\", \"lbfgs\", \"none\".")
+
+    return sol_dict, ls_dict
+end
+
 function _parse_solver(dict, asm, device=:cpu; force_direct=false)
-    # Solver section is optional; Newton with defaults if absent.
-    sol_dict  = get(dict, "solver", Dict{String,Any}())
+    sol_dict, ls_dict = _read_solver_dicts(dict)
+
     max_iters = Int(get(sol_dict, "maximum iterations", 20))
     abs_tol   = Float64(get(sol_dict, "absolute tolerance", 1e-10))
     rel_tol   = Float64(get(sol_dict, "relative tolerance", 1e-14))
-    # GPU quasi-static requires iterative solver (direct \ is CPU-only).
-    # force_direct overrides this (used by Newmark which never calls linear solve).
-    sol_type  = (!force_direct && device != :cpu) ? "iterative" :
-                lowercase(get(sol_dict, "type", "direct"))
+
+    ls_type = lowercase(ls_dict["type"])
+
+    # force_direct is used by integrators that manage their own linear solve
+    # (Newmark, CentralDifference) and only need the solver as a template holder.
+    sol_type = if force_direct
+        "direct"
+    else
+        device != :cpu && ls_type == "direct" &&
+            error("\"solver: linear solver: type: direct\" is CPU-only.")
+        ls_type
+    end
 
     # Per-iteration logging callback for FEC.NewtonSolver (quasi-static path).
     newton_cb = (iter, norm_ΔUu, norm_R, rel_R, converged) -> begin
@@ -576,15 +616,24 @@ function _parse_solver(dict, asm, device=:cpu; force_direct=false)
                      iter, norm_R, rel_R, status)
     end
 
-    # FEC.NewtonSolver takes (max_iters, abs_increment_tol, abs_residual_tol, rel_residual_tol, linear_solver, timer, log_callback)
+    # FEC.NewtonSolver takes (max_iters, abs_increment_tol, abs_residual_tol,
+    #                         rel_residual_tol, linear_solver, timer, log_callback)
     if sol_type == "direct"
         linear = FEC.DirectLinearSolver(asm)
         return FEC.NewtonSolver(max_iters, abs_tol, abs_tol, rel_tol, linear, linear.timer, newton_cb)
-    elseif sol_type in ("iterative", "krylov", "gmres")
+    elseif sol_type in ("iterative", "krylov", "gmres", "cg", "minres",
+                        "conjugate gradient")
         linear = FEC.IterativeLinearSolver(asm, :gmres)
         return FEC.NewtonSolver(max_iters, abs_tol, abs_tol, rel_tol, linear, linear.timer, newton_cb)
+    elseif sol_type in ("lbfgs", "none")
+        # L-BFGS and explicit integrators do not use a Newton linear solve.
+        # Return a direct-solver placeholder whose ΔUu field is used as a
+        # template vector for preconditioning and lumped-mass assembly.
+        linear = FEC.DirectLinearSolver(asm)
+        return FEC.NewtonSolver(max_iters, abs_tol, abs_tol, rel_tol, linear, linear.timer, newton_cb)
     else
-        error("Unknown solver type \"$sol_type\". Supported: \"direct\", \"iterative\".")
+        error("Unknown \"solver: linear solver: type: $ls_type\". " *
+              "Supported values: \"direct\", \"iterative\", \"cg\", \"minres\", \"lbfgs\", \"none\".")
     end
 end
 
@@ -625,8 +674,18 @@ function _parse_neumann_bcs(dict)
     nbcs = FEC.NeumannBC[]
     for entry in entries
         var_sym  = _component_to_symbol(entry["component"])
-        func     = _make_function(entry["function"])
-        sset     = Symbol(entry["sideset"])
+        comp_idx = var_sym === :displ_x ? 1 : var_sym === :displ_y ? 2 : 3
+        scalar   = _make_function(entry["function"])
+        # FEC expects func(coords, t) → SVector{3, Float64} with one component set.
+        func = let idx = comp_idx, f = scalar
+            (coords, t) -> begin
+                v = f(coords, t)
+                SVector{3, Float64}(idx == 1 ? v : 0.0,
+                                    idx == 2 ? v : 0.0,
+                                    idx == 3 ? v : 0.0)
+            end
+        end
+        sset = Symbol(entry["sideset"])
         push!(nbcs, FEC.NeumannBC(var_sym, func, sset))
     end
     return nbcs

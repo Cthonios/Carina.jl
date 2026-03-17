@@ -32,12 +32,36 @@ Rainbow Uniform colormap; geometry warped by actual displacements.*
 
 ---
 
+### Sphere torsion — HHT-α implicit dynamics on AMD GPU
+
+A free unit neo-Hookean sphere is given an initial angular velocity on its
+surface that twists the top and bottom hemispheres in opposite directions,
+launching torsional waves into the interior.  HHT-α algorithmic damping
+suppresses spurious high-frequency modes while preserving the dominant
+torsional dynamics.  The sphere undergoes progressively larger torsional
+deformation as wave energy concentrates in the fundamental torsional mode.
+
+| Displacement magnitude | Velocity magnitude |
+|:---:|:---:|
+| ![Displacement magnitude](docs/sphere_disp.gif) | ![Velocity magnitude](docs/sphere_velo.gif) |
+
+*Neo-Hookean solid (E = 10 kPa, ν = 0.33, ρ = 1000 kg/m³).
+864 hexahedral elements (997 nodes).
+HHT-α implicit Newmark (α = −0.1, β = 0.3025, γ = 0.60) with L-BFGS nonlinear solver,
+Δt = 50 ms, 800 steps, 40 s simulated.
+Wall time: 207 s on an AMD Radeon RX 7600 (ROCm).
+Left: displacement magnitude [0, 0.62 m].
+Right: velocity magnitude [0, 0.50 m/s].
+Rainbow Uniform colormap; geometry warped by actual displacements.*
+
+---
+
 ## Features
 
 - **GPU-accelerated** kernels via `KernelAbstractions.jl` — runs on CPU, NVIDIA, and AMD GPUs
 - **Finite element framework** powered by [ReferenceFiniteElements.jl](https://github.com/Cthonios/ReferenceFiniteElements.jl) and [FiniteElementContainers.jl](https://github.com/Cthonios/FiniteElementContainers.jl)
 - **Material models** via [ConstitutiveModels.jl](https://github.com/Cthonios/ConstitutiveModels.jl) (neo-Hookean, linear elastic, …)
-- **Time integrators**: quasi-static Newton, implicit Newmark-β, explicit central difference, L-BFGS
+- **Time integrators**: quasi-static Newton, implicit Newmark-β / HHT-α, explicit central difference, L-BFGS
 - **Exodus I/O**: mesh input and field output compatible with ParaView
 - **YAML-driven** problem setup — no recompilation needed
 - Designed for extensibility toward **coupling and multiphysics**

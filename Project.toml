@@ -21,6 +21,9 @@ StaticArrays = "90137ffa-7385-5640-81b9-e52037218182"
 Tensors = "48a634ad-e948-5137-8d70-aa71f2a747f4"
 YAML = "ddb6d928-2868-570f-bddf-ab3f9cf99eb6"
 
+[sources]
+ConstitutiveModels = {rev = "main", url = "git@github.com:Cthonios/ConstitutiveModels.jl.git"}
+
 [compat]
 AMDGPU = "2.2.1"
 CUDA = "5"
@@ -31,8 +34,3 @@ LinearOperators = "2.13.0"
 Printf = "1.11.0"
 SparseArrays = "1.12.0"
 YAML = "0.4.16"
-
-[sources]
-ConstitutiveModels = {url = "git@github.com:Cthonios/ConstitutiveModels.jl.git", rev = "main"}
-FiniteElementContainers = {url = "git@github.com:Cthonios/FiniteElementContainers.jl.git", rev = "main"}
-ReferenceFiniteElements = {url = "git@github.com:Cthonios/ReferenceFiniteElements.jl.git", rev = "main"}

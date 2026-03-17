@@ -1,5 +1,4 @@
 type: single
-device: rocm
 
 input mesh file:  cube.g
 output mesh file: cube.e
@@ -9,19 +8,17 @@ model:
   type: solid mechanics
   material:
     blocks:
-      cube: neohookean
-    neohookean:
-      elastic modulus: 10.0e9
+      cube: linear elastic
+    linear elastic:
+      elastic modulus: 1.0e9
       Poisson's ratio: 0.25
       density: 1000.0
 
 time integrator:
-  type:  Newmark
-  beta:  0.25
-  gamma: 0.5
+  type: quasi static
   initial time: 0.0
-  final time:   0.1
-  time step:    0.01
+  final time:   1.0
+  time step:    0.1
 
 boundary conditions:
   Dirichlet:
@@ -34,18 +31,15 @@ boundary conditions:
     - sideset:   ssz-
       component: z
       function:  "0.0"
+  Neumann:
     - sideset:   ssz+
       component: z
-      function:  "1.0e-3 * t"
+      function:  "-1.0e+06 * t"
 
 solver:
   type: newton
   maximum iterations: 16
-  relative tolerance: 1.0e-10
-  absolute tolerance: 1.0e-06
+  relative tolerance: 1.0e-14
+  absolute tolerance: 1.0e-08
   linear solver:
-    type:               minres
-    maximum iterations: 500
-    tolerance:          1.0e-08
-    preconditioner:
-      type: jacobi
+    type: direct

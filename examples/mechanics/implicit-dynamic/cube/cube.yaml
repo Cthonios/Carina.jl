@@ -38,6 +38,13 @@ boundary conditions:
       function:  "1.0e-3 * t"
 
 solver:
+  type: newton
   maximum iterations: 16
   relative tolerance: 1.0e-10
   absolute tolerance: 1.0e-06
+  linear solver:
+    type:               minres
+    maximum iterations: 500
+    tolerance:          1.0e-08
+    preconditioner:
+      type: jacobi

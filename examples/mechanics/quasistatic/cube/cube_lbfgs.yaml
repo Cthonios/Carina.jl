@@ -37,10 +37,10 @@ boundary conditions:
       function:  "1.0e-3 * t"
 
 solver:
+  type: newton
   maximum iterations: 100
   relative tolerance: 1.0e-14
   absolute tolerance: 1.0e-08
-
   linear solver:
     type:         lbfgs
     history size: 10

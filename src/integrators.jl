@@ -253,6 +253,7 @@ mutable struct NewmarkIntegrator{Solver <: FEC.NewtonSolver, Vec, KrySolver, PC 
     β::Float64
     γ::Float64
     use_direct::Bool
+    use_assembled_krylov::Bool   # CPU path: assemble K_eff sparse once per Newton iter
     krylov_method::Symbol
     krylov_itmax::Int
     krylov_rtol::Float64
@@ -278,6 +279,7 @@ end
 
 function NewmarkIntegrator(solver::FEC.NewtonSolver, β::Float64, γ::Float64;
                             use_direct::Bool=false,
+                            use_assembled_krylov::Bool=false,
                             krylov_method::Symbol=:minres,
                             krylov_itmax::Int=1000,
                             krylov_rtol::Float64=1e-8,
@@ -309,7 +311,7 @@ function NewmarkIntegrator(solver::FEC.NewtonSolver, β::Float64, γ::Float64;
     end
 
     return NewmarkIntegrator(
-        solver, β, γ, use_direct, krylov_method, krylov_itmax, krylov_rtol,
+        solver, β, γ, use_direct, use_assembled_krylov, krylov_method, krylov_itmax, krylov_rtol,
         U, V, A, U_prev, V_prev, A_prev,
         kry, scratch, ones_v, U_pred, dU, R_eff,
         precond,
@@ -338,6 +340,15 @@ function _update_jacobi_precond!(precond::JacobiPreconditioner, asm, U, ones_v, 
 end
 _update_jacobi_precond!(::NoPreconditioner, args...) = nothing
 
+# Assembled path: update Jacobi diagonal directly from the sparse K_eff matrix.
+# Cheaper than two matrix-free assembly calls and exact (no cancellation).
+function _update_jacobi_precond_assembled!(precond::JacobiPreconditioner, K_eff)
+    d = diag(K_eff)
+    @. precond.inv_diag = 1.0 / max(abs(d), eps(Float64))
+    return nothing
+end
+_update_jacobi_precond_assembled!(::NoPreconditioner, _) = nothing
+
 # Matrix-free effective stiffness: y = (K + c_M·M)·v
 # Uses action kernels (stiffness_action / mass_action) that compute K_q·v and
 # M_q·v per quadrature point without forming the 24×24 element matrices,
@@ -353,7 +364,7 @@ function _eff_stiffness_matvec!(y, v, asm, U, c_M, p, scratch)
 end
 
 function FEC.evolve!(integrator::NewmarkIntegrator, p)
-    (; solver, β, γ, use_direct,
+    (; solver, β, γ, use_direct, use_assembled_krylov,
        krylov_method, krylov_itmax, krylov_rtol, precond,
        U, V, A, U_prev, V_prev, A_prev,
        krylov_solver, scratch, ones_v, U_pred, dU, R_eff) = integrator
@@ -374,7 +385,8 @@ function FEC.evolve!(integrator::NewmarkIntegrator, p)
     @. V = V_prev + Δt * (1.0 - γ) * A_prev
     copyto!(U_pred, U)
 
-    K_eff_op = if !use_direct
+    # Matrix-free operator only for GPU Krylov path; not needed for direct or assembled.
+    K_eff_op = if !use_direct && !use_assembled_krylov
         LinearOperator(
             Float64, n, n, true, true,
             (y, v) -> _eff_stiffness_matvec!(y, v, asm, U, c_M, p, scratch),
@@ -383,7 +395,7 @@ function FEC.evolve!(integrator::NewmarkIntegrator, p)
         nothing
     end
 
-    M_op = if !use_direct && !(precond isa NoPreconditioner)
+    M_op = if !use_direct && !use_assembled_krylov && !(precond isa NoPreconditioner)
         LinearOperator(
             Float64, n, n, true, true,
             (y, v) -> (@. y = precond.inv_diag * v; y),
@@ -391,6 +403,8 @@ function FEC.evolve!(integrator::NewmarkIntegrator, p)
     else
         nothing
     end
+
+    K_eff_sparse = nothing  # filled each Newton iter when use_assembled_krylov
 
     FEC.assemble_vector!(asm, FEC.residual, U, p)
     FEC.assemble_vector_neumann_bc!(asm, U, p)
@@ -412,21 +426,43 @@ function FEC.evolve!(integrator::NewmarkIntegrator, p)
 
     converged = false
     for iter in 1:solver.max_iters
-        t_asm = @elapsed begin
-            # Refresh Jacobi diagonal from K(U) + c_M·M at current iterate.
-            # No-op when precond isa NoPreconditioner.
-            _update_jacobi_precond!(precond, asm, U, ones_v, c_M, p, scratch)
-
-            FEC.assemble_vector!(asm, FEC.residual, U, p)
-            FEC.assemble_vector_neumann_bc!(asm, U, p)
-
-            @. dU = U - U_pred
-            FEC.assemble_matrix_free_action!(asm, FEC.mass_action, U, dU, p)
+        if use_assembled_krylov
+            # CPU assembled path: build K_eff = K + c_M·M as a sparse matrix once
+            # per Newton iteration, then run Krylov with cheap sparse matvecs.
+            #
+            # NOTE: SparseArrays.sparse!(pattern, storage) writes into the shared
+            # pattern.cscnzval cache, so the returned SparseMatrixCSC's nzval points
+            # into that buffer.  Only the LAST call to sparse! is valid.  We therefore
+            # compute M·dU via the matrix-free action FIRST, then assemble K_eff last
+            # so K_eff_sparse remains valid through the Krylov solve.
+            t_asm = @elapsed begin
+                FEC.assemble_vector!(asm, FEC.residual, U, p)
+                FEC.assemble_vector_neumann_bc!(asm, U, p)
+                @. dU = U - U_pred
+                FEC.assemble_matrix_free_action!(asm, FEC.mass_action, U, dU, p)
+                # K_eff assembly must come last — see note above.
+                FEC.assemble_stiffness!(asm, FEC.stiffness, U, p)
+                FEC.assemble_mass!(asm, FEC.mass, U, p)
+                @. asm.stiffness_storage += c_M * asm.mass_storage
+                K_eff_sparse = FEC.stiffness(asm)
+                _update_jacobi_precond_assembled!(precond, K_eff_sparse)
+            end
+            R_int = FEC.residual(asm)
+            M_dU  = FEC.hvp(asm, dU)   # result of matrix-free action assembled above
+            @. R_eff = -(R_int + c_M * M_dU)
+        else
+            # GPU matrix-free path (or direct): refresh Jacobi via matrix-free action.
+            t_asm = @elapsed begin
+                _update_jacobi_precond!(precond, asm, U, ones_v, c_M, p, scratch)
+                FEC.assemble_vector!(asm, FEC.residual, U, p)
+                FEC.assemble_vector_neumann_bc!(asm, U, p)
+                @. dU = U - U_pred
+                FEC.assemble_matrix_free_action!(asm, FEC.mass_action, U, dU, p)
+            end
+            R_int = FEC.residual(asm)
+            M_dU  = FEC.hvp(asm, dU)
+            @. R_eff = -(R_int + c_M * M_dU)
         end
-
-        R_int = FEC.residual(asm)
-        M_dU  = FEC.hvp(asm, dU)
-        @. R_eff = -(R_int + c_M * M_dU)
 
         norm_R = sqrt(sum(abs2, R_eff))
         rel_R  = initial_norm > 0.0 ? norm_R / initial_norm : norm_R
@@ -457,7 +493,41 @@ function FEC.evolve!(integrator::NewmarkIntegrator, p)
                 "Iter [%d] |R| = %.3e : |r| = %.3e : %s\n" *
                 "                  |ΔU|=%.3e : t_asm=%.3fs : t_lu=%.3fs",
                 iter, norm_R, rel_R, _status_str(converged), norm_dU, t_asm, t_kry)
+        elseif use_assembled_krylov
+            # Assembled sparse Krylov (CPU): K_eff_sparse already built in t_asm.
+            t_kry = @elapsed begin
+                if precond isa NoPreconditioner
+                    Krylov.krylov_solve!(krylov_solver, K_eff_sparse, R_eff;
+                                  atol=0.0,
+                                  rtol=eff_kry_rtol,
+                                  itmax=krylov_itmax)
+                else
+                    M_op_assembled = LinearOperator(
+                        Float64, n, n, true, true,
+                        (y, v) -> (@. y = precond.inv_diag * v; y),
+                    )
+                    Krylov.krylov_solve!(krylov_solver, K_eff_sparse, R_eff;
+                                  M=M_op_assembled,
+                                  atol=0.0,
+                                  rtol=eff_kry_rtol,
+                                  itmax=krylov_itmax)
+                end
+            end
+            ΔUu        = Krylov.solution(krylov_solver)
+            kry_iters  = krylov_solver.stats.niter
+            kry_solved = krylov_solver.stats.solved
+            norm_dU    = sqrt(sum(abs2, ΔUu))
+            converged = norm_dU   < solver.abs_increment_tol ||
+                        norm_R    < solver.abs_residual_tol   ||
+                        rel_R     < solver.rel_residual_tol
+            _carina_logf(8, :solve,
+                "Iter [%d] |R| = %.3e : |r| = %.3e : %s\n" *
+                "                  |ΔU|=%.3e : t_asm=%.3fs : t_kry=%.3fs : %d/%d(%s)",
+                iter, norm_R, rel_R, _status_str(converged), norm_dU,
+                t_asm, t_kry, kry_iters, krylov_itmax,
+                kry_solved ? "conv" : "STALL")
         else
+            # Matrix-free Krylov (GPU path).
             t_kry = @elapsed begin
                 if M_op === nothing
                     Krylov.krylov_solve!(krylov_solver, K_eff_op, R_eff;
@@ -575,12 +645,14 @@ mutable struct NewmarkLBFGSIntegrator{Sol, Vec, PC <: Preconditioner}
     solver   ::Sol
     β        ::Float64
     γ        ::Float64
+    α        ::Float64       # HHT-α algorithmic damping (0 = standard Newmark)
     m        ::Int          # L-BFGS history size (ring buffer capacity)
     U  ::Vec; V  ::Vec; A  ::Vec
     U_prev::Vec; V_prev::Vec; A_prev::Vec
     U_pred   ::Vec           # Newmark predictor position
     R_eff    ::Vec           # current -(R_int + c_M·M·(U−U_pred))
     R_old    ::Vec           # R_eff snapshot before each step (for y update)
+    F_int_n  ::Vec           # internal force at t_n (for HHT-α damping)
     M_dU     ::Vec           # M·(U−U_pred), maintained incrementally each step
     d        ::Vec           # L-BFGS descent direction
     q        ::Vec           # two-loop work vector / trial-point scratch
@@ -604,6 +676,7 @@ mutable struct NewmarkLBFGSIntegrator{Sol, Vec, PC <: Preconditioner}
 end
 
 function NewmarkLBFGSIntegrator(solver::Sol, β::Float64, γ::Float64, m::Int;
+                                 α::Float64=0.0,
                                  precond::Preconditioner=NoPreconditioner(),
                                  time_step::Float64=0.0,
                                  min_time_step::Float64=0.0,
@@ -617,7 +690,7 @@ function NewmarkLBFGSIntegrator(solver::Sol, β::Float64, γ::Float64, m::Int;
     U, V, A                = mk(), mk(), mk()
     U_prev, V_prev, A_prev = mk(), mk(), mk()
     U_pred                 = mk()
-    R_eff, R_old           = mk(), mk()
+    R_eff, R_old, F_int_n  = mk(), mk(), mk()
     M_dU, d, q, M_d        = mk(), mk(), mk(), mk()
     U_save, V_save, A_save = mk(), mk(), mk()
 
@@ -627,9 +700,9 @@ function NewmarkLBFGSIntegrator(solver::Sol, β::Float64, γ::Float64, m::Int;
     alpha_buf = zeros(Float64, m)
 
     return NewmarkLBFGSIntegrator(
-        solver, β, γ, m,
+        solver, β, γ, α, m,
         U, V, A, U_prev, V_prev, A_prev,
-        U_pred, R_eff, R_old, M_dU, d, q, M_d,
+        U_pred, R_eff, R_old, F_int_n, M_dU, d, q, M_d,
         S, Y, ρ, alpha_buf, 0, 0,
         precond,
         time_step, min_time_step, max_time_step,
@@ -640,9 +713,9 @@ function NewmarkLBFGSIntegrator(solver::Sol, β::Float64, γ::Float64, m::Int;
 end
 
 function FEC.evolve!(integrator::NewmarkLBFGSIntegrator, p)
-    (; solver, β, γ, m, precond,
+    (; solver, β, γ, α, m, precond,
        U, V, A, U_prev, V_prev, A_prev,
-       U_pred, R_eff, R_old, M_dU, d, q, M_d,
+       U_pred, R_eff, R_old, F_int_n, M_dU, d, q, M_d,
        S, Y, ρ, alpha_buf) = integrator
 
     FEC.update_time!(p)
@@ -675,7 +748,7 @@ function FEC.evolve!(integrator::NewmarkLBFGSIntegrator, p)
         return nothing
     end
     fill!(M_dU, zero(eltype(M_dU)))   # M·(U_pred − U_pred) = 0
-    @. R_eff = -R_int0                # inertia term is zero at U_pred
+    @. R_eff = -((1 + α) * R_int0 - α * F_int_n)   # HHT-α: α=0 → standard Newmark
 
     initial_norm = sqrt(sum(abs2, R_eff))
     _carina_logf(8, :solve, "Iter [0] |R| = %.3e : |r| = %.3e : %s",
@@ -707,31 +780,31 @@ function FEC.evolve!(integrator::NewmarkLBFGSIntegrator, p)
         copyto!(R_old, R_eff)
 
         # ---- Backtracking line search on ‖R_eff‖ ----
-        # Trial residual at U + α·d uses the precomputed M·d:
-        #   M·(U + α·d − U_pred) = M_dU + α·M_d  (no extra mass assembly)
-        α        = 1.0
+        # Trial residual at U + step·d uses the precomputed M·d:
+        #   M·(U + step·d − U_pred) = M_dU + step·M_d  (no extra mass assembly)
+        step     = 1.0
         ls_iters = 0
         t_ls = @elapsed begin
             for ls in 1:10
                 ls_iters = ls
-                @. q = U + α * d    # trial point (q reused as scratch)
+                @. q = U + step * d    # trial point (q reused as scratch)
                 FEC.assemble_vector!(asm, FEC.residual, q, p)
                 FEC.assemble_vector_neumann_bc!(asm, q, p)
                 R_int_trial = FEC.residual(asm)
-                @. R_eff = -(R_int_trial + c_M * (M_dU + α * M_d))
+                @. R_eff = -((1 + α) * R_int_trial + c_M * (M_dU + step * M_d) - α * F_int_n)
                 norm_R_trial = sqrt(sum(abs2, R_eff))
                 if isfinite(norm_R_trial) && norm_R_trial < norm_R
                     break   # sufficient decrease found; R_eff is now up to date
                 end
-                α *= 0.5
+                step *= 0.5
             end
         end
 
         # Accept step and maintain M_dU = M·(U_new − U_pred) incrementally.
-        @. U = U + α * d
-        @. M_dU = M_dU + α * M_d
+        @. U = U + step * d
+        @. M_dU = M_dU + step * M_d
 
-        norm_dU    = α * sqrt(sum(abs2, d))
+        norm_dU    = step * sqrt(sum(abs2, d))
         new_norm_R = sqrt(sum(abs2, R_eff))
         new_rel_R  = initial_norm > 0.0 ? new_norm_R / initial_norm : new_norm_R
 
@@ -741,15 +814,15 @@ function FEC.evolve!(integrator::NewmarkLBFGSIntegrator, p)
 
         _carina_logf(8, :solve,
             "Iter [%d] |R| = %.3e : |r| = %.3e : %s\n" *
-            "                  |ΔU|=%.3e : α=%.2e : LS=%d : t_dir=%.0fms : t_ls=%.0fms",
+            "                  |ΔU|=%.3e : step=%.2e : LS=%d : t_dir=%.0fms : t_ls=%.0fms",
             iter, new_norm_R, new_rel_R, _status_str(converged),
-            norm_dU, α, ls_iters, (t_dir + t_Md) * 1e3, t_ls * 1e3)
+            norm_dU, step, ls_iters, (t_dir + t_Md) * 1e3, t_ls * 1e3)
         @debug "Newmark L-BFGS" iter new_norm_R new_rel_R norm_dU
 
         # ---- L-BFGS history update ----
-        # s_k = α·d_k,  y_k = g_{k+1} − g_k = (−R_eff_new) − (−R_old) = R_old − R_eff
+        # s_k = step·d_k,  y_k = g_{k+1} − g_k = (−R_eff_new) − (−R_old) = R_old − R_eff
         new_head = mod1(integrator.head + 1, m)
-        @. S[new_head] = α * d
+        @. S[new_head] = step * d
         @. Y[new_head] = R_old - R_eff
         ys = dot(Y[new_head], S[new_head])
         if ys > 0.0
@@ -769,6 +842,12 @@ function FEC.evolve!(integrator::NewmarkLBFGSIntegrator, p)
 
     FEC._update_for_assembly!(p, dof, U)
     p.h1_field_old.data .= p.h1_field.data
+
+    # Store F_int(U_{n+1}) for HHT-α residual in the next time step.
+    if α != 0.0 && !integrator.failed[]
+        FEC.assemble_vector!(asm, FEC.residual, U, p)
+        copyto!(F_int_n, FEC.residual(asm))
+    end
 
     return nothing
 end
