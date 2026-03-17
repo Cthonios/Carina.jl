@@ -395,30 +395,26 @@ function _parse_integrator(dict, asm, asm_cpu, p_cpu, controller, device=:cpu)
     type_str = lowercase(get(ti_dict, "type", "quasi static"))
     dt       = controller.control_step
 
+    # Get a template vector from a DirectLinearSolver built on the device assembler.
+    # asm is already on the correct device (CPU, ROCm, or CUDA), so its ΔUu
+    # is in the right memory space and can be used as a template for allocations.
+    fec_ls   = FEC.DirectLinearSolver(asm)
+    template = fec_ls.ΔUu
+
+    sol_dict, ls_dict = _read_solver_dicts(dict)
+
     if type_str in ("quasi static", "quasistatic", "static")
         min_dt, max_dt, dec, inc = _parse_adaptive_stepping(ti_dict, dt)
-        sol_dict, ls_dict = _read_solver_dicts(dict)
-        kry_type  = lowercase(ls_dict["type"])
-        use_lbfgs = kry_type == "lbfgs"
 
-        solver = _parse_solver(dict, asm, device; force_direct=!use_lbfgs)
-
-        if use_lbfgs
-            lbfgs_m       = Int(get(ls_dict, "history size", 10))
-            # Jacobi(K) preconditioner: scales H₀ so first step has units of
-            # displacement (m) rather than force (N).  Without it, α=1 overshoots
-            # by ~E and all backtracking halvings fail to reduce the residual.
-            lbfgs_precond = _compute_stiffness_jacobi_precond(asm_cpu, p_cpu,
-                                                               solver.linear_solver.ΔUu)
-            return QuasiStaticLBFGSIntegrator(solver, lbfgs_m;
-                                               precond=lbfgs_precond,
-                                               time_step=dt,
-                                               min_time_step=min_dt,
-                                               max_time_step=max_dt,
-                                               decrease_factor=dec,
-                                               increase_factor=inc)
-        end
-        return QuasiStaticIntegrator(solver, dt, min_dt, max_dt, dec, inc)
+        make_precond = () -> _compute_stiffness_jacobi_precond(asm_cpu, p_cpu, template)
+        ls = _parse_linear_solver(ls_dict, template, device, make_precond)
+        ns = _parse_nonlinear_solver(sol_dict, ls)
+        return QuasiStaticIntegrator(ns, asm, template;
+                                      time_step=dt,
+                                      min_time_step=min_dt,
+                                      max_time_step=max_dt,
+                                      decrease_factor=dec,
+                                      increase_factor=inc)
 
     elseif type_str in ("newmark", "newmark-beta", "newmark beta")
         α_hht = Float64(get(ti_dict, "alpha", 0.0))
@@ -426,58 +422,11 @@ function _parse_integrator(dict, asm, asm_cpu, p_cpu, controller, device=:cpu)
         γ = α_hht != 0.0 ? (1.0 - 2.0*α_hht) / 2.0 : Float64(get(ti_dict, "gamma", 0.5))
         min_dt, max_dt, dec, inc = _parse_adaptive_stepping(ti_dict, dt)
 
-        sol_dict, ls_dict = _read_solver_dicts(dict)
-        kry_type  = lowercase(ls_dict["type"])
-        kry_itmax = Int(get(ls_dict, "maximum iterations",
-                            Int(get(ti_dict, "krylov iterations", 1000))))
-        kry_rtol  = Float64(get(ls_dict, "tolerance",
-                            Float64(get(ti_dict, "krylov tolerance", 1e-8))))
-        use_direct = kry_type == "direct"
-        use_lbfgs  = kry_type == "lbfgs"
-        device != :cpu && use_direct && error(
-            "\"solver: linear solver: type: direct\" is CPU-only.")
-        kry_method  = kry_type in ("cg", "conjugate gradient") ? :cg : :minres
-
-        precond_dict = get(ls_dict, "preconditioner", Dict{String,Any}())
-        precond_type = Symbol(lowercase(get(precond_dict, "type", "none")))
-
-        solver = _parse_solver(dict, asm, device; force_direct=true)
-
-        if use_lbfgs
-            lbfgs_m = Int(get(ls_dict, "history size", 10))
-            # Jacobi preconditioner for H₀: essential when c_M = 1/(β·Δt²) ≫ 1.
-            # Without it, the first step direction has units of force, α=1 overshoots
-            # by ~c_M, and all 10 backtracking halves fail to reduce the residual.
-            lbfgs_precond = _compute_jacobi_precond(β, dt, asm_cpu, p_cpu,
-                                                     solver.linear_solver.ΔUu)
-            return NewmarkLBFGSIntegrator(solver, β, γ, lbfgs_m;
-                                           α=α_hht,
-                                           precond=lbfgs_precond,
-                                           time_step=dt,
-                                           min_time_step=min_dt,
-                                           max_time_step=max_dt,
-                                           decrease_factor=dec,
-                                           increase_factor=inc)
-        end
-
-        # On CPU with Krylov, assemble K_eff as a sparse matrix each Newton
-        # iteration and use standard sparse matvec — much faster than the
-        # matrix-free GPU path where each matvec reruns the element loop.
-        use_assembled_krylov = !use_direct && !use_lbfgs && device == :cpu
-
-        precond = if !use_direct && precond_type == :jacobi
-            _compute_jacobi_precond(β, dt, asm_cpu, p_cpu, solver.linear_solver.ΔUu)
-        else
-            NoPreconditioner()
-        end
-
-        return NewmarkIntegrator(solver, β, γ;
-                                  use_direct=use_direct,
-                                  use_assembled_krylov=use_assembled_krylov,
-                                  krylov_method=kry_method,
-                                  krylov_itmax=kry_itmax,
-                                  krylov_rtol=kry_rtol,
-                                  precond=precond,
+        make_precond = () -> _compute_jacobi_precond(β, dt, asm_cpu, p_cpu, template)
+        ls = _parse_linear_solver(ls_dict, template, device, make_precond)
+        ns = _parse_nonlinear_solver(sol_dict, ls)
+        return NewmarkIntegrator(ns, asm, β, γ, template;
+                                  α_hht=α_hht,
                                   time_step=dt,
                                   min_time_step=min_dt,
                                   max_time_step=max_dt,
@@ -489,8 +438,7 @@ function _parse_integrator(dict, asm, asm_cpu, p_cpu, controller, device=:cpu)
         min_dt, max_dt, dec, inc = _parse_adaptive_stepping(ti_dict, dt)
         CFL_val = Float64(get(ti_dict, "CFL", get(ti_dict, "cfl", 0.0)))
 
-        solver  = _parse_solver(dict, asm, device; force_direct=true)
-        m_lumped = _compute_lumped_mass(asm_cpu, p_cpu, solver.linear_solver.ΔUu)
+        m_lumped = _compute_lumped_mass(asm_cpu, p_cpu, template)
 
         return CentralDifferenceIntegrator(γ, asm, m_lumped;
                                             time_step=dt,
@@ -590,51 +538,63 @@ function _read_solver_dicts(dict)
     return sol_dict, ls_dict
 end
 
-function _parse_solver(dict, asm, device=:cpu; force_direct=false)
-    sol_dict, ls_dict = _read_solver_dicts(dict)
-
-    max_iters = Int(get(sol_dict, "maximum iterations", 20))
-    abs_tol   = Float64(get(sol_dict, "absolute tolerance", 1e-10))
-    rel_tol   = Float64(get(sol_dict, "relative tolerance", 1e-14))
-
+function _parse_linear_solver(ls_dict, template, device, make_precond::Function)
     ls_type = lowercase(ls_dict["type"])
+    T  = eltype(template)
+    n  = length(template)
+    S  = typeof(template)
 
-    # force_direct is used by integrators that manage their own linear solve
-    # (Newmark, CentralDifference) and only need the solver as a template holder.
-    sol_type = if force_direct
-        "direct"
-    else
-        device != :cpu && ls_type == "direct" &&
-            error("\"solver: linear solver: type: direct\" is CPU-only.")
-        ls_type
-    end
+    if ls_type == "direct"
+        device != :cpu && error(
+            "\"solver: linear solver: type: direct\" is CPU-only.")
+        return DirectLinearSolver()
 
-    # Per-iteration logging callback for FEC.NewtonSolver (quasi-static path).
-    newton_cb = (iter, norm_ΔUu, norm_R, rel_R, converged) -> begin
-        status = _status_str(converged)
-        _carina_logf(8, :solve, "Iter [%d] |R| = %.3e : |r| = %.3e : %s",
-                     iter, norm_R, rel_R, status)
-    end
+    elseif ls_type in ("iterative", "krylov", "minres", "cg", "conjugate gradient")
+        method    = ls_type in ("cg", "conjugate gradient") ? :cg : :minres
+        itmax     = Int(get(ls_dict, "maximum iterations", 1000))
+        rtol      = Float64(get(ls_dict, "tolerance", 1e-8))
+        assembled = (device == :cpu)
 
-    # FEC.NewtonSolver takes (max_iters, abs_increment_tol, abs_residual_tol,
-    #                         rel_residual_tol, linear_solver, timer, log_callback)
-    if sol_type == "direct"
-        linear = FEC.DirectLinearSolver(asm)
-        return FEC.NewtonSolver(max_iters, abs_tol, abs_tol, rel_tol, linear, linear.timer, newton_cb)
-    elseif sol_type in ("iterative", "krylov", "gmres", "cg", "minres",
-                        "conjugate gradient")
-        linear = FEC.IterativeLinearSolver(asm, :gmres)
-        return FEC.NewtonSolver(max_iters, abs_tol, abs_tol, rel_tol, linear, linear.timer, newton_cb)
-    elseif sol_type in ("lbfgs", "none")
-        # L-BFGS and explicit integrators do not use a Newton linear solve.
-        # Return a direct-solver placeholder whose ΔUu field is used as a
-        # template vector for preconditioning and lumped-mass assembly.
-        linear = FEC.DirectLinearSolver(asm)
-        return FEC.NewtonSolver(max_iters, abs_tol, abs_tol, rel_tol, linear, linear.timer, newton_cb)
+        precond_dict = get(ls_dict, "preconditioner", Dict{String,Any}())
+        precond_type = lowercase(get(precond_dict, "type", "none"))
+        precond = precond_type == "jacobi" ? make_precond() : NoPreconditioner()
+
+        workspace = method == :cg ? Krylov.CgWorkspace(n, n, S) :
+                                    Krylov.MinresWorkspace(n, n, S)
+        ones_v  = (v = similar(template); fill!(v, one(T)); v)
+        scratch = (v = similar(template); fill!(v, zero(T)); v)
+
+        return KrylovLinearSolver(method, itmax, rtol, assembled, precond,
+                                   workspace, ones_v, scratch)
+
+    elseif ls_type == "lbfgs"
+        m     = Int(get(ls_dict, "history size", 10))
+        precond = make_precond()
+        mk()  = (v = similar(template); fill!(v, zero(T)); v)
+
+        S_buf = [mk() for _ in 1:m]
+        Y_buf = [mk() for _ in 1:m]
+        ρ         = zeros(Float64, m)
+        alpha_buf = zeros(Float64, m)
+        R_eff, R_old, d, q, M_d, M_dU, F_int_n = mk(), mk(), mk(), mk(), mk(), mk(), mk()
+
+        return LBFGSLinearSolver(m, precond, S_buf, Y_buf, ρ, alpha_buf, 0, 0,
+                                  R_eff, R_old, d, q, M_d, M_dU, F_int_n)
+
+    elseif ls_type == "none"
+        return NoLinearSolver()
+
     else
         error("Unknown \"solver: linear solver: type: $ls_type\". " *
               "Supported values: \"direct\", \"iterative\", \"cg\", \"minres\", \"lbfgs\", \"none\".")
     end
+end
+
+function _parse_nonlinear_solver(sol_dict, ls::AbstractLinearSolver)
+    max_iters = Int(get(sol_dict, "maximum iterations", 20))
+    abs_tol   = Float64(get(sol_dict, "absolute tolerance", 1e-10))
+    rel_tol   = Float64(get(sol_dict, "relative tolerance", 1e-14))
+    return NewtonSolver(max_iters, abs_tol, abs_tol, rel_tol, ls)
 end
 
 # ---- Dirichlet BCs ----
@@ -735,6 +695,7 @@ end
 
 # Apply initial velocity ICs to the Newmark velocity vector V.
 # Each entry: {node set: <name>, component: x|y|z, function: <expr>}
+# Handles both NewmarkIntegrator{NS,Vec} (merged struct).
 function _apply_initial_velocity_ics!(integrator::NewmarkIntegrator, mesh, asm_cpu, p_cpu, vel_ics)
     isempty(vel_ics) && return
     dof = asm_cpu.dof                # always CPU dof manager for index arithmetic
@@ -757,34 +718,6 @@ function _apply_initial_velocity_ics!(integrator::NewmarkIntegrator, mesh, asm_c
         for (full_dof, node) in zip(bk.dofs, bk.nodes)
             unk_idx = inv_map[full_dof]
             unk_idx == 0 && continue   # skip constrained DOFs
-            coords = @view X[(node-1)*3+1 : (node-1)*3+3]
-            V_init[unk_idx] = Base.invokelatest(func, coords, 0.0)
-        end
-    end
-    Base.invokelatest(copyto!, integrator.V, V_init)
-end
-
-# NewmarkLBFGSIntegrator — identical logic to NewmarkIntegrator.
-function _apply_initial_velocity_ics!(integrator::NewmarkLBFGSIntegrator, mesh, asm_cpu, p_cpu, vel_ics)
-    isempty(vel_ics) && return
-    dof = asm_cpu.dof
-    X   = p_cpu.h1_coords.data
-
-    n_unk   = length(dof.unknown_dofs)
-    inv_map = zeros(Int, length(dof))
-    for (i, fd) in enumerate(dof.unknown_dofs)
-        inv_map[fd] = i
-    end
-
-    V_init = zeros(Float64, n_unk)
-    for entry in vel_ics
-        var_sym  = _component_to_symbol(entry["component"])
-        func     = _make_function(entry["function"])
-        nset_sym = Symbol(entry["node set"])
-        bk       = FEC.BCBookKeeping(mesh, dof, var_sym; nset_name=nset_sym)
-        for (full_dof, node) in zip(bk.dofs, bk.nodes)
-            unk_idx = inv_map[full_dof]
-            unk_idx == 0 && continue
             coords = @view X[(node-1)*3+1 : (node-1)*3+3]
             V_init[unk_idx] = Base.invokelatest(func, coords, 0.0)
         end

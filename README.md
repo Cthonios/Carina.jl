@@ -32,14 +32,13 @@ Rainbow Uniform colormap; geometry warped by actual displacements.*
 
 ---
 
-### Sphere torsion — HHT-α implicit dynamics on AMD GPU
+### Sphere torsion — implicit Newmark on CPU
 
-A free unit neo-Hookean sphere is given an initial angular velocity on its
-surface that twists the top and bottom hemispheres in opposite directions,
-launching torsional waves into the interior.  HHT-α algorithmic damping
-suppresses spurious high-frequency modes while preserving the dominant
-torsional dynamics.  The sphere undergoes progressively larger torsional
-deformation as wave energy concentrates in the fundamental torsional mode.
+A free unit neo-Hookean sphere is given an initial angular velocity field
+that twists the top and bottom hemispheres in opposite directions,
+launching torsional waves into the interior.  The sphere undergoes large
+torsional deformation as wave energy accumulates, reaching peak displacements
+of ~2.1 m before the restoring force reverses the motion.
 
 | Displacement magnitude | Velocity magnitude |
 |:---:|:---:|
@@ -47,11 +46,11 @@ deformation as wave energy concentrates in the fundamental torsional mode.
 
 *Neo-Hookean solid (E = 10 kPa, ν = 0.33, ρ = 1000 kg/m³).
 864 hexahedral elements (997 nodes).
-HHT-α implicit Newmark (α = −0.1, β = 0.3025, γ = 0.60) with L-BFGS nonlinear solver,
-Δt = 50 ms, 800 steps, 40 s simulated.
-Wall time: 207 s on an AMD Radeon RX 7600 (ROCm).
-Left: displacement magnitude [0, 0.62 m].
-Right: velocity magnitude [0, 0.50 m/s].
+Implicit Newmark-β (β = 0.49, γ = 0.9) with assembled MINRES + Jacobi preconditioner,
+Δt = 10 ms, 400 steps, 4.0 s simulated.
+Wall time: 4179 s on CPU.
+Left: displacement magnitude [0, 2.1 m].
+Right: velocity magnitude [0, 5.0 m/s].
 Rainbow Uniform colormap; geometry warped by actual displacements.*
 
 ---

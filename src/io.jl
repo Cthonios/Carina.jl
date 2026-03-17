@@ -125,13 +125,11 @@ end
 # ---------------------------------------------------------------------------
 
 _has_velocity(::NewmarkIntegrator)            = true
-_has_velocity(::NewmarkLBFGSIntegrator)        = true
 _has_velocity(::CentralDifferenceIntegrator)  = true
 _has_velocity(::QuasiStaticIntegrator)        = false
 _has_velocity(::Any)                          = false
 
 _has_acceleration(::NewmarkIntegrator)            = true
-_has_acceleration(::NewmarkLBFGSIntegrator)        = true
 _has_acceleration(::CentralDifferenceIntegrator)  = true
 _has_acceleration(::QuasiStaticIntegrator)        = false
 _has_acceleration(::Any)                          = false
@@ -141,20 +139,12 @@ function _get_velocity_cpu(ig::NewmarkIntegrator, device::Symbol)
     device == :cpu && return Vector{Float64}(ig.V)
     return Vector{Float64}(Base.invokelatest(Adapt.adapt, Array, ig.V))
 end
-function _get_velocity_cpu(ig::NewmarkLBFGSIntegrator, device::Symbol)
-    device == :cpu && return Vector{Float64}(ig.V)
-    return Vector{Float64}(Base.invokelatest(Adapt.adapt, Array, ig.V))
-end
 function _get_velocity_cpu(ig::CentralDifferenceIntegrator, device::Symbol)
     device == :cpu && return Vector{Float64}(ig.V)
     return Vector{Float64}(Base.invokelatest(Adapt.adapt, Array, ig.V))
 end
 
 function _get_acceleration_cpu(ig::NewmarkIntegrator, device::Symbol)
-    device == :cpu && return Vector{Float64}(ig.A)
-    return Vector{Float64}(Base.invokelatest(Adapt.adapt, Array, ig.A))
-end
-function _get_acceleration_cpu(ig::NewmarkLBFGSIntegrator, device::Symbol)
     device == :cpu && return Vector{Float64}(ig.A)
     return Vector{Float64}(Base.invokelatest(Adapt.adapt, Array, ig.A))
 end
