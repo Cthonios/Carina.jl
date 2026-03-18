@@ -34,7 +34,7 @@ boundary conditions:
   Neumann:
     - sideset:   ssz+
       component: z
-      function:  "-1.0e+06 * t"
+      function:  "-1.0e+09 * t"
 
 solver:
   type: newton

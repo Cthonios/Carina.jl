@@ -15,25 +15,18 @@ model:
       density: 1000.0
 
 time integrator:
-  type: quasi static
+  type:  Newmark
+  beta:  0.25
+  gamma: 0.5
   initial time: 0.0
   final time:   1.0
   time step:    0.1
 
-boundary conditions:
-  Dirichlet:
-    - sideset:   ssx-
-      component: x
-      function:  "0.0"
-    - sideset:   ssy-
-      component: y
-      function:  "0.0"
-    - sideset:   ssz-
+initial conditions:
+  velocity:
+    - node set: nsall
       component: z
-      function:  "0.0"
-    - sideset:   ssz+
-      component: z
-      function:  "1.0 * t"
+      function: "1.0"
 
 solver:
   type: newton

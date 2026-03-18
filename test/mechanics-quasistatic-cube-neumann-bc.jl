@@ -4,9 +4,11 @@
     # Neumann: traction t_z = +1e9*t on ssz+ (FEC sign convention: g = -traction).
     # Final time t=1.0 → applied traction 1e9 Pa.
     #
+    # Matches Norma single-static-solid-neumann-bc (same E, traction, time stepping).
+    #
     # Analytical solution (uniaxial stress, small strain):
-    #   ε_z = t_z / E = 1e6 / 1e9 = 1e-3    avg_uz = ε_z * 0.5 = 5e-4
-    #   ε_x = ε_y = -ν * ε_z = -2.5e-4      avg_ux = avg_uy = -2.5e-4 * 0.5 = -1.25e-4
+    #   ε_z = t_z / E = 1e9 / 1e9 = 1.0    avg_uz = ε_z * 0.5 = 0.5
+    #   ε_x = ε_y = -ν * ε_z = -0.25       avg_ux = avg_uy = -0.25 * 0.5 = -0.125
 
     example_dir = joinpath(@__DIR__, "..", "examples", "mechanics", "quasistatic", "cube-neumann-bc")
     mktempdir() do dir
@@ -15,8 +17,8 @@
         sim = Carina.run(joinpath(dir, "cube.yaml"))
         avg = average_components(sim)
 
-        @test avg[3] ≈  5.0e-4  rtol=1e-3   # avg u_z
-        @test avg[1] ≈ -1.25e-4 rtol=1e-3   # avg u_x (Poisson contraction)
-        @test avg[2] ≈ -1.25e-4 rtol=1e-3   # avg u_y (Poisson contraction)
+        @test avg[3] ≈  0.5   rtol=1e-6   # avg u_z (Norma: 0.500)
+        @test avg[1] ≈ -0.125 rtol=1e-6   # avg u_x (Poisson; Norma: -0.125)
+        @test avg[2] ≈ -0.125 rtol=1e-6   # avg u_y (Poisson; Norma: -0.125)
     end
 end

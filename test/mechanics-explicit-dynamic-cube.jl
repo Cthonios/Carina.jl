@@ -19,7 +19,7 @@
         sim = Carina.run(joinpath(dir, "cube.yaml"))
         avg = average_components(sim)
 
-        @test avg[3] ≈ 1.0 rtol=1e-3   # avg u_z = v_z * t_f (rigid-body translation)
+        @test avg[3] ≈ 1.0 atol=1e-6   # avg u_z = v_z * t_f (exact; Norma: 1.0 ± 1e-6)
         @test avg[1] ≈ 0.0 atol=1e-8   # no x displacement
         @test avg[2] ≈ 0.0 atol=1e-8   # no y displacement
     end

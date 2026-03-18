@@ -151,6 +151,102 @@ end
 end
 
 # --------------------------------------------------------------------------- #
+# Small-strain specializations for LinearElastic
+#
+# ConstitutiveModels.LinearElastic.pk1_stress computes P = J·σ·F⁻ᵀ, the
+# geometrically-nonlinear push-forward of the Cauchy stress.  This makes the
+# problem nonlinear even though the constitutive law is linear, and does NOT
+# match Norma's infinitesimal-kinematics formulation (where K·U = F exactly
+# and Newton converges in one iteration).
+#
+# These overloads bypass the push-forward:
+#   residual:          f_int = ∫ G^T · σ_v dV,  σ = C:sym(∇u)
+#   stiffness:         K_el  = ∫ G^T · C · G dV (constant; C evaluated at ∇u=0)
+#   stiffness_action:  K·v   = ∫ G^T · C · (G·v) dV  (same constant C)
+#
+# At ∇u=0: J=1, σ=0, so the geometric terms in ∂P/∂∇u vanish and
+# CM.material_tangent reduces to the small-strain C.  This is consistent with
+# the residual and Newton converges in one iteration for any strain level.
+# --------------------------------------------------------------------------- #
+
+@inline function FEC.residual(
+    physics::SolidMechanics{CM.LinearElastic, NP, NS},
+    interps, x_el,
+    t, dt,
+    u_el, u_el_old,
+    state_old_q, state_new_q,
+    props_el,
+) where {NP, NS}
+    cell = FEC.map_interpolants(interps, x_el)
+    (; ∇N_X, JxW) = cell
+
+    ∇u_q = FEC.interpolate_field_gradients(physics, cell, u_el)
+    ∇u_q = FEC.modify_field_gradients(FEC.ThreeDimensional(), ∇u_q)
+
+    # Small-strain Cauchy stress σ = C:ε,  ε = sym(∇u)
+    σ_q = CM.cauchy_stress(
+        physics.constitutive_model, props_el, dt, ∇u_q, 0.0, state_old_q, state_new_q,
+    )
+    # SymmetricTensor{2,3} → Tensor{2,3} (column-major, matching FEC convention)
+    T_el = eltype(σ_q)
+    σ_full = Tensor{2, 3, T_el, 9}((
+        σ_q[1, 1], σ_q[2, 1], σ_q[3, 1],
+        σ_q[1, 2], σ_q[2, 2], σ_q[3, 2],
+        σ_q[1, 3], σ_q[2, 3], σ_q[3, 3],
+    ))
+    P_v = FEC.extract_stress(FEC.ThreeDimensional(), σ_full)
+    G   = FEC.discrete_gradient(FEC.ThreeDimensional(), ∇N_X)
+    return JxW * G * P_v
+end
+
+@inline function FEC.stiffness(
+    physics::SolidMechanics{CM.LinearElastic, NP, NS},
+    interps, x_el,
+    t, dt,
+    u_el, u_el_old,
+    state_old_q, state_new_q,
+    props_el,
+) where {NP, NS}
+    cell = FEC.map_interpolants(interps, x_el)
+    (; ∇N_X, JxW) = cell
+
+    ∇u_q = FEC.interpolate_field_gradients(physics, cell, u_el)
+    ∇u_q = FEC.modify_field_gradients(FEC.ThreeDimensional(), ∇u_q)
+
+    # Constant small-strain tangent C = ∂P/∂∇u|_{∇u=0}
+    A_q = CM.material_tangent(
+        physics.constitutive_model, props_el, dt, zero(∇u_q), 0.0, state_old_q, state_new_q,
+    )
+
+    A_v = FEC.extract_stiffness(FEC.ThreeDimensional(), A_q)
+    G   = FEC.discrete_gradient(FEC.ThreeDimensional(), ∇N_X)
+    return JxW * G * A_v * G'
+end
+
+@inline function FEC.stiffness_action(
+    physics::SolidMechanics{CM.LinearElastic, NP, NS},
+    interps, x_el,
+    t, dt,
+    u_el, u_el_old, v_el,
+    state_old_q, state_new_q,
+    props_el,
+) where {NP, NS}
+    cell = FEC.map_interpolants(interps, x_el)
+    (; ∇N_X, JxW) = cell
+
+    ∇u_q = FEC.interpolate_field_gradients(physics, cell, u_el)
+    ∇u_q = FEC.modify_field_gradients(FEC.ThreeDimensional(), ∇u_q)
+
+    A_q = CM.material_tangent(
+        physics.constitutive_model, props_el, dt, zero(∇u_q), 0.0, state_old_q, state_new_q,
+    )
+
+    A_v = FEC.extract_stiffness(FEC.ThreeDimensional(), A_q)
+    G   = FEC.discrete_gradient(FEC.ThreeDimensional(), ∇N_X)
+    return JxW * G * (A_v * (G' * v_el))
+end
+
+# --------------------------------------------------------------------------- #
 # FEC interface: mass (consistent mass matrix, per quadrature point)
 # --------------------------------------------------------------------------- #
 

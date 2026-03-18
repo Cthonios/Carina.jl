@@ -1,3 +1,30 @@
+@testset "Mechanics Implicit Dynamic Cube (Rigid Body)" begin
+    # Free-free cube (no Dirichlet BCs), initial velocity v_z = 1.0 on all nodes.
+    # Linear elastic E=1e9, ν=0.25, density=1000.  Newmark-β (β=0.25, γ=0.5).
+    # Final time t=1.0, Δt=0.1.
+    #
+    # Matches Norma single-implicit-dynamic-solid-cube (same material, same IC,
+    # same Newmark parameters, same time stepping).
+    #
+    # Since the initial velocity is uniform rigid-body translation, there is no
+    # deformation and no internal forces at any step.  Newmark integrates exactly:
+    #   avg_uz(t=1) = v_z * t_f = 1.0   avg_ux = avg_uy = 0
+    #
+    # Tolerances match Norma's (atol=1e-6).
+
+    example_dir = joinpath(@__DIR__, "..", "examples", "mechanics", "implicit-dynamic", "cube-rigid-body")
+    mktempdir() do dir
+        cp_example(joinpath(example_dir, "cube.g"),    joinpath(dir, "cube.g"))
+        cp_example(joinpath(example_dir, "cube.yaml"), joinpath(dir, "cube.yaml"))
+        sim = Carina.run(joinpath(dir, "cube.yaml"))
+        avg = average_components(sim)
+
+        @test avg[3] ≈ 1.0 atol=1e-6   # avg u_z = v_z * t_f (exact; Norma: 1.0 ± 1e-6)
+        @test avg[1] ≈ 0.0 atol=1e-6   # no x displacement
+        @test avg[2] ≈ 0.0 atol=1e-6   # no y displacement
+    end
+end
+
 @testset "Mechanics Dynamic Cube" begin
     # Same unit cube as the quasi-static test, driven by Newmark-β (β=0.25, γ=0.5).
     # E=10e9, ν=0.25, density=1000.  Applied u_z = 1e-3*t on z=1 face.
