@@ -98,6 +98,7 @@ mutable struct QuasiStaticIntegrator{NS <: AbstractNonlinearSolver, Vec}
     increase_factor  ::Float64
     failed           ::Base.RefValue{Bool}
     U_save           ::Vec   # rollback snapshot (used by LBFGS path)
+    R_eff            ::Vec   # effective residual for Newton solve
 end
 
 function QuasiStaticIntegrator(ns::NS, asm, template::Vec;
@@ -110,8 +111,9 @@ function QuasiStaticIntegrator(ns::NS, asm, template::Vec;
     mk() = (v = similar(template); fill!(v, zero(T)); v)
     solution = mk()
     U_save   = mk()
+    R_eff    = mk()
     return QuasiStaticIntegrator(ns, asm, solution, time_step, min_time_step, max_time_step,
-                                  decrease_factor, increase_factor, Ref(false), U_save)
+                                  decrease_factor, increase_factor, Ref(false), U_save, R_eff)
 end
 
 # --------------------------------------------------------------------------- #
@@ -129,6 +131,7 @@ mutable struct NewmarkIntegrator{NS <: AbstractNonlinearSolver, Vec}
     U_pred ::Vec
     dU     ::Vec   # U − U_pred (Newton/Krylov paths)
     R_eff  ::Vec   # effective residual (Newton/Krylov paths; unused in LBFGS)
+    c_M    ::Float64  # 1/(β·Δt²), updated by predict!
     time_step        ::Float64
     min_time_step    ::Float64
     max_time_step    ::Float64
@@ -156,6 +159,7 @@ function NewmarkIntegrator(ns::NS, asm, β::Float64, γ::Float64, template::Vec;
     return NewmarkIntegrator(ns, asm, β, γ, α_hht,
                               U, V, A, U_prev, V_prev, A_prev,
                               U_pred, dU, R_eff,
+                              0.0,   # c_M initialised to 0; set by predict!
                               time_step, min_time_step, max_time_step,
                               decrease_factor, increase_factor,
                               Ref(false),
@@ -329,190 +333,328 @@ function _lbfgs_two_loop!(d, q, R_eff, S, Y, ρ, alpha, head, hfill, m, precond)
 end
 
 # --------------------------------------------------------------------------- #
-# evolve! — QuasiStatic + Newton + Direct
+# predict! / correct! — integrator state transitions (Norma-style)
 # --------------------------------------------------------------------------- #
 
-function FEC.evolve!(ig::QuasiStaticIntegrator{<:NewtonSolver{DirectLinearSolver}}, p)
+predict!(::QuasiStaticIntegrator, p) = nothing
+
+function predict!(ig::NewmarkIntegrator, p)
+    (; β, γ, U, V, A, U_prev, V_prev, A_prev, U_pred, dU) = ig
+    Δt    = FEC.time_step(p.times)
+    ig.c_M = 1.0 / (β * Δt^2)
+    copyto!(U_prev, U); copyto!(V_prev, V); copyto!(A_prev, A)
+    @. U = U_prev + Δt * V_prev + Δt^2 * (0.5 - β) * A_prev
+    @. V = V_prev + Δt * (1.0 - γ) * A_prev
+    copyto!(U_pred, U)
+    fill!(dU, zero(eltype(dU)))
+    return nothing
+end
+
+correct!(::QuasiStaticIntegrator, p) = nothing
+
+function correct!(ig::NewmarkIntegrator, p)
+    Δt = FEC.time_step(p.times)
+    @. ig.A = ig.c_M * (ig.U - ig.U_pred)
+    @. ig.V += Δt * ig.γ * ig.A
+    return nothing
+end
+
+# --------------------------------------------------------------------------- #
+# _displacement — current displacement field used by assembler
+# --------------------------------------------------------------------------- #
+
+_displacement(ig::QuasiStaticIntegrator) = ig.solution
+_displacement(ig::NewmarkIntegrator)     = ig.U
+
+# --------------------------------------------------------------------------- #
+# _eval_rhs! — compute R_eff stored in ig.R_eff; returns true on success
+# --------------------------------------------------------------------------- #
+
+function _eval_rhs!(ig::QuasiStaticIntegrator, p)
+    U = ig.solution; asm = ig.asm
+    FEC.assemble_vector!(asm, FEC.residual, U, p)
+    FEC.assemble_vector_neumann_bc!(asm, U, p)
+    R = FEC.residual(asm)
+    @. ig.R_eff = -R
+    return isfinite(sqrt(sum(abs2, ig.R_eff)))
+end
+
+function _eval_rhs!(ig::NewmarkIntegrator, p)
+    (; asm, U, U_pred, dU, R_eff, c_M) = ig
+    @. dU = U - U_pred
+    FEC.assemble_vector!(asm, FEC.residual, U, p)
+    FEC.assemble_vector_neumann_bc!(asm, U, p)
+    FEC.assemble_matrix_free_action!(asm, FEC.mass_action, U, dU, p)
+    R_int = FEC.residual(asm)
+    M_dU  = FEC.hvp(asm, dU)
+    @. R_eff = -(R_int + c_M * M_dU)
+    return isfinite(sqrt(sum(abs2, R_eff)))
+end
+
+# --------------------------------------------------------------------------- #
+# _setup_jacobian! — assemble K_eff (or update precond) at current U.
+# Returns true on success, false on exception (sets ig.failed[]).
+# --------------------------------------------------------------------------- #
+
+function _setup_jacobian!(ig::QuasiStaticIntegrator{<:NewtonSolver{DirectLinearSolver}}, p)
+    FEC.assemble_stiffness!(ig.asm, FEC.stiffness, ig.solution, p)
+    return true
+end
+
+function _setup_jacobian!(ig::NewmarkIntegrator{<:NewtonSolver{DirectLinearSolver}}, p)
+    asm = ig.asm; U = ig.U; c_M = ig.c_M
+    FEC.assemble_stiffness!(asm, FEC.stiffness, U, p)
+    FEC.assemble_mass!(asm, FEC.mass, U, p)
+    @. asm.stiffness_storage += c_M * asm.mass_storage
+    return true
+end
+
+function _setup_jacobian!(ig::QuasiStaticIntegrator{<:NewtonSolver{<:KrylovLinearSolver}}, p)
+    ls = ig.nonlinear_solver.linear_solver; U = ig.solution; asm = ig.asm
+    if ls.assembled
+        FEC.assemble_stiffness!(asm, FEC.stiffness, U, p)
+        _update_jacobi_precond_assembled!(ls.precond, FEC.stiffness(asm))
+    else
+        _update_jacobi_precond_qs!(ls.precond, asm, U, ls.ones_v, p)
+    end
+    return true
+end
+
+function _setup_jacobian!(ig::NewmarkIntegrator{<:NewtonSolver{<:KrylovLinearSolver}}, p)
+    ls = ig.nonlinear_solver.linear_solver; asm = ig.asm; U = ig.U; c_M = ig.c_M
+    if ls.assembled
+        try
+            FEC.assemble_stiffness!(asm, FEC.stiffness, U, p)
+            FEC.assemble_mass!(asm, FEC.mass, U, p)
+            @. asm.stiffness_storage += c_M * asm.mass_storage
+            _update_jacobi_precond_assembled!(ls.precond, FEC.stiffness(asm))
+        catch
+            ig.failed[] = true
+            return false
+        end
+    else
+        _update_jacobi_precond_eff!(ls.precond, asm, U, ls.ones_v, c_M, p, ls.scratch)
+    end
+    return true
+end
+
+# --------------------------------------------------------------------------- #
+# _setup_linear_ops — create LinearOperators for Krylov solves (once per step)
+# Returns nothing for Direct; (K_op, M_op) tuple for Krylov.
+# --------------------------------------------------------------------------- #
+
+_setup_linear_ops(::QuasiStaticIntegrator{<:NewtonSolver{DirectLinearSolver}}, p)  = nothing
+_setup_linear_ops(::NewmarkIntegrator{<:NewtonSolver{DirectLinearSolver}}, p)      = nothing
+
+function _setup_linear_ops(ig::QuasiStaticIntegrator{<:NewtonSolver{<:KrylovLinearSolver}}, p)
+    ls = ig.nonlinear_solver.linear_solver; U = ig.solution; n = length(U)
+    ls.assembled && return (nothing, nothing)
+    K_op = LinearOperator(Float64, n, n, true, true,
+        (y, v) -> _stiffness_matvec_qs!(y, v, ig.asm, U, p))
+    M_op = ls.precond isa NoPreconditioner ? nothing :
+        LinearOperator(Float64, n, n, true, true,
+            (y, v) -> (@. y = ls.precond.inv_diag * v; y))
+    return K_op, M_op
+end
+
+function _setup_linear_ops(ig::NewmarkIntegrator{<:NewtonSolver{<:KrylovLinearSolver}}, p)
+    ls = ig.nonlinear_solver.linear_solver; U = ig.U; n = length(U); c_M = ig.c_M
+    ls.assembled && return (nothing, nothing)
+    K_eff_op = LinearOperator(Float64, n, n, true, true,
+        (y, v) -> _eff_stiffness_matvec!(y, v, ig.asm, U, c_M, p, ls.scratch))
+    M_op = ls.precond isa NoPreconditioner ? nothing :
+        LinearOperator(Float64, n, n, true, true,
+            (y, v) -> (@. y = ls.precond.inv_diag * v; y))
+    return K_eff_op, M_op
+end
+
+# --------------------------------------------------------------------------- #
+# _solve_and_apply! — solve K_eff·ΔU = R_eff, apply U += ΔU.
+# Returns (norm_step, t_solve).  Sets ig.failed[] = true on hard failure.
+# --------------------------------------------------------------------------- #
+
+# Direct: QS and Newmark share the same LU solve logic.
+function _solve_and_apply!(
+    ig::Union{QuasiStaticIntegrator{<:NewtonSolver{DirectLinearSolver}},
+              NewmarkIntegrator{<:NewtonSolver{DirectLinearSolver}}}, p, _ops)
+    U = _displacement(ig); asm = ig.asm
+    t_lu = @elapsed begin
+        K  = FEC.stiffness(asm)
+        F  = lu(K)
+        ΔU = F \ ig.R_eff
+    end
+    norm_step = sqrt(sum(abs2, ΔU))
+    U .+= ΔU
+    FEC._update_for_assembly!(p, asm.dof, U)
+    return norm_step, t_lu
+end
+
+# QS Krylov (both assembled and matrix-free paths).
+function _solve_and_apply!(
+    ig::QuasiStaticIntegrator{<:NewtonSolver{<:KrylovLinearSolver}}, p, ops)
+    ns = ig.nonlinear_solver; ls = ns.linear_solver
+    U = ig.solution; asm = ig.asm; n = length(U)
+    K_op, M_op = ops
+    neg_R = -ig.R_eff
+    t_kry = @elapsed begin
+        if ls.assembled
+            K_sparse = FEC.stiffness(asm)
+            if ls.precond isa NoPreconditioner
+                Krylov.krylov_solve!(ls.workspace, K_sparse, neg_R;
+                                     atol=0.0, rtol=ls.rtol, itmax=ls.itmax)
+            else
+                M_op_asm = LinearOperator(Float64, n, n, true, true,
+                    (y, v) -> (@. y = ls.precond.inv_diag * v; y))
+                Krylov.krylov_solve!(ls.workspace, K_sparse, neg_R;
+                                     M=M_op_asm, atol=0.0, rtol=ls.rtol, itmax=ls.itmax)
+            end
+        else
+            if M_op === nothing
+                Krylov.krylov_solve!(ls.workspace, K_op, neg_R;
+                                     atol=0.0, rtol=ls.rtol, itmax=ls.itmax)
+            else
+                Krylov.krylov_solve!(ls.workspace, K_op, neg_R;
+                                     M=M_op, atol=0.0, rtol=ls.rtol, itmax=ls.itmax)
+            end
+        end
+    end
+    ΔU        = Krylov.solution(ls.workspace)
+    norm_step = sqrt(sum(abs2, ΔU))
+    U .+= ΔU
+    FEC._update_for_assembly!(p, asm.dof, U)
+    kry_iters  = ls.workspace.stats.niter
+    kry_solved = ls.workspace.stats.solved
+    _carina_logf(8, :solve, "    Krylov: %d iters, solved=%s", kry_iters,
+                 kry_solved ? "true" : "STALL")
+    return norm_step, t_kry
+end
+
+# Newmark Krylov: assembled CPU uses IterativeSolvers.cg (Norma-identical);
+# matrix-free GPU uses Krylov.krylov_solve!.
+function _solve_and_apply!(
+    ig::NewmarkIntegrator{<:NewtonSolver{<:KrylovLinearSolver}}, p, ops)
+    ns = ig.nonlinear_solver; ls = ns.linear_solver
+    U = ig.U; asm = ig.asm; n = length(U)
+    K_eff_op, M_op_mf = ops
+    t_kry = @elapsed begin
+        try
+            if ls.assembled
+                K_eff_sparse = FEC.stiffness(asm)
+                ΔU_vec, cg_hist = IterativeSolvers.cg(K_eff_sparse, ig.R_eff;
+                    abstol=ns.abs_residual_tol, reltol=ls.rtol, log=true)
+                _carina_logf(8, :solve, "    CG: %d iters, converged=%s, |r|_CG=%.3e",
+                    length(cg_hist.data[:resnorm]), string(cg_hist.isconverged),
+                    cg_hist.data[:resnorm][end])
+                copyto!(ig.dU, ΔU_vec)
+            else
+                if M_op_mf === nothing
+                    Krylov.krylov_solve!(ls.workspace, K_eff_op, ig.R_eff;
+                        atol=0.0, rtol=ls.rtol, itmax=ls.itmax)
+                else
+                    Krylov.krylov_solve!(ls.workspace, K_eff_op, ig.R_eff;
+                        M=M_op_mf, atol=0.0, rtol=ls.rtol, itmax=ls.itmax)
+                end
+                copyto!(ig.dU, Krylov.solution(ls.workspace))
+            end
+        catch
+            ig.failed[] = true
+            return 0.0, 0.0
+        end
+    end
+    norm_step = sqrt(sum(abs2, ig.dU))
+    U .+= ig.dU
+    FEC._update_for_assembly!(p, asm.dof, U)
+    return norm_step, t_kry
+end
+
+# --------------------------------------------------------------------------- #
+# _mark_failed_on_nonconvergence — QS fails the step; Newmark accepts best U
+# --------------------------------------------------------------------------- #
+
+_mark_failed_on_nonconvergence(::QuasiStaticIntegrator) = true
+_mark_failed_on_nonconvergence(::NewmarkIntegrator)     = false
+
+# --------------------------------------------------------------------------- #
+# _newton_solve! — unified Newton loop for Direct and Krylov integrators
+# --------------------------------------------------------------------------- #
+
+function _newton_solve!(ig, p)
     ns  = ig.nonlinear_solver
     asm = ig.asm
-    dof = asm.dof
-    U   = ig.solution
 
     FEC.update_time!(p)
     FEC.update_bc_values!(p)
 
-    # Initial residual and stiffness at U (iter 0) — same as Norma's predict+evaluate.
-    FEC.assemble_vector!(asm, FEC.residual, U, p)
-    FEC.assemble_vector_neumann_bc!(asm, U, p)
-    R            = FEC.residual(asm)
-    initial_norm = sqrt(sum(abs2, R))
+    predict!(ig, p)
+
+    # Initial residual at predictor.
+    ok = _eval_rhs!(ig, p)
+    if !ok
+        ig.failed[] = true
+        return nothing
+    end
+    _setup_jacobian!(ig, p) || return nothing
+
+    initial_norm = sqrt(sum(abs2, ig.R_eff))
     _carina_logf(8, :solve, "Iter [0] |R| = %.3e : |r| = %.3e : %s",
                  initial_norm, 1.0, _status_str(false))
 
-    t_asm = @elapsed FEC.assemble_stiffness!(asm, FEC.stiffness, U, p)
+    # Create linear operators (noop for Direct; LinearOperators for Krylov).
+    ops = _setup_linear_ops(ig, p)
 
     converged = false
     for iter in 1:ns.max_iters
-        # Step 1: solve K · ΔU = −R  →  U += ΔU  (same as Norma's compute_step + update).
-        K    = FEC.stiffness(asm)
-        t_lu = @elapsed begin
-            F_lu = lu(K)
-            ΔU   = F_lu \ (-R)
-        end
-        norm_ΔU = sqrt(sum(abs2, ΔU))
+        # Solve K_eff·ΔU = R_eff and apply U += ΔU.
+        norm_step, t_solve = _solve_and_apply!(ig, p, ops)
+        ig.failed[] && return nothing
 
-        # Step 2: apply Newton step.
-        U .+= ΔU
-        FEC._update_for_assembly!(p, dof, U)
-
-        # Step 3: evaluate residual and stiffness at updated U (Norma's correct+evaluate).
-        t_asm = @elapsed begin
-            FEC.assemble_vector!(asm, FEC.residual, U, p)
-            FEC.assemble_vector_neumann_bc!(asm, U, p)
-            FEC.assemble_stiffness!(asm, FEC.stiffness, U, p)
-        end
-        R      = FEC.residual(asm)
-        norm_R = sqrt(sum(abs2, R))
+        # Evaluate R_eff at updated U.
+        t_eval = @elapsed _eval_rhs!(ig, p)
+        norm_R = sqrt(sum(abs2, ig.R_eff))
         rel_R  = initial_norm > 0.0 ? norm_R / initial_norm : norm_R
 
-        # Step 4: log post-step residual and check convergence (same criteria as Norma).
-        converged = norm_ΔU < ns.abs_increment_tol ||
-                    norm_R  < ns.abs_residual_tol   ||
-                    rel_R   < ns.rel_residual_tol
+        converged = norm_step < ns.abs_increment_tol ||
+                    norm_R   < ns.abs_residual_tol   ||
+                    rel_R    < ns.rel_residual_tol
         _carina_logf(8, :solve,
-            "Iter [%d] |R| = %.3e : |r| = %.3e : %s\n" *
-            "                  |ΔU|=%.3e : t_asm=%.3fs : t_lu=%.3fs",
-            iter, norm_R, rel_R, _status_str(converged), norm_ΔU, t_asm, t_lu)
+            "Iter [%d] |R| = %.3e : |r| = %.3e : %s  |ΔU|=%.3e : t_eval=%.3fs : t_solve=%.3fs",
+            iter, norm_R, rel_R, _status_str(converged), norm_step, t_eval, t_solve)
         converged && break
+
+        # Reassemble Jacobian only when not yet converged.
+        _setup_jacobian!(ig, p) || return nothing
     end
-    ig.failed[] = !converged
+
+    correct!(ig, p)
+
+    if !converged
+        if _mark_failed_on_nonconvergence(ig)
+            ig.failed[] = true
+        else
+            _carina_logf(4, :solve,
+                "Newton did not converge in %d iterations; accepting best solution",
+                ns.max_iters)
+        end
+    end
+
+    FEC._update_for_assembly!(p, asm.dof, _displacement(ig))
     p.h1_field_old.data .= p.h1_field.data
     return nothing
 end
+
+# --------------------------------------------------------------------------- #
+# evolve! — QuasiStatic + Newton + Direct
+# --------------------------------------------------------------------------- #
+
+FEC.evolve!(ig::QuasiStaticIntegrator{<:NewtonSolver{DirectLinearSolver}}, p) =
+    _newton_solve!(ig, p)
 
 # --------------------------------------------------------------------------- #
 # evolve! — QuasiStatic + Newton + Krylov
 # --------------------------------------------------------------------------- #
 
-function FEC.evolve!(ig::QuasiStaticIntegrator{<:NewtonSolver{<:KrylovLinearSolver}}, p)
-    ns  = ig.nonlinear_solver
-    ls  = ns.linear_solver
-    asm = ig.asm
-    dof = asm.dof
-    U   = ig.solution
-    n   = length(U)
-
-    FEC.update_time!(p)
-    FEC.update_bc_values!(p)
-
-    # Build matrix-free operator once (captures U by binding so updated U is used each iter).
-    K_op = if !ls.assembled
-        LinearOperator(
-            Float64, n, n, true, true,
-            (y, v) -> _stiffness_matvec_qs!(y, v, asm, U, p),
-        )
-    else
-        nothing
-    end
-    M_op = if !ls.assembled && !(ls.precond isa NoPreconditioner)
-        LinearOperator(
-            Float64, n, n, true, true,
-            (y, v) -> (@. y = ls.precond.inv_diag * v; y),
-        )
-    else
-        nothing
-    end
-
-    # Initial residual and stiffness at U (iter 0) — same as Norma's predict+evaluate.
-    FEC.assemble_vector!(asm, FEC.residual, U, p)
-    FEC.assemble_vector_neumann_bc!(asm, U, p)
-    R            = FEC.residual(asm)
-    initial_norm = sqrt(sum(abs2, R))
-    _carina_logf(8, :solve, "Iter [0] |R| = %.3e : |r| = %.3e : %s",
-                 initial_norm, 1.0, _status_str(false))
-
-    # Assemble K₀ at U for first Newton step.
-    if ls.assembled
-        t_asm = @elapsed begin
-            FEC.assemble_stiffness!(asm, FEC.stiffness, U, p)
-            K_sparse = FEC.stiffness(asm)
-            _update_jacobi_precond_assembled!(ls.precond, K_sparse)
-        end
-    else
-        t_asm = @elapsed _update_jacobi_precond_qs!(ls.precond, asm, U, ls.ones_v, p)
-    end
-
-    converged = false
-    for iter in 1:ns.max_iters
-        # Step 1: solve K · ΔU = −R  (Norma's compute_step).
-        neg_R = -R
-        if ls.assembled
-            K_sparse = FEC.stiffness(asm)
-            t_kry = @elapsed begin
-                if ls.precond isa NoPreconditioner
-                    Krylov.krylov_solve!(ls.workspace, K_sparse, neg_R;
-                                         atol=0.0, rtol=ls.rtol, itmax=ls.itmax)
-                else
-                    M_op_assembled = LinearOperator(
-                        Float64, n, n, true, true,
-                        (y, v) -> (@. y = ls.precond.inv_diag * v; y),
-                    )
-                    Krylov.krylov_solve!(ls.workspace, K_sparse, neg_R;
-                                         M=M_op_assembled, atol=0.0, rtol=ls.rtol, itmax=ls.itmax)
-                end
-            end
-        else
-            t_kry = @elapsed begin
-                if M_op === nothing
-                    Krylov.krylov_solve!(ls.workspace, K_op, neg_R;
-                                         atol=0.0, rtol=ls.rtol, itmax=ls.itmax)
-                else
-                    Krylov.krylov_solve!(ls.workspace, K_op, neg_R;
-                                         M=M_op, atol=0.0, rtol=ls.rtol, itmax=ls.itmax)
-                end
-            end
-        end
-        ΔU        = Krylov.solution(ls.workspace)
-        kry_iters  = ls.workspace.stats.niter
-        kry_solved = ls.workspace.stats.solved
-        norm_ΔU    = sqrt(sum(abs2, ΔU))
-
-        # Step 2: apply Newton step (Norma's solution update).
-        U .+= ΔU
-        FEC._update_for_assembly!(p, dof, U)
-
-        # Step 3: evaluate residual and stiffness at updated U (Norma's correct+evaluate).
-        t_asm = @elapsed begin
-            FEC.assemble_vector!(asm, FEC.residual, U, p)
-            FEC.assemble_vector_neumann_bc!(asm, U, p)
-            if ls.assembled
-                FEC.assemble_stiffness!(asm, FEC.stiffness, U, p)
-                K_sparse = FEC.stiffness(asm)
-                _update_jacobi_precond_assembled!(ls.precond, K_sparse)
-            else
-                _update_jacobi_precond_qs!(ls.precond, asm, U, ls.ones_v, p)
-            end
-        end
-        R      = FEC.residual(asm)
-        norm_R = sqrt(sum(abs2, R))
-        rel_R  = initial_norm > 0.0 ? norm_R / initial_norm : norm_R
-
-        # Step 4: log post-step residual and check convergence (same criteria as Norma).
-        converged = norm_ΔU < ns.abs_increment_tol ||
-                    norm_R  < ns.abs_residual_tol   ||
-                    rel_R   < ns.rel_residual_tol
-        _carina_logf(8, :solve,
-            "Iter [%d] |R| = %.3e : |r| = %.3e : %s\n" *
-            "                  |ΔU|=%.3e : t_asm=%.3fs : t_kry=%.3fs : %d/%d(%s)",
-            iter, norm_R, rel_R, _status_str(converged), norm_ΔU,
-            t_asm, t_kry, kry_iters, ls.itmax,
-            kry_solved ? "conv" : "STALL")
-        converged && break
-    end
-    ig.failed[] = !converged
-    p.h1_field_old.data .= p.h1_field.data
-    return nothing
-end
+FEC.evolve!(ig::QuasiStaticIntegrator{<:NewtonSolver{<:KrylovLinearSolver}}, p) =
+    _newton_solve!(ig, p)
 
 # --------------------------------------------------------------------------- #
 # evolve! — QuasiStatic + Newton + LBFGS
@@ -617,311 +759,18 @@ function FEC.evolve!(ig::QuasiStaticIntegrator{<:NewtonSolver{<:LBFGSLinearSolve
 end
 
 # --------------------------------------------------------------------------- #
-# evolve! — Newmark + Newton + Direct
-# --------------------------------------------------------------------------- #
-#
-# Primary unknown: U (displacement).  A = (U − U_pred) / (β·Δt²) after Newton.
-# Residual:  R_eff = −(F_int(U) − F_ext + M·A)  =  −(R_int + c_M·M·dU)
-# Jacobian:  K_eff = K + c_M·M
-#
-function FEC.evolve!(ig::NewmarkIntegrator{<:NewtonSolver{DirectLinearSolver}}, p)
-    ns  = ig.nonlinear_solver
-    asm = ig.asm
-    dof = asm.dof
-    (; β, γ, α_hht, U, V, A, U_prev, V_prev, A_prev, U_pred, dU, R_eff) = ig
-
-    FEC.update_time!(p)
-    FEC.update_bc_values!(p)
-
-    Δt  = FEC.time_step(p.times)
-    c_M = 1.0 / (β * Δt^2)
-
-    copyto!(U_prev, U); copyto!(V_prev, V); copyto!(A_prev, A)
-    @. U = U_prev + Δt * V_prev + Δt^2 * (0.5 - β) * A_prev
-    @. V = V_prev + Δt * (1.0 - γ) * A_prev
-    copyto!(U_pred, U)
-
-    # Initial residual at predictor (dU = 0, M·dU = 0) — same as Norma's predict+evaluate.
-    fill!(dU, zero(eltype(dU)))
-    FEC.assemble_vector!(asm, FEC.residual, U, p)
-    FEC.assemble_vector_neumann_bc!(asm, U, p)
-    FEC.assemble_matrix_free_action!(asm, FEC.mass_action, U, dU, p)
-    R_int = FEC.residual(asm)
-
-    if !isfinite(sqrt(sum(abs2, R_int)))
-        ig.failed[] = true
-        return nothing
-    end
-
-    M_dU = FEC.hvp(asm, dU)
-    @. R_eff = -(R_int + c_M * M_dU)
-    initial_norm = sqrt(sum(abs2, R_eff))
-    _carina_logf(8, :solve, "Iter [0] |R| = %.3e : |r| = %.3e : %s",
-                 initial_norm, 1.0, _status_str(false))
-
-    # Assemble K₀ at predictor for first Newton step.
-    FEC.assemble_stiffness!(asm, FEC.stiffness, U, p)
-    FEC.assemble_mass!(asm, FEC.mass, U, p)
-    @. asm.stiffness_storage += c_M * asm.mass_storage
-
-    converged = false
-    for iter in 1:ns.max_iters
-        # Step 1: solve K_eff · ΔU = R_eff  (Norma's compute_step).
-        t_lu = @elapsed begin
-            K_eff_sparse = FEC.stiffness(asm)
-            F_lu         = lu(K_eff_sparse)
-            ΔU           = F_lu \ R_eff
-        end
-        norm_dU = sqrt(sum(abs2, ΔU))
-
-        # Step 2: apply Newton step (Norma's solution update + correct).
-        U .+= ΔU
-
-        # Step 3: evaluate R and K at updated U (Norma's correct+evaluate).
-        t_asm = @elapsed begin
-            @. dU = U - U_pred
-            FEC.assemble_vector!(asm, FEC.residual, U, p)
-            FEC.assemble_vector_neumann_bc!(asm, U, p)
-            FEC.assemble_matrix_free_action!(asm, FEC.mass_action, U, dU, p)
-            FEC.assemble_stiffness!(asm, FEC.stiffness, U, p)
-            FEC.assemble_mass!(asm, FEC.mass, U, p)
-            @. asm.stiffness_storage += c_M * asm.mass_storage
-        end
-        R_int = FEC.residual(asm)
-        M_dU  = FEC.hvp(asm, dU)
-        @. R_eff = -(R_int + c_M * M_dU)
-        norm_R = sqrt(sum(abs2, R_eff))
-        rel_R  = initial_norm > 0.0 ? norm_R / initial_norm : norm_R
-
-        # Step 4: log post-step residual and check convergence (same criteria as Norma).
-        converged = norm_dU < ns.abs_increment_tol ||
-                    norm_R  < ns.abs_residual_tol   ||
-                    rel_R   < ns.rel_residual_tol
-        _carina_logf(8, :solve,
-            "Iter [%d] |R| = %.3e : |r| = %.3e : %s\n" *
-            "                  |ΔU|=%.3e : t_asm=%.3fs : t_lu=%.3fs",
-            iter, norm_R, rel_R, _status_str(converged), norm_dU, t_asm, t_lu)
-        @debug "Newmark Newton" iter norm_R rel_R
-        converged && break
-    end
-
-    # Accept the best Newton solution after max_iters (same as Norma).
-    if !converged
-        _carina_logf(4, :solve, "Newton did not converge in %d iterations; accepting best solution", ns.max_iters)
-    end
-
-    @. A = c_M * (U - U_pred)
-    @. V = V + Δt * γ * A
-
-    FEC._update_for_assembly!(p, dof, U)
-    p.h1_field_old.data .= p.h1_field.data
-
-    return nothing
-end
-
-# --------------------------------------------------------------------------- #
-# evolve! — Newmark + Newton + Krylov  (displacement formulation, same as Norma)
+# evolve! — Newmark + Newton + Direct / Krylov  →  unified _newton_solve!
 # --------------------------------------------------------------------------- #
 #
 # Primary unknown: U (displacement).  A = c_M·(U − U_pred) after Newton.
 # Residual:  R_eff = −(F_int(U) − F_ext + c_M·M·(U − U_pred))
-# Jacobian:  K_eff = K + c_M·M
-# CPU assembled path: IterativeSolvers.cg(K_eff, R_eff) — identical to Norma.
-# GPU matrix-free path: Krylov.cg with (K + c_M·M)·v matvec.
+# Jacobian:  K_eff = K + c_M·M   (Direct: assembled; Krylov CPU: IterativeSolvers.cg)
 #
-function FEC.evolve!(ig::NewmarkIntegrator{<:NewtonSolver{<:KrylovLinearSolver}}, p)
-    ns  = ig.nonlinear_solver
-    ls  = ns.linear_solver
-    asm = ig.asm
-    dof = asm.dof
-    (; β, γ, U, V, A, U_prev, V_prev, A_prev, U_pred, dU, R_eff) = ig
+FEC.evolve!(ig::NewmarkIntegrator{<:NewtonSolver{DirectLinearSolver}}, p) =
+    _newton_solve!(ig, p)
 
-    FEC.update_time!(p)
-    FEC.update_bc_values!(p)
-
-    Δt  = FEC.time_step(p.times)
-    c_M = 1.0 / (β * Δt^2)
-    n   = length(U)
-
-    # ---- Newmark predictor ----
-    copyto!(U_prev, U); copyto!(V_prev, V); copyto!(A_prev, A)
-    @. U = U_prev + Δt * V_prev + Δt^2 * (0.5 - β) * A_prev
-    @. V = V_prev + Δt * (1.0 - γ) * A_prev
-    copyto!(U_pred, U)
-
-    # ---- GPU matrix-free K_eff operator (captures U and c_M by binding) ----
-    K_eff_op = if !ls.assembled
-        LinearOperator(
-            Float64, n, n, true, true,
-            (y, v) -> _eff_stiffness_matvec!(y, v, asm, U, c_M, p, ls.scratch),
-        )
-    else
-        nothing
-    end
-    M_op_mf = if !ls.assembled && !(ls.precond isa NoPreconditioner)
-        LinearOperator(
-            Float64, n, n, true, true,
-            (y, v) -> (@. y = ls.precond.inv_diag * v; y),
-        )
-    else
-        nothing
-    end
-
-    # ---- Initial residual at predictor (dU = 0, M·dU = 0) — Norma's predict+evaluate ----
-    fill!(dU, zero(eltype(dU)))
-    FEC.assemble_vector!(asm, FEC.residual, U, p)
-    FEC.assemble_vector_neumann_bc!(asm, U, p)
-    R_int = FEC.residual(asm)
-
-    if !isfinite(sqrt(sum(abs2, R_int)))
-        ig.failed[] = true
-        return nothing
-    end
-
-    @. R_eff = -R_int   # dU=0 so c_M·M·dU = 0
-    initial_norm = sqrt(sum(abs2, R_eff))
-    _carina_logf(8, :solve, "Iter [0] |R| = %.3e : |r| = %.3e : %s",
-                 initial_norm, 1.0, _status_str(false))
-
-    # ---- Assemble K₀ at predictor for first Newton step ----
-    if ls.assembled
-        try
-            FEC.assemble_stiffness!(asm, FEC.stiffness, U, p)
-            FEC.assemble_mass!(asm, FEC.mass, U, p)
-            @. asm.stiffness_storage += c_M * asm.mass_storage
-        catch
-            ig.failed[] = true
-            return nothing
-        end
-    else
-        _update_jacobi_precond_eff!(ls.precond, asm, U, ls.ones_v, c_M, p, ls.scratch)
-    end
-
-    converged = false
-    for iter in 1:ns.max_iters
-        if ls.assembled
-            # CPU assembled path — Norma-identical loop structure ─────────────
-            # Step 1: solve K_eff · ΔU = R_eff (Norma's compute_step).
-            t_kry = @elapsed begin
-                try
-                    K_eff_sparse = FEC.stiffness(asm)
-                    ΔU_vec, cg_hist = IterativeSolvers.cg(K_eff_sparse, R_eff;
-                                                          abstol=ns.abs_residual_tol,
-                                                          reltol=ls.rtol,
-                                                          log=true)
-                    copyto!(dU, ΔU_vec)
-                    _carina_logf(8, :solve, "    CG: %d iters, converged=%s, |r|_CG=%.3e",
-                                 length(cg_hist.data[:resnorm]),
-                                 string(cg_hist.isconverged),
-                                 cg_hist.data[:resnorm][end])
-                catch
-                    ig.failed[] = true
-                    return nothing
-                end
-            end
-            norm_dU = sqrt(sum(abs2, dU))
-
-            # Step 2: apply Newton step (Norma's solution update + correct).
-            U .+= dU
-
-            # Step 3: evaluate R and K at updated U (Norma's correct+evaluate).
-            t_asm = @elapsed begin
-                @. dU = U - U_pred
-                FEC.assemble_vector!(asm, FEC.residual, U, p)
-                FEC.assemble_vector_neumann_bc!(asm, U, p)
-                FEC.assemble_matrix_free_action!(asm, FEC.mass_action, U, dU, p)
-            end
-            R_int = FEC.residual(asm)
-            M_dU  = FEC.hvp(asm, dU)
-            @. R_eff = -(R_int + c_M * M_dU)
-            norm_R = sqrt(sum(abs2, R_eff))
-            rel_R  = initial_norm > 0.0 ? norm_R / initial_norm : norm_R
-
-            # Step 4: log post-step residual and check convergence (same criteria as Norma).
-            converged = norm_dU < ns.abs_increment_tol ||
-                    norm_R  < ns.abs_residual_tol   ||
-                    rel_R   < ns.rel_residual_tol
-            _carina_logf(8, :solve,
-                "Iter [%d] |R| = %.3e : |r| = %.3e : %s\n" *
-                "                  |ΔU|=%.3e : t_asm=%.3fs : t_kry=%.3fs",
-                iter, norm_R, rel_R, _status_str(converged), norm_dU, t_asm, t_kry)
-            @debug "Newmark Newton" iter norm_R rel_R
-            converged && break
-
-            # Step 5: assemble K for next iteration.
-            try
-                FEC.assemble_stiffness!(asm, FEC.stiffness, U, p)
-                FEC.assemble_mass!(asm, FEC.mass, U, p)
-                @. asm.stiffness_storage += c_M * asm.mass_storage
-            catch
-                ig.failed[] = true
-                return nothing
-            end
-        else
-            # GPU matrix-free path — Krylov CG with (K + c_M·M)·v matvec ─────
-            # Step 1: solve K_eff · ΔU = R_eff.
-            t_kry = @elapsed begin
-                try
-                    if M_op_mf === nothing
-                        Krylov.krylov_solve!(ls.workspace, K_eff_op, R_eff;
-                                             atol=0.0, rtol=ls.rtol, itmax=ls.itmax)
-                    else
-                        Krylov.krylov_solve!(ls.workspace, K_eff_op, R_eff;
-                                             M=M_op_mf, atol=0.0, rtol=ls.rtol, itmax=ls.itmax)
-                    end
-                catch
-                    ig.failed[] = true
-                    return nothing
-                end
-            end
-            copyto!(dU, Krylov.solution(ls.workspace))
-            norm_dU = sqrt(sum(abs2, dU))
-
-            # Step 2: apply Newton step.
-            U .+= dU
-
-            # Step 3: evaluate R at updated U and refresh preconditioner.
-            t_asm = @elapsed begin
-                @. dU = U - U_pred
-                FEC.assemble_vector!(asm, FEC.residual, U, p)
-                FEC.assemble_vector_neumann_bc!(asm, U, p)
-                FEC.assemble_matrix_free_action!(asm, FEC.mass_action, U, dU, p)
-                _update_jacobi_precond_eff!(ls.precond, asm, U, ls.ones_v, c_M, p, ls.scratch)
-            end
-            R_int = FEC.residual(asm)
-            M_dU  = FEC.hvp(asm, dU)
-            @. R_eff = -(R_int + c_M * M_dU)
-            norm_R = sqrt(sum(abs2, R_eff))
-            rel_R  = initial_norm > 0.0 ? norm_R / initial_norm : norm_R
-
-            # Step 4: log post-step residual and check convergence.
-            converged = norm_dU < ns.abs_increment_tol ||
-                    norm_R  < ns.abs_residual_tol   ||
-                    rel_R   < ns.rel_residual_tol
-            _carina_logf(8, :solve,
-                "Iter [%d] |R| = %.3e : |r| = %.3e : %s\n" *
-                "                  |ΔU|=%.3e : t_kry=%.3fs : t_asm=%.3fs",
-                iter, norm_R, rel_R, _status_str(converged), norm_dU, t_kry, t_asm)
-            @debug "Newmark Newton" iter norm_R rel_R
-            converged && break
-        end
-    end
-
-    # Accept the best Newton solution after max_iters — same as Norma.
-    # Only set failed[] for hard failures (exceptions, NaN), not for Newton
-    # non-convergence, so that adaptive stepping is not triggered unnecessarily.
-    if !converged
-        _carina_logf(4, :solve, "Newton did not converge in %d iterations; accepting best solution", ns.max_iters)
-    end
-
-    @. A = c_M * (U - U_pred)
-    @. V = V + Δt * γ * A
-
-    FEC._update_for_assembly!(p, dof, U)
-    p.h1_field_old.data .= p.h1_field.data
-
-    return nothing
-end
+FEC.evolve!(ig::NewmarkIntegrator{<:NewtonSolver{<:KrylovLinearSolver}}, p) =
+    _newton_solve!(ig, p)
 
 # --------------------------------------------------------------------------- #
 # evolve! — Newmark + Newton + LBFGS
