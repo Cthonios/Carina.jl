@@ -165,9 +165,27 @@ end
     cell = FEC.map_interpolants(interps, x_el)
     (; N, JxW) = cell
 
-    # N_vec: shape function vector expanded for all DOF components
-    N_vec = FEC.discrete_values(FEC.ThreeDimensional(), N)
-    return JxW * physics.density * N_vec * N_vec'
+    # Build element mass matrix in interleaved DOF ordering:
+    #   M_el[3*(n-1)+d, 3*(m-1)+d'] = δ(d,d') * N[n] * N[m]
+    # i.e. kron(N*N', I_3).  The FEC assembly infrastructure expects
+    # rows/cols in the same interleaved order as discrete_gradient, so
+    # "N_vec * N_vec'" with a block-ordered N_vec would be wrong.
+    N_nodes = size(N, 1)
+    NDOF    = 3 * N_nodes
+    tup = zeros(SVector{NDOF * NDOF, eltype(N)})
+    for n in 1:N_nodes
+        for m in 1:N_nodes
+            Nnm = N[n] * N[m]
+            for d in 1:3
+                r = 3 * (n - 1) + d
+                c = 3 * (m - 1) + d
+                linear_idx = r + NDOF * (c - 1)   # column-major flat index
+                tup = setindex(tup, Nnm, linear_idx)
+            end
+        end
+    end
+    M_el = SMatrix{NDOF, NDOF, eltype(N), NDOF * NDOF}(tup.data)
+    return JxW * physics.density * M_el
 end
 
 # --------------------------------------------------------------------------- #
@@ -185,7 +203,19 @@ end
     cell = FEC.map_interpolants(interps, x_el)
     (; N, JxW) = cell
 
-    N_vec = FEC.discrete_values(FEC.ThreeDimensional(), N)
-    # M_q·v_el = JxW·ρ·(N_vec·v_el)·N_vec — avoids forming M_q (24×24)
-    return JxW * physics.density * dot(N_vec, v_el) * N_vec
+    # Correct M·v in interleaved DOF ordering:
+    #   (M·v)[3*(n-1)+d] = N[n] * Σ_m N[m] * v_el[3*(m-1)+d]
+    # i.e. per-direction dot products, NOT a single dot over all DOFs.
+    N_nodes = size(N, 1)
+    s1 = sum(N[m] * v_el[3 * (m - 1) + 1] for m in 1:N_nodes)
+    s2 = sum(N[m] * v_el[3 * (m - 1) + 2] for m in 1:N_nodes)
+    s3 = sum(N[m] * v_el[3 * (m - 1) + 3] for m in 1:N_nodes)
+    tup = zeros(SVector{3 * N_nodes, eltype(v_el)})
+    for n in 1:N_nodes
+        k = 3 * (n - 1)
+        tup = setindex(tup, N[n] * s1, k + 1)
+        tup = setindex(tup, N[n] * s2, k + 2)
+        tup = setindex(tup, N[n] * s3, k + 3)
+    end
+    return JxW * physics.density * tup
 end

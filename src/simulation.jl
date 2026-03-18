@@ -193,6 +193,7 @@ function create_simulation(dict::Dict{String,Any}, basedir::String="";
 
     _apply_initial_velocity_ics!(integrator, mesh, asm_cpu, p_cpu,
                                   _parse_velocity_ics(dict))
+    _compute_initial_acceleration!(integrator, asm_cpu, p_cpu)
 
     n_steps = controller.num_stops - 1
     sim = SingleDomainSimulation(p, p_cpu, asm_cpu, integrator, pp,
@@ -300,10 +301,14 @@ function _advance_one_step!(sim)
             break
         end
 
-        # Step failed: restore state, reduce step, undo time advance, retry
+        # Step failed: restore state, reduce step, undo time advance, retry.
+        # Use the actual dt (params.times.Δt) for reduction, not ig.time_step,
+        # which may have grown to max_dt via successful-step increases.
+        actual_dt = params.times.Δt
         _restore_state!(integrator, params)
+        integrator.time_step = actual_dt   # sync before halving
         _decrease_step!(integrator, params)
-        params.times.time_current -= params.times.Δt
+        params.times.time_current -= actual_dt
         params.times.Δt = integrator.time_step
     end
 end
@@ -757,3 +762,42 @@ end
 function _apply_initial_velocity_ics!(integrator, mesh, asm_cpu, p_cpu, vel_ics)
     isempty(vel_ics) || @warn "Initial velocity ICs ignored for non-Newmark integrator."
 end
+
+# Compute the consistent initial acceleration A₀ = M⁻¹·(F_ext − F_int(U₀)) for
+# Newmark integrators.  Called once after ICs are applied, before the first step.
+# Mirrors Norma's `initialize(Newmark, ...)` which solves the same system.
+function _compute_initial_acceleration!(integrator::NewmarkIntegrator, asm_cpu, p_cpu)
+    _carina_log(0, :acceleration, "Computing Initial Acceleration...")
+    t_start = time()
+
+    n       = length(integrator.U)
+    U_zeros = zeros(Float64, n)
+
+    # Assemble residual at t=0 with U=0: R_int = F_int(U=0) − F_ext
+    FEC.assemble_vector!(asm_cpu, FEC.residual, U_zeros, p_cpu)
+    FEC.assemble_vector_neumann_bc!(asm_cpu, U_zeros, p_cpu)
+    rhs = -copy(FEC.residual(asm_cpu))   # F_ext − F_int
+
+    norm_rhs = sqrt(sum(abs2, rhs))
+    if norm_rhs < eps(Float64)
+        elapsed = time() - t_start
+        _carina_logf(0, :acceleration, "Initial Acceleration = 0 (trivial RHS, %.3fs)", elapsed)
+        return nothing
+    end
+
+    # Solve M·A₀ = rhs using CG (M is SPD)
+    FEC.assemble_mass!(asm_cpu, FEC.mass, U_zeros, p_cpu)
+    M = FEC.mass(asm_cpu)
+    A0, stats = Krylov.cg(M, rhs; atol=0.0, rtol=1e-12, verbose=0)
+
+    elapsed = time() - t_start
+    _carina_logf(0, :acceleration,
+        "Initial Acceleration: |A₀| = %.3e, CG iters = %d (%.3fs)",
+        sqrt(sum(abs2, A0)), stats.niter, elapsed)
+
+    copyto!(integrator.A, A0)
+    return nothing
+end
+
+# No-op for quasi-static and central-difference integrators.
+_compute_initial_acceleration!(integrator, asm_cpu, p_cpu) = nothing
