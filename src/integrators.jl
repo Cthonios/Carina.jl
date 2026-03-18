@@ -1,25 +1,28 @@
 # Time integrators for Carina.
 #
-# Three integrators are provided:
+# 3-axis separation of concerns:
+#   Integrators   — predict!, evaluate!, setup_jacobian!, apply_increment!, residual, correct!
+#   Nonlinear     — solve!(ns, ig, p)
+#   Linear        — _linear_solve!(ls, ig, p, ops) → (ΔU, t_solve)
 #
-#   QuasiStaticIntegrator   — pseudo-time quasi-static Newton (no inertia)
-#   NewmarkIntegrator       — implicit Newmark-β (GPU-ready matrix-free + direct LU)
+# A single generic FEC.evolve!(ig, p) works for ALL integrators.
+#
+# Three integrators:
+#   QuasiStaticIntegrator       — pseudo-time quasi-static Newton (no inertia)
+#   NewmarkIntegrator           — implicit Newmark-β (GPU-ready matrix-free + direct LU)
 #   CentralDifferenceIntegrator — explicit central difference (GPU-ready)
-#
-# All integrators follow the same protocol with the TimeController:
-#   • time_step       — current (adaptive) integration step
-#   • min/max_time_step, decrease/increase_factor — adaptive stepping bounds
-#   • failed          — Ref{Bool} set by FEC.evolve! to signal non-convergence
-#   • _save_state! / _restore_state! — rollback on step failure
-#   • _increase_step! / _decrease_step! — adjust time_step
-#   • _pre_step_hook! — called before each sub-step (CFL update, no-op today)
 #
 # Solver factoring:
 #   AbstractLinearSolver    — DirectLinearSolver | KrylovLinearSolver | LBFGSLinearSolver | NoLinearSolver
-#   AbstractNonlinearSolver — NewtonSolver{LS}
-#   Integrator{NS}          — QuasiStaticIntegrator | NewmarkIntegrator | CentralDifferenceIntegrator
+#   AbstractNonlinearSolver — NewtonSolver{LS} | ExplicitSolver
+#   Integrators use nonlinear_solver(ig) to dispatch to the right solver.
 #
-# evolve! dispatch selects the implementation by (integrator type) × (linear solver type).
+# Adaptive stepping protocol:
+#   • time_step / min/max_time_step / decrease/increase_factor
+#   • failed — Ref{Bool} set by FEC.evolve! to signal non-convergence
+#   • _save_state! / _restore_state! — rollback on step failure
+#   • _increase_step! / _decrease_step! — adjust time_step
+#   • _pre_step_hook! — called before each sub-step (CFL update, no-op today)
 
 import FiniteElementContainers as FEC
 using LinearAlgebra
@@ -33,6 +36,8 @@ import IterativeSolvers
 
 abstract type AbstractLinearSolver end
 abstract type AbstractNonlinearSolver end
+
+struct ExplicitSolver <: AbstractNonlinearSolver end
 
 # --------------------------------------------------------------------------- #
 # Concrete linear solver types
@@ -51,6 +56,8 @@ mutable struct KrylovLinearSolver{KW, Vec} <: AbstractLinearSolver
     scratch  ::Vec
 end
 
+# LBFGSLinearSolver: ring-buffer and scratch vectors only.
+# R_eff and F_int_n removed — they are integrator state, not solver state.
 mutable struct LBFGSLinearSolver{Vec, PC <: Preconditioner} <: AbstractLinearSolver
     m         ::Int
     precond   ::PC
@@ -60,13 +67,11 @@ mutable struct LBFGSLinearSolver{Vec, PC <: Preconditioner} <: AbstractLinearSol
     alpha_buf ::Vector{Float64}
     head      ::Int
     hist_fill ::Int
-    R_eff     ::Vec   # current effective residual
     R_old     ::Vec   # snapshot for y = R_old − R_new
     d         ::Vec   # descent direction
     q         ::Vec   # two-loop work / trial scratch
     M_d       ::Vec   # Newmark: M·d precomputed for line search
     M_dU      ::Vec   # Newmark: M·(U−U_pred) maintained incrementally
-    F_int_n   ::Vec   # HHT-α: F_int at t_n
 end
 
 struct NoLinearSolver <: AbstractLinearSolver end
@@ -131,6 +136,7 @@ mutable struct NewmarkIntegrator{NS <: AbstractNonlinearSolver, Vec}
     U_pred ::Vec
     dU     ::Vec   # U − U_pred (Newton/Krylov paths)
     R_eff  ::Vec   # effective residual (Newton/Krylov paths; unused in LBFGS)
+    F_int_n::Vec   # HHT-α: F_int at t_n (zeroed when α_hht=0)
     c_M    ::Float64  # 1/(β·Δt²), updated by predict!
     time_step        ::Float64
     min_time_step    ::Float64
@@ -154,11 +160,12 @@ function NewmarkIntegrator(ns::NS, asm, β::Float64, γ::Float64, template::Vec;
     U, V, A             = mk(), mk(), mk()
     U_prev, V_prev, A_prev = mk(), mk(), mk()
     U_pred, dU, R_eff   = mk(), mk(), mk()
+    F_int_n             = mk()
     U_save, V_save, A_save = mk(), mk(), mk()
 
     return NewmarkIntegrator(ns, asm, β, γ, α_hht,
                               U, V, A, U_prev, V_prev, A_prev,
-                              U_pred, dU, R_eff,
+                              U_pred, dU, R_eff, F_int_n,
                               0.0,   # c_M initialised to 0; set by predict!
                               time_step, min_time_step, max_time_step,
                               decrease_factor, increase_factor,
@@ -167,7 +174,7 @@ function NewmarkIntegrator(ns::NS, asm, β::Float64, γ::Float64, template::Vec;
 end
 
 # --------------------------------------------------------------------------- #
-# CentralDifferenceIntegrator — keep exactly as-is
+# CentralDifferenceIntegrator
 # --------------------------------------------------------------------------- #
 
 mutable struct CentralDifferenceIntegrator{Asm, Vec}
@@ -175,6 +182,7 @@ mutable struct CentralDifferenceIntegrator{Asm, Vec}
     asm::Asm
     U::Vec; V::Vec; A::Vec
     m_lumped::Vec
+    R_eff   ::Vec   # effective residual = -R_int
     # Adaptive time stepping
     time_step       ::Float64
     min_time_step   ::Float64
@@ -200,9 +208,10 @@ function CentralDifferenceIntegrator(γ::Float64, asm, m_lumped::Vec;
     T  = eltype(m_lumped)
     mk() = (v = similar(m_lumped); fill!(v, zero(T)); v)
     U, V, A = mk(), mk(), mk()
+    R_eff   = mk()
     U_save, V_save, A_save = mk(), mk(), mk()
     return CentralDifferenceIntegrator(
-        γ, asm, U, V, A, m_lumped,
+        γ, asm, U, V, A, m_lumped, R_eff,
         time_step, min_time_step, max_time_step, decrease_factor, increase_factor,
         CFL, c_p_max,
         Ref(false),
@@ -333,8 +342,11 @@ function _lbfgs_two_loop!(d, q, R_eff, S, Y, ρ, alpha, head, hfill, m, precond)
 end
 
 # --------------------------------------------------------------------------- #
-# predict! / correct! — integrator state transitions (Norma-style)
+# Integrator interface: predict!, evaluate!, setup_jacobian!,
+#   apply_increment!, residual, correct!, nonlinear_solver, _finalize_step!
 # --------------------------------------------------------------------------- #
+
+# ---- predict! ----
 
 predict!(::QuasiStaticIntegrator, p) = nothing
 
@@ -350,27 +362,16 @@ function predict!(ig::NewmarkIntegrator, p)
     return nothing
 end
 
-correct!(::QuasiStaticIntegrator, p) = nothing
-
-function correct!(ig::NewmarkIntegrator, p)
+function predict!(ig::CentralDifferenceIntegrator, p)
     Δt = FEC.time_step(p.times)
-    @. ig.A = ig.c_M * (ig.U - ig.U_pred)
-    @. ig.V += Δt * ig.γ * ig.A
-    return nothing
+    @. ig.U += Δt * ig.V + 0.5 * Δt^2 * ig.A
+    @. ig.V += (1.0 - ig.γ) * Δt * ig.A
 end
 
-# --------------------------------------------------------------------------- #
-# _displacement — current displacement field used by assembler
-# --------------------------------------------------------------------------- #
+# ---- evaluate! ----
+# Assembles R_eff = -(force residual), stored in ig.R_eff. Returns isfinite.
 
-_displacement(ig::QuasiStaticIntegrator) = ig.solution
-_displacement(ig::NewmarkIntegrator)     = ig.U
-
-# --------------------------------------------------------------------------- #
-# _eval_rhs! — compute R_eff stored in ig.R_eff; returns true on success
-# --------------------------------------------------------------------------- #
-
-function _eval_rhs!(ig::QuasiStaticIntegrator, p)
+function evaluate!(ig::QuasiStaticIntegrator, p)
     U = ig.solution; asm = ig.asm
     FEC.assemble_vector!(asm, FEC.residual, U, p)
     FEC.assemble_vector_neumann_bc!(asm, U, p)
@@ -379,29 +380,37 @@ function _eval_rhs!(ig::QuasiStaticIntegrator, p)
     return isfinite(sqrt(sum(abs2, ig.R_eff)))
 end
 
-function _eval_rhs!(ig::NewmarkIntegrator, p)
-    (; asm, U, U_pred, dU, R_eff, c_M) = ig
+function evaluate!(ig::NewmarkIntegrator, p)
+    (; asm, U, U_pred, dU, R_eff, c_M, α_hht, F_int_n) = ig
     @. dU = U - U_pred
     FEC.assemble_vector!(asm, FEC.residual, U, p)
     FEC.assemble_vector_neumann_bc!(asm, U, p)
     FEC.assemble_matrix_free_action!(asm, FEC.mass_action, U, dU, p)
     R_int = FEC.residual(asm)
     M_dU  = FEC.hvp(asm, dU)
-    @. R_eff = -(R_int + c_M * M_dU)
+    @. R_eff = -((1 + α_hht) * R_int + c_M * M_dU - α_hht * F_int_n)
     return isfinite(sqrt(sum(abs2, R_eff)))
 end
 
-# --------------------------------------------------------------------------- #
-# _setup_jacobian! — assemble K_eff (or update precond) at current U.
-# Returns true on success, false on exception (sets ig.failed[]).
-# --------------------------------------------------------------------------- #
+function evaluate!(ig::CentralDifferenceIntegrator, p)
+    asm = ig.asm; U = ig.U
+    FEC.assemble_vector!(asm, FEC.residual, U, p)
+    FEC.assemble_vector_neumann_bc!(asm, U, p)
+    R_int = FEC.residual(asm)
+    @. ig.R_eff = -R_int
+    return isfinite(sqrt(sum(abs2, ig.R_eff)))
+end
 
-function _setup_jacobian!(ig::QuasiStaticIntegrator{<:NewtonSolver{DirectLinearSolver}}, p)
+# ---- setup_jacobian! ----
+# Assemble K_eff (or update precond) at current U.
+# Returns true on success, false on exception (may set ig.failed[]).
+
+function setup_jacobian!(ig::QuasiStaticIntegrator{<:NewtonSolver{DirectLinearSolver}}, p)
     FEC.assemble_stiffness!(ig.asm, FEC.stiffness, ig.solution, p)
     return true
 end
 
-function _setup_jacobian!(ig::NewmarkIntegrator{<:NewtonSolver{DirectLinearSolver}}, p)
+function setup_jacobian!(ig::NewmarkIntegrator{<:NewtonSolver{DirectLinearSolver}}, p)
     asm = ig.asm; U = ig.U; c_M = ig.c_M
     FEC.assemble_stiffness!(asm, FEC.stiffness, U, p)
     FEC.assemble_mass!(asm, FEC.mass, U, p)
@@ -409,7 +418,7 @@ function _setup_jacobian!(ig::NewmarkIntegrator{<:NewtonSolver{DirectLinearSolve
     return true
 end
 
-function _setup_jacobian!(ig::QuasiStaticIntegrator{<:NewtonSolver{<:KrylovLinearSolver}}, p)
+function setup_jacobian!(ig::QuasiStaticIntegrator{<:NewtonSolver{<:KrylovLinearSolver}}, p)
     ls = ig.nonlinear_solver.linear_solver; U = ig.solution; asm = ig.asm
     if ls.assembled
         FEC.assemble_stiffness!(asm, FEC.stiffness, U, p)
@@ -420,7 +429,7 @@ function _setup_jacobian!(ig::QuasiStaticIntegrator{<:NewtonSolver{<:KrylovLinea
     return true
 end
 
-function _setup_jacobian!(ig::NewmarkIntegrator{<:NewtonSolver{<:KrylovLinearSolver}}, p)
+function setup_jacobian!(ig::NewmarkIntegrator{<:NewtonSolver{<:KrylovLinearSolver}}, p)
     ls = ig.nonlinear_solver.linear_solver; asm = ig.asm; U = ig.U; c_M = ig.c_M
     if ls.assembled
         try
@@ -438,16 +447,82 @@ function _setup_jacobian!(ig::NewmarkIntegrator{<:NewtonSolver{<:KrylovLinearSol
     return true
 end
 
+# LBFGS and CentralDifference: no Jacobian needed
+setup_jacobian!(ig::QuasiStaticIntegrator{<:NewtonSolver{<:LBFGSLinearSolver}}, p) = true
+setup_jacobian!(ig::NewmarkIntegrator{<:NewtonSolver{<:LBFGSLinearSolver}}, p)     = true
+setup_jacobian!(ig::CentralDifferenceIntegrator, p)                                 = true
+
+# ---- apply_increment! ----
+
+function apply_increment!(ig, ΔU, p)
+    U = _displacement(ig)
+    U .+= ΔU
+    FEC._update_for_assembly!(p, ig.asm.dof, U)
+end
+
+# ---- residual accessor ----
+
+residual(ig) = ig.R_eff
+
+# ---- correct! ----
+
+correct!(::QuasiStaticIntegrator, p) = nothing
+
+function correct!(ig::NewmarkIntegrator, p)
+    Δt = FEC.time_step(p.times)
+    @. ig.A = ig.c_M * (ig.U - ig.U_pred)
+    @. ig.V += Δt * ig.γ * ig.A
+    return nothing
+end
+
+function correct!(ig::CentralDifferenceIntegrator, p)
+    Δt = FEC.time_step(p.times)
+    @. ig.V += ig.γ * Δt * ig.A
+end
+
+# ---- nonlinear_solver ----
+
+nonlinear_solver(ig) = ig.nonlinear_solver
+nonlinear_solver(::CentralDifferenceIntegrator) = ExplicitSolver()
+
+# ---- _finalize_step! ----
+
+function _finalize_step!(ig, p)
+    FEC._update_for_assembly!(p, ig.asm.dof, _displacement(ig))
+    p.h1_field_old.data .= p.h1_field.data
+end
+
+function _finalize_step!(ig::NewmarkIntegrator, p)
+    FEC._update_for_assembly!(p, ig.asm.dof, ig.U)
+    p.h1_field_old.data .= p.h1_field.data
+    if ig.α_hht != 0.0 && !ig.failed[]
+        FEC.assemble_vector!(ig.asm, FEC.residual, ig.U, p)
+        copyto!(ig.F_int_n, FEC.residual(ig.asm))
+    end
+end
+
+# ---- _mark_failed_on_nonconvergence ----
+
+_mark_failed_on_nonconvergence(::QuasiStaticIntegrator) = true
+_mark_failed_on_nonconvergence(::NewmarkIntegrator)     = false
+
+# ---- _displacement ----
+
+_displacement(ig::QuasiStaticIntegrator)        = ig.solution
+_displacement(ig::NewmarkIntegrator)            = ig.U
+_displacement(ig::CentralDifferenceIntegrator)  = ig.U
+
 # --------------------------------------------------------------------------- #
-# _setup_linear_ops — create LinearOperators for Krylov solves (once per step)
-# Returns nothing for Direct; (K_op, M_op) tuple for Krylov.
+# Krylov setup: _setup_linear_ops
+# Dispatch on BOTH integrator and linear solver types.
 # --------------------------------------------------------------------------- #
 
-_setup_linear_ops(::QuasiStaticIntegrator{<:NewtonSolver{DirectLinearSolver}}, p)  = nothing
-_setup_linear_ops(::NewmarkIntegrator{<:NewtonSolver{DirectLinearSolver}}, p)      = nothing
+_setup_linear_ops(ig, ::DirectLinearSolver, p)  = nothing
+_setup_linear_ops(ig, ::LBFGSLinearSolver,  p)  = nothing
+_setup_linear_ops(ig, ::NoLinearSolver,     p)  = nothing
 
-function _setup_linear_ops(ig::QuasiStaticIntegrator{<:NewtonSolver{<:KrylovLinearSolver}}, p)
-    ls = ig.nonlinear_solver.linear_solver; U = ig.solution; n = length(U)
+function _setup_linear_ops(ig::QuasiStaticIntegrator, ls::KrylovLinearSolver, p)
+    U = ig.solution; n = length(U)
     ls.assembled && return (nothing, nothing)
     K_op = LinearOperator(Float64, n, n, true, true,
         (y, v) -> _stiffness_matvec_qs!(y, v, ig.asm, U, p))
@@ -457,8 +532,8 @@ function _setup_linear_ops(ig::QuasiStaticIntegrator{<:NewtonSolver{<:KrylovLine
     return K_op, M_op
 end
 
-function _setup_linear_ops(ig::NewmarkIntegrator{<:NewtonSolver{<:KrylovLinearSolver}}, p)
-    ls = ig.nonlinear_solver.linear_solver; U = ig.U; n = length(U); c_M = ig.c_M
+function _setup_linear_ops(ig::NewmarkIntegrator, ls::KrylovLinearSolver, p)
+    U = ig.U; n = length(U); c_M = ig.c_M
     ls.assembled && return (nothing, nothing)
     K_eff_op = LinearOperator(Float64, n, n, true, true,
         (y, v) -> _eff_stiffness_matvec!(y, v, ig.asm, U, c_M, p, ls.scratch))
@@ -469,150 +544,157 @@ function _setup_linear_ops(ig::NewmarkIntegrator{<:NewtonSolver{<:KrylovLinearSo
 end
 
 # --------------------------------------------------------------------------- #
-# _solve_and_apply! — solve K_eff·ΔU = R_eff, apply U += ΔU.
-# Returns (norm_step, t_solve).  Sets ig.failed[] = true on hard failure.
+# Linear solvers: _linear_solve!(ls, ig, p, ops) → (ΔU, t_solve)
+# Sign convention: K_eff · ΔU = ig.R_eff  (ig.R_eff is already negated residual)
 # --------------------------------------------------------------------------- #
 
-# Direct: QS and Newmark share the same LU solve logic.
-function _solve_and_apply!(
-    ig::Union{QuasiStaticIntegrator{<:NewtonSolver{DirectLinearSolver}},
-              NewmarkIntegrator{<:NewtonSolver{DirectLinearSolver}}}, p, _ops)
-    U = _displacement(ig); asm = ig.asm
-    t_lu = @elapsed begin
-        K  = FEC.stiffness(asm)
+function _linear_solve!(::DirectLinearSolver, ig, p, _ops)
+    K  = FEC.stiffness(ig.asm)
+    t  = @elapsed begin
         F  = lu(K)
-        ΔU = F \ ig.R_eff
+        ΔU = F \ residual(ig)
     end
-    norm_step = sqrt(sum(abs2, ΔU))
-    U .+= ΔU
-    FEC._update_for_assembly!(p, asm.dof, U)
-    return norm_step, t_lu
+    return ΔU, t
 end
 
-# QS Krylov (both assembled and matrix-free paths).
-function _solve_and_apply!(
-    ig::QuasiStaticIntegrator{<:NewtonSolver{<:KrylovLinearSolver}}, p, ops)
-    ns = ig.nonlinear_solver; ls = ns.linear_solver
+function _linear_solve!(ls::KrylovLinearSolver, ig::QuasiStaticIntegrator, p, ops)
     U = ig.solution; asm = ig.asm; n = length(U)
     K_op, M_op = ops
-    neg_R = -ig.R_eff
+    R = residual(ig)   # K·ΔU = R_eff (positive, already negated)
     t_kry = @elapsed begin
         if ls.assembled
             K_sparse = FEC.stiffness(asm)
             if ls.precond isa NoPreconditioner
-                Krylov.krylov_solve!(ls.workspace, K_sparse, neg_R;
+                Krylov.krylov_solve!(ls.workspace, K_sparse, R;
                                      atol=0.0, rtol=ls.rtol, itmax=ls.itmax)
             else
                 M_op_asm = LinearOperator(Float64, n, n, true, true,
                     (y, v) -> (@. y = ls.precond.inv_diag * v; y))
-                Krylov.krylov_solve!(ls.workspace, K_sparse, neg_R;
+                Krylov.krylov_solve!(ls.workspace, K_sparse, R;
                                      M=M_op_asm, atol=0.0, rtol=ls.rtol, itmax=ls.itmax)
             end
         else
             if M_op === nothing
-                Krylov.krylov_solve!(ls.workspace, K_op, neg_R;
+                Krylov.krylov_solve!(ls.workspace, K_op, R;
                                      atol=0.0, rtol=ls.rtol, itmax=ls.itmax)
             else
-                Krylov.krylov_solve!(ls.workspace, K_op, neg_R;
+                Krylov.krylov_solve!(ls.workspace, K_op, R;
                                      M=M_op, atol=0.0, rtol=ls.rtol, itmax=ls.itmax)
             end
         end
     end
-    ΔU        = Krylov.solution(ls.workspace)
-    norm_step = sqrt(sum(abs2, ΔU))
-    U .+= ΔU
-    FEC._update_for_assembly!(p, asm.dof, U)
+    ΔU        = copy(Krylov.solution(ls.workspace))
     kry_iters  = ls.workspace.stats.niter
     kry_solved = ls.workspace.stats.solved
     _carina_logf(8, :solve, "    Krylov: %d iters, solved=%s", kry_iters,
                  kry_solved ? "true" : "STALL")
-    return norm_step, t_kry
+    return ΔU, t_kry
 end
 
-# Newmark Krylov: assembled CPU uses IterativeSolvers.cg (Norma-identical);
-# matrix-free GPU uses Krylov.krylov_solve!.
-function _solve_and_apply!(
-    ig::NewmarkIntegrator{<:NewtonSolver{<:KrylovLinearSolver}}, p, ops)
-    ns = ig.nonlinear_solver; ls = ns.linear_solver
-    U = ig.U; asm = ig.asm; n = length(U)
+function _linear_solve!(ls::KrylovLinearSolver, ig::NewmarkIntegrator, p, ops)
+    asm = ig.asm; n = length(ig.U)
     K_eff_op, M_op_mf = ops
+    R = residual(ig)
+    ΔU = similar(ig.U)
     t_kry = @elapsed begin
         try
             if ls.assembled
                 K_eff_sparse = FEC.stiffness(asm)
-                ΔU_vec, cg_hist = IterativeSolvers.cg(K_eff_sparse, ig.R_eff;
-                    abstol=ns.abs_residual_tol, reltol=ls.rtol, log=true)
+                ΔU_vec, cg_hist = IterativeSolvers.cg(K_eff_sparse, R;
+                    abstol=0.0, reltol=ls.rtol, log=true)
                 _carina_logf(8, :solve, "    CG: %d iters, converged=%s, |r|_CG=%.3e",
                     length(cg_hist.data[:resnorm]), string(cg_hist.isconverged),
                     cg_hist.data[:resnorm][end])
-                copyto!(ig.dU, ΔU_vec)
+                copyto!(ΔU, ΔU_vec)
             else
                 if M_op_mf === nothing
-                    Krylov.krylov_solve!(ls.workspace, K_eff_op, ig.R_eff;
+                    Krylov.krylov_solve!(ls.workspace, K_eff_op, R;
                         atol=0.0, rtol=ls.rtol, itmax=ls.itmax)
                 else
-                    Krylov.krylov_solve!(ls.workspace, K_eff_op, ig.R_eff;
+                    Krylov.krylov_solve!(ls.workspace, K_eff_op, R;
                         M=M_op_mf, atol=0.0, rtol=ls.rtol, itmax=ls.itmax)
                 end
-                copyto!(ig.dU, Krylov.solution(ls.workspace))
+                copyto!(ΔU, Krylov.solution(ls.workspace))
             end
         catch
             ig.failed[] = true
-            return 0.0, 0.0
         end
     end
-    norm_step = sqrt(sum(abs2, ig.dU))
-    U .+= ig.dU
-    FEC._update_for_assembly!(p, asm.dof, U)
-    return norm_step, t_kry
+    return Vector(ΔU), t_kry
 end
 
 # --------------------------------------------------------------------------- #
-# _mark_failed_on_nonconvergence — QS fails the step; Newmark accepts best U
+# LBFGS helpers (dispatch on integrator type for Newmark vs QS differences)
 # --------------------------------------------------------------------------- #
 
-_mark_failed_on_nonconvergence(::QuasiStaticIntegrator) = true
-_mark_failed_on_nonconvergence(::NewmarkIntegrator)     = false
+# ---- _lbfgs_init_M_dU! ----
+
+_lbfgs_init_M_dU!(::QuasiStaticIntegrator, ls) = nothing
+
+function _lbfgs_init_M_dU!(::NewmarkIntegrator, ls)
+    fill!(ls.M_dU, zero(eltype(ls.M_dU)))
+end
+
+# ---- _lbfgs_precompute_M_d! ----
+
+_lbfgs_precompute_M_d!(::QuasiStaticIntegrator, ls, p) = nothing
+
+function _lbfgs_precompute_M_d!(ig::NewmarkIntegrator, ls, p)
+    FEC.assemble_matrix_free_action!(ig.asm, FEC.mass_action, ig.U, ls.d, p)
+    copyto!(ls.M_d, FEC.hvp(ig.asm, ls.d))
+end
+
+# ---- _lbfgs_update_M_dU! ----
+
+_lbfgs_update_M_dU!(::QuasiStaticIntegrator, ls, step) = nothing
+
+function _lbfgs_update_M_dU!(::NewmarkIntegrator, ls, step)
+    @. ls.M_dU += step * ls.M_d
+end
+
+# ---- _lbfgs_trial_rhs! ----
+# Sets ig.R_eff at trial point U + step*d.
+
+function _lbfgs_trial_rhs!(ig::QuasiStaticIntegrator, ls, step, p)
+    U = ig.solution; asm = ig.asm
+    @. ls.q = U + step * ls.d
+    FEC.assemble_vector!(asm, FEC.residual, ls.q, p)
+    FEC.assemble_vector_neumann_bc!(asm, ls.q, p)
+    R_int_trial = FEC.residual(asm)
+    @. ig.R_eff = -R_int_trial
+end
+
+function _lbfgs_trial_rhs!(ig::NewmarkIntegrator, ls, step, p)
+    α_hht = ig.α_hht; c_M = ig.c_M
+    @. ls.q = ig.U + step * ls.d
+    FEC.assemble_vector!(ig.asm, FEC.residual, ls.q, p)
+    FEC.assemble_vector_neumann_bc!(ig.asm, ls.q, p)
+    R_int_trial = FEC.residual(ig.asm)
+    @. ig.R_eff = -((1 + α_hht) * R_int_trial + c_M * (ls.M_dU + step * ls.M_d) - α_hht * ig.F_int_n)
+end
 
 # --------------------------------------------------------------------------- #
-# _newton_solve! — unified Newton loop for Direct and Krylov integrators
+# Nonlinear solvers
 # --------------------------------------------------------------------------- #
 
-function _newton_solve!(ig, p)
-    ns  = ig.nonlinear_solver
-    asm = ig.asm
+# ---- Newton (all linear solvers except LBFGS) ----
 
-    FEC.update_time!(p)
-    FEC.update_bc_values!(p)
-
-    predict!(ig, p)
-
-    # Initial residual at predictor.
-    ok = _eval_rhs!(ig, p)
-    if !ok
-        ig.failed[] = true
-        return nothing
-    end
-    _setup_jacobian!(ig, p) || return nothing
-
-    initial_norm = sqrt(sum(abs2, ig.R_eff))
+function solve!(ns::NewtonSolver, ig, p)
+    evaluate!(ig, p) || (ig.failed[] = true; return)
+    setup_jacobian!(ig, p) || return
+    initial_norm = sqrt(sum(abs2, residual(ig)))
     _carina_logf(8, :solve, "Iter [0] |R| = %.3e : |r| = %.3e : %s",
                  initial_norm, 1.0, _status_str(false))
-
-    # Create linear operators (noop for Direct; LinearOperators for Krylov).
-    ops = _setup_linear_ops(ig, p)
-
+    ops = _setup_linear_ops(ig, ns.linear_solver, p)
     converged = false
     for iter in 1:ns.max_iters
-        # Solve K_eff·ΔU = R_eff and apply U += ΔU.
-        norm_step, t_solve = _solve_and_apply!(ig, p, ops)
-        ig.failed[] && return nothing
-
-        # Evaluate R_eff at updated U.
-        t_eval = @elapsed _eval_rhs!(ig, p)
-        norm_R = sqrt(sum(abs2, ig.R_eff))
-        rel_R  = initial_norm > 0.0 ? norm_R / initial_norm : norm_R
-
+        ΔU, t_solve = _linear_solve!(ns.linear_solver, ig, p, ops)
+        ig.failed[] && return
+        apply_increment!(ig, ΔU, p)
+        t_eval = @elapsed evaluate!(ig, p)
+        norm_R    = sqrt(sum(abs2, residual(ig)))
+        rel_R     = initial_norm > 0.0 ? norm_R / initial_norm : norm_R
+        norm_step = sqrt(sum(abs2, ΔU))
         converged = norm_step < ns.abs_increment_tol ||
                     norm_R   < ns.abs_residual_tol   ||
                     rel_R    < ns.rel_residual_tol
@@ -620,13 +702,8 @@ function _newton_solve!(ig, p)
             "Iter [%d] |R| = %.3e : |r| = %.3e : %s  |ΔU|=%.3e : t_eval=%.3fs : t_solve=%.3fs",
             iter, norm_R, rel_R, _status_str(converged), norm_step, t_eval, t_solve)
         converged && break
-
-        # Reassemble Jacobian only when not yet converged.
-        _setup_jacobian!(ig, p) || return nothing
+        setup_jacobian!(ig, p) || return
     end
-
-    correct!(ig, p)
-
     if !converged
         if _mark_failed_on_nonconvergence(ig)
             ig.failed[] = true
@@ -636,314 +713,88 @@ function _newton_solve!(ig, p)
                 ns.max_iters)
         end
     end
-
-    FEC._update_for_assembly!(p, asm.dof, _displacement(ig))
-    p.h1_field_old.data .= p.h1_field.data
-    return nothing
 end
 
-# --------------------------------------------------------------------------- #
-# evolve! — QuasiStatic + Newton + Direct
-# --------------------------------------------------------------------------- #
+# ---- LBFGS ----
 
-FEC.evolve!(ig::QuasiStaticIntegrator{<:NewtonSolver{DirectLinearSolver}}, p) =
-    _newton_solve!(ig, p)
-
-# --------------------------------------------------------------------------- #
-# evolve! — QuasiStatic + Newton + Krylov
-# --------------------------------------------------------------------------- #
-
-FEC.evolve!(ig::QuasiStaticIntegrator{<:NewtonSolver{<:KrylovLinearSolver}}, p) =
-    _newton_solve!(ig, p)
-
-# --------------------------------------------------------------------------- #
-# evolve! — QuasiStatic + Newton + LBFGS
-# --------------------------------------------------------------------------- #
-
-function FEC.evolve!(ig::QuasiStaticIntegrator{<:NewtonSolver{<:LBFGSLinearSolver}}, p)
-    ns  = ig.nonlinear_solver
-    ls  = ns.linear_solver
-    asm = ig.asm
-    dof = asm.dof
-    U   = ig.solution
-
-    FEC.update_time!(p)
-    FEC.update_bc_values!(p)
-
-    # Reset L-BFGS history each load step.
-    ls.head      = 0
-    ls.hist_fill = 0
-
-    # Initial residual.
-    FEC.assemble_vector!(asm, FEC.residual, U, p)
-    FEC.assemble_vector_neumann_bc!(asm, U, p)
-    R_int0 = FEC.residual(asm)
-    if !isfinite(sqrt(sum(abs2, R_int0)))
-        ig.failed[] = true
-        return nothing
-    end
-    @. ls.R_eff = -R_int0
-
-    initial_norm = sqrt(sum(abs2, ls.R_eff))
+function solve!(ns::NewtonSolver{<:LBFGSLinearSolver}, ig, p)
+    ls = ns.linear_solver
+    ls.head = 0; ls.hist_fill = 0
+    _lbfgs_init_M_dU!(ig, ls)
+    evaluate!(ig, p) || (ig.failed[] = true; return)
+    initial_norm = sqrt(sum(abs2, residual(ig)))
     _carina_logf(8, :solve, "Iter [0] |R| = %.3e : |r| = %.3e : %s",
                  initial_norm, 1.0, _status_str(false))
-
     converged = false
     for iter in 1:ns.max_iters
-        norm_R = sqrt(sum(abs2, ls.R_eff))
+        norm_R = sqrt(sum(abs2, residual(ig)))
         rel_R  = initial_norm > 0.0 ? norm_R / initial_norm : norm_R
-
-        # L-BFGS descent direction  d = H·R_eff
-        t_dir = @elapsed begin
-            _lbfgs_two_loop!(ls.d, ls.q, ls.R_eff, ls.S, ls.Y, ls.ρ, ls.alpha_buf,
-                              ls.head, ls.hist_fill, ls.m, ls.precond)
+        # L-BFGS descent direction
+        t_dir = @elapsed _lbfgs_two_loop!(ls.d, ls.q, residual(ig), ls.S, ls.Y, ls.ρ,
+                                           ls.alpha_buf, ls.head, ls.hist_fill, ls.m, ls.precond)
+        _lbfgs_precompute_M_d!(ig, ls, p)
+        copyto!(ls.R_old, residual(ig))
+        # Backtracking line search
+        step = 1.0; ls_iters = 0
+        t_ls = @elapsed for lsi in 1:10
+            ls_iters = lsi
+            _lbfgs_trial_rhs!(ig, ls, step, p)
+            norm_R_trial = sqrt(sum(abs2, residual(ig)))
+            isfinite(norm_R_trial) && norm_R_trial < norm_R && break
+            step *= 0.5
         end
-
-        copyto!(ls.R_old, ls.R_eff)
-
-        # Backtracking line search on ‖R(U + α·d)‖.
-        α        = 1.0
-        ls_iters = 0
-        t_ls = @elapsed begin
-            for lsi in 1:10
-                ls_iters = lsi
-                @. ls.q = U + α * ls.d
-                FEC.assemble_vector!(asm, FEC.residual, ls.q, p)
-                FEC.assemble_vector_neumann_bc!(asm, ls.q, p)
-                R_int_trial = FEC.residual(asm)
-                @. ls.R_eff = -R_int_trial
-                norm_R_trial = sqrt(sum(abs2, ls.R_eff))
-                if isfinite(norm_R_trial) && norm_R_trial < norm_R
-                    break
-                end
-                α *= 0.5
-            end
-        end
-
-        @. U = U + α * ls.d
-
-        norm_dU    = α * sqrt(sum(abs2, ls.d))
-        new_norm_R = sqrt(sum(abs2, ls.R_eff))
-        new_rel_R  = initial_norm > 0.0 ? new_norm_R / initial_norm : new_norm_R
-
-        converged = norm_dU    < ns.abs_increment_tol ||
-                    new_norm_R < ns.abs_residual_tol   ||
-                    new_rel_R  < ns.rel_residual_tol
-
-        _carina_logf(8, :solve,
-            "Iter [%d] |R| = %.3e : |r| = %.3e : %s\n" *
-            "                  |ΔU|=%.3e : α=%.2e : LS=%d : t_dir=%.0fms : t_ls=%.0fms",
-            iter, new_norm_R, new_rel_R, _status_str(converged),
-            norm_dU, α, ls_iters, t_dir * 1e3, t_ls * 1e3)
-
-        # L-BFGS history update: s_k = α·d,  y_k = R_old − R_eff_new
-        new_head = mod1(ls.head + 1, ls.m)
-        @. ls.S[new_head] = α * ls.d
-        @. ls.Y[new_head] = ls.R_old - ls.R_eff
-        ys = dot(ls.Y[new_head], ls.S[new_head])
-        if ys > 0.0
-            ls.ρ[new_head] = 1.0 / ys
-            ls.head        = new_head
-            ls.hist_fill   = min(ls.hist_fill + 1, ls.m)
-        end
-
-        converged && break
-    end
-
-    ig.failed[] = !converged
-
-    FEC._update_for_assembly!(p, dof, U)
-    p.h1_field_old.data .= p.h1_field.data
-
-    return nothing
-end
-
-# --------------------------------------------------------------------------- #
-# evolve! — Newmark + Newton + Direct / Krylov  →  unified _newton_solve!
-# --------------------------------------------------------------------------- #
-#
-# Primary unknown: U (displacement).  A = c_M·(U − U_pred) after Newton.
-# Residual:  R_eff = −(F_int(U) − F_ext + c_M·M·(U − U_pred))
-# Jacobian:  K_eff = K + c_M·M   (Direct: assembled; Krylov CPU: IterativeSolvers.cg)
-#
-FEC.evolve!(ig::NewmarkIntegrator{<:NewtonSolver{DirectLinearSolver}}, p) =
-    _newton_solve!(ig, p)
-
-FEC.evolve!(ig::NewmarkIntegrator{<:NewtonSolver{<:KrylovLinearSolver}}, p) =
-    _newton_solve!(ig, p)
-
-# --------------------------------------------------------------------------- #
-# evolve! — Newmark + Newton + LBFGS
-# --------------------------------------------------------------------------- #
-
-function FEC.evolve!(ig::NewmarkIntegrator{<:NewtonSolver{<:LBFGSLinearSolver}}, p)
-    ns  = ig.nonlinear_solver
-    ls  = ns.linear_solver
-    asm = ig.asm
-    dof = asm.dof
-    (; β, γ, α_hht, U, V, A, U_prev, V_prev, A_prev, U_pred) = ig
-
-    FEC.update_time!(p)
-    FEC.update_bc_values!(p)
-
-    Δt  = FEC.time_step(p.times)
-    c_M = 1.0 / (β * Δt^2)
-
-    # ---- Newmark predictor ----
-    copyto!(U_prev, U); copyto!(V_prev, V); copyto!(A_prev, A)
-    @. U = U_prev + Δt * V_prev + Δt^2 * (0.5 - β) * A_prev
-    @. V = V_prev + Δt * (1.0 - γ) * A_prev
-    copyto!(U_pred, U)
-
-    # Reset L-BFGS history each time step.
-    ls.head      = 0
-    ls.hist_fill = 0
-
-    # ---- Initial residual at predictor ----
-    # dU = U − U_pred = 0 at start, so the inertia term vanishes.
-    FEC.assemble_vector!(asm, FEC.residual, U, p)
-    FEC.assemble_vector_neumann_bc!(asm, U, p)
-    R_int0 = FEC.residual(asm)
-    if !isfinite(sqrt(sum(abs2, R_int0)))
-        ig.failed[] = true
-        return nothing
-    end
-    fill!(ls.M_dU, zero(eltype(ls.M_dU)))   # M·(U_pred − U_pred) = 0
-    @. ls.R_eff = -((1 + α_hht) * R_int0 - α_hht * ls.F_int_n)
-
-    initial_norm = sqrt(sum(abs2, ls.R_eff))
-    _carina_logf(8, :solve, "Iter [0] |R| = %.3e : |r| = %.3e : %s",
-                 initial_norm, 1.0, _status_str(false))
-
-    converged = false
-    for iter in 1:ns.max_iters
-        norm_R = sqrt(sum(abs2, ls.R_eff))
-        rel_R  = initial_norm > 0.0 ? norm_R / initial_norm : norm_R
-
-        # ---- L-BFGS descent direction  d = H·R_eff ----
-        t_dir = @elapsed begin
-            _lbfgs_two_loop!(ls.d, ls.q, ls.R_eff, ls.S, ls.Y, ls.ρ, ls.alpha_buf,
-                              ls.head, ls.hist_fill, ls.m, ls.precond)
-        end
-
-        # ---- Precompute M·d for incremental line-search evaluations ----
-        t_Md = @elapsed begin
-            FEC.assemble_matrix_free_action!(asm, FEC.mass_action, U, ls.d, p)
-            copyto!(ls.M_d, FEC.hvp(asm, ls.d))
-        end
-
-        # Snapshot R_eff before the step (needed for y = R_old − R_eff_new).
-        copyto!(ls.R_old, ls.R_eff)
-
-        # ---- Backtracking line search on ‖R_eff‖ ----
-        # Trial residual uses precomputed M·d:
-        #   M·(U + step·d − U_pred) = M_dU + step·M_d  (no extra mass assembly)
-        step     = 1.0
-        ls_iters = 0
-        t_ls = @elapsed begin
-            for lsi in 1:10
-                ls_iters = lsi
-                @. ls.q = U + step * ls.d    # trial point (q reused as scratch)
-                FEC.assemble_vector!(asm, FEC.residual, ls.q, p)
-                FEC.assemble_vector_neumann_bc!(asm, ls.q, p)
-                R_int_trial = FEC.residual(asm)
-                @. ls.R_eff = -((1 + α_hht) * R_int_trial + c_M * (ls.M_dU + step * ls.M_d) - α_hht * ls.F_int_n)
-                norm_R_trial = sqrt(sum(abs2, ls.R_eff))
-                if isfinite(norm_R_trial) && norm_R_trial < norm_R
-                    break
-                end
-                step *= 0.5
-            end
-        end
-
-        # Accept step and maintain M_dU = M·(U_new − U_pred) incrementally.
+        # Accept step
+        U = _displacement(ig)
         @. U = U + step * ls.d
-        @. ls.M_dU = ls.M_dU + step * ls.M_d
-
+        FEC._update_for_assembly!(p, ig.asm.dof, U)
+        _lbfgs_update_M_dU!(ig, ls, step)
         norm_dU    = step * sqrt(sum(abs2, ls.d))
-        new_norm_R = sqrt(sum(abs2, ls.R_eff))
+        new_norm_R = sqrt(sum(abs2, residual(ig)))
         new_rel_R  = initial_norm > 0.0 ? new_norm_R / initial_norm : new_norm_R
-
         converged = norm_dU    < ns.abs_increment_tol ||
                     new_norm_R < ns.abs_residual_tol   ||
                     new_rel_R  < ns.rel_residual_tol
-
         _carina_logf(8, :solve,
-            "Iter [%d] |R| = %.3e : |r| = %.3e : %s\n" *
-            "                  |ΔU|=%.3e : step=%.2e : LS=%d : t_dir=%.0fms : t_ls=%.0fms",
+            "Iter [%d] |R| = %.3e : |r| = %.3e : %s  |ΔU|=%.3e : step=%.2e : LS=%d : t_dir=%.0fms : t_ls=%.0fms",
             iter, new_norm_R, new_rel_R, _status_str(converged),
-            norm_dU, step, ls_iters, (t_dir + t_Md) * 1e3, t_ls * 1e3)
-        @debug "Newmark L-BFGS" iter new_norm_R new_rel_R norm_dU
-
-        # ---- L-BFGS history update ----
-        # s_k = step·d_k,  y_k = g_{k+1} − g_k = R_old − R_eff_new
+            norm_dU, step, ls_iters, t_dir*1e3, t_ls*1e3)
+        # History update
         new_head = mod1(ls.head + 1, ls.m)
+        R_cur = residual(ig)
         @. ls.S[new_head] = step * ls.d
-        @. ls.Y[new_head] = ls.R_old - ls.R_eff
+        @. ls.Y[new_head] = ls.R_old - R_cur
         ys = dot(ls.Y[new_head], ls.S[new_head])
         if ys > 0.0
             ls.ρ[new_head] = 1.0 / ys
             ls.head        = new_head
             ls.hist_fill   = min(ls.hist_fill + 1, ls.m)
         end
-
         converged && break
     end
-
     ig.failed[] = !converged
+end
 
-    # ---- Newmark velocity and acceleration update ----
-    @. A = c_M * (U - U_pred)
-    @. V = V + Δt * γ * A
+# ---- ExplicitSolver ----
 
-    FEC._update_for_assembly!(p, dof, U)
-    p.h1_field_old.data .= p.h1_field.data
-
-    # Store F_int(U_{n+1}) for HHT-α residual in the next time step.
-    if α_hht != 0.0 && !ig.failed[]
-        FEC.assemble_vector!(asm, FEC.residual, U, p)
-        copyto!(ls.F_int_n, FEC.residual(asm))
-    end
-
-    return nothing
+function solve!(::ExplicitSolver, ig::CentralDifferenceIntegrator, p)
+    evaluate!(ig, p) || (ig.failed[] = true; return)
+    R_eff = residual(ig)
+    @. ig.A = R_eff / ig.m_lumped
+    ig.failed[] = false
 end
 
 # --------------------------------------------------------------------------- #
-# evolve! — CentralDifferenceIntegrator (unchanged)
+# Generic FEC.evolve! — works for ALL integrators
 # --------------------------------------------------------------------------- #
 
-function FEC.evolve!(integrator::CentralDifferenceIntegrator, p)
-    (; γ, asm, U, V, A, m_lumped) = integrator
-
+function FEC.evolve!(ig, p)
     FEC.update_time!(p)
     FEC.update_bc_values!(p)
-
-    Δt  = FEC.time_step(p.times)
-    dof = asm.dof
-
-    @. U = U + Δt * V + 0.5 * Δt^2 * A
-    @. V = V + (1.0 - γ) * Δt * A
-
-    FEC.assemble_vector!(asm, FEC.residual, U, p)
-    FEC.assemble_vector_neumann_bc!(asm, U, p)
-    R = FEC.residual(asm)
-
-    # Detect inverted elements or other constitutive failures (e.g. J ≤ 0 → NaN in
-    # neo-Hookean energy) that produce non-finite residual entries.
-    if !isfinite(sqrt(sum(abs2, R)))
-        integrator.failed[] = true
-        return nothing
-    end
-
-    @. A = -R / m_lumped
-
-    @. V = V + γ * Δt * A
-
-    integrator.failed[] = false
-
-    FEC._update_for_assembly!(p, dof, U)
-    p.h1_field_old.data .= p.h1_field.data
-
+    predict!(ig, p)
+    solve!(nonlinear_solver(ig), ig, p)
+    ig.failed[] && return nothing
+    correct!(ig, p)
+    _finalize_step!(ig, p)
     return nothing
 end
 

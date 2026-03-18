@@ -581,10 +581,10 @@ function _parse_linear_solver(ls_dict, template, device, make_precond::Function)
         Y_buf = [mk() for _ in 1:m]
         ρ         = zeros(Float64, m)
         alpha_buf = zeros(Float64, m)
-        R_eff, R_old, d, q, M_d, M_dU, F_int_n = mk(), mk(), mk(), mk(), mk(), mk(), mk()
+        R_old, d, q, M_d, M_dU = mk(), mk(), mk(), mk(), mk()
 
         return LBFGSLinearSolver(m, precond, S_buf, Y_buf, ρ, alpha_buf, 0, 0,
-                                  R_eff, R_old, d, q, M_d, M_dU, F_int_n)
+                                  R_old, d, q, M_d, M_dU)
 
     elseif ls_type == "none"
         return NoLinearSolver()
