@@ -5,7 +5,7 @@
 #   _is_dynamic_integrator    — true for Newmark / central difference
 #   _build_nodal_vars         — VectorFunction list for PostProcessor
 #   _element_var_names        — element variable names to register upfront
-#   _expand_unk_to_h1field    — expand n_unknown vector to full H1Field
+#   _full_dof_to_h1field    — expand n_unknown vector to full H1Field
 #   write_output!             — write all fields for one output stop
 #   _write_element_fields!    — per-block stress / F / IV loop
 
@@ -110,13 +110,10 @@ end
 # Velocity / acceleration field expansion
 # ---------------------------------------------------------------------------
 
-# Expand an n_unknown CPU vector (V or A from an integrator) to a full
-# H1Field (3 × n_nodes), zeroing constrained DOFs.
-function _expand_unk_to_h1field(unk_cpu::AbstractVector{Float64}, dof)
+# Create an H1Field from a full-DOF CPU vector (e.g. integrator.V or .A).
+function _full_dof_to_h1field(full_cpu::AbstractVector{Float64}, dof)
     field = FEC.create_field(dof)
-    for (i, fd) in enumerate(dof.unknown_dofs)
-        field.data[fd] = unk_cpu[i]
-    end
+    copyto!(field.data, full_cpu)
     return field
 end
 
@@ -171,7 +168,7 @@ function write_output!(sim::SingleDomainSimulation, step::Int)
     # --- velocity ---
     if output_spec.velocity && _has_velocity(integrator)
         V_cpu = _get_velocity_cpu(integrator, device)
-        v_h1  = _expand_unk_to_h1field(V_cpu, asm_cpu.dof)
+        v_h1  = _full_dof_to_h1field(V_cpu, asm_cpu.dof)
         FEC.write_field(post_processor, step,
                         ("velo_x", "velo_y", "velo_z"), v_h1)
     end
@@ -179,7 +176,7 @@ function write_output!(sim::SingleDomainSimulation, step::Int)
     # --- acceleration ---
     if output_spec.acceleration && _has_acceleration(integrator)
         A_cpu = _get_acceleration_cpu(integrator, device)
-        a_h1  = _expand_unk_to_h1field(A_cpu, asm_cpu.dof)
+        a_h1  = _full_dof_to_h1field(A_cpu, asm_cpu.dof)
         FEC.write_field(post_processor, step,
                         ("acce_x", "acce_y", "acce_z"), a_h1)
     end
