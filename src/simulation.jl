@@ -415,9 +415,8 @@ function _parse_integrator(dict, asm, asm_cpu, p_cpu, controller, device=:cpu)
     fec_ls   = FEC.DirectLinearSolver(asm)
     template = fec_ls.ΔUu
 
-    sol_dict, ls_dict = _read_solver_dicts(dict)
-
     if type_str in ("quasi static", "quasistatic", "static")
+        sol_dict, ls_dict = _read_solver_dicts(dict)
         min_dt, max_dt, dec, inc = _parse_adaptive_stepping(ti_dict, dt)
 
         make_precond = () -> _compute_stiffness_jacobi_precond(asm_cpu, p_cpu, template)
@@ -431,6 +430,7 @@ function _parse_integrator(dict, asm, asm_cpu, p_cpu, controller, device=:cpu)
                                       increase_factor=inc)
 
     elseif type_str in ("newmark", "newmark-beta", "newmark beta")
+        sol_dict, ls_dict = _read_solver_dicts(dict)
         α_hht = Float64(get(ti_dict, "alpha", 0.0))
         β = α_hht != 0.0 ? (1.0 - α_hht)^2 / 4.0 : Float64(get(ti_dict, "beta",  0.25))
         γ = α_hht != 0.0 ? (1.0 - 2.0*α_hht) / 2.0 : Float64(get(ti_dict, "gamma", 0.5))
