@@ -64,3 +64,11 @@ function _status_str(converged::Bool)
         converged ? "[DONE]" : "[WAIT]"
     end
 end
+
+function _cg_status_str(converged::Bool)
+    if _use_color()
+        converged ? "\e[32m[CONV]\e[39m" : "\e[31m[STALL]\e[39m"
+    else
+        converged ? "[CONV]" : "[STALL]"
+    end
+end

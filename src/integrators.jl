@@ -567,10 +567,9 @@ function _linear_solve!(ls::KrylovLinearSolver, ig::QuasiStaticIntegrator, p, op
         end
     end
     ΔU        = copy(Krylov.solution(ls.workspace))
-    kry_iters  = ls.workspace.stats.niter
-    kry_solved = ls.workspace.stats.solved
-    _carina_logf(8, :solve, "    CG: %d iters, converged=%s", kry_iters,
-                 kry_solved ? "true" : "STALL")
+    _carina_logf(8, :solve, "    CG: %d iters : %s",
+                 ls.workspace.stats.niter,
+                 _cg_status_str(ls.workspace.stats.solved))
     return ΔU, t_kry
 end
 
@@ -585,9 +584,10 @@ function _linear_solve!(ls::KrylovLinearSolver, ig::NewmarkIntegrator, p, ops)
                 K_eff_sparse = FEC.stiffness(asm)
                 ΔU_vec, cg_hist = IterativeSolvers.cg(K_eff_sparse, R;
                     abstol=0.0, reltol=ls.rtol, log=true)
-                _carina_logf(8, :solve, "    CG: %d iters, converged=%s, |r|_CG=%.3e",
-                    length(cg_hist.data[:resnorm]), string(cg_hist.isconverged),
-                    cg_hist.data[:resnorm][end])
+                _carina_logf(8, :solve, "    CG: %d iters : |r|_CG = %.3e : %s",
+                    length(cg_hist.data[:resnorm]),
+                    cg_hist.data[:resnorm][end],
+                    _cg_status_str(cg_hist.isconverged))
                 copyto!(ΔU, ΔU_vec)
             else
                 if M_op_mf === nothing
@@ -598,10 +598,9 @@ function _linear_solve!(ls::KrylovLinearSolver, ig::NewmarkIntegrator, p, ops)
                         M=M_op_mf, atol=0.0, rtol=ls.rtol, itmax=ls.itmax)
                 end
                 copyto!(ΔU, Krylov.solution(ls.workspace))
-                kry_iters  = ls.workspace.stats.niter
-                kry_solved = ls.workspace.stats.solved
-                _carina_logf(8, :solve, "    CG: %d iters, converged=%s",
-                             kry_iters, kry_solved ? "true" : "STALL")
+                _carina_logf(8, :solve, "    CG: %d iters : %s",
+                             ls.workspace.stats.niter,
+                             _cg_status_str(ls.workspace.stats.solved))
             end
         catch
             ig.failed[] = true
@@ -687,8 +686,8 @@ function solve!(ns::NewtonSolver, ig, p)
                     rel_R    < ns.rel_residual_tol
         converged = met_tol && iter > ns.min_iters
         _carina_logf(8, :solve,
-            "Iter [%d] |R| = %.3e : |r| = %.3e : %s  |ΔU|=%.3e : t_eval=%.3fs : t_solve=%.3fs",
-            iter, norm_R, rel_R, _status_str(converged), norm_step, t_eval, t_solve)
+            "Iter [%d] |R| = %.3e : |r| = %.3e : |ΔU| = %.3e : t_eval = %.2fs : t_solve = %.2fs : %s",
+            iter, norm_R, rel_R, norm_step, t_eval, t_solve, _status_str(converged))
         converged && break
         setup_jacobian!(ig, p) || return
     end
@@ -744,9 +743,9 @@ function solve!(ns::NewtonSolver{<:LBFGSLinearSolver}, ig, p)
                     new_rel_R  < ns.rel_residual_tol
         converged = met_tol && iter > ns.min_iters
         _carina_logf(8, :solve,
-            "Iter [%d] |R| = %.3e : |r| = %.3e : %s  |ΔU|=%.3e : step=%.2e : LS=%d : t_dir=%.0fms : t_ls=%.0fms",
-            iter, new_norm_R, new_rel_R, _status_str(converged),
-            norm_dU, step, ls_iters, t_dir*1e3, t_ls*1e3)
+            "Iter [%d] |R| = %.3e : |r| = %.3e : |ΔU| = %.3e : step = %.2e : LS = %d : t_dir = %.0fms : t_ls = %.0fms : %s",
+            iter, new_norm_R, new_rel_R,
+            norm_dU, step, ls_iters, t_dir*1e3, t_ls*1e3, _status_str(converged))
         # History update
         new_head = mod1(ls.head + 1, ls.m)
         R_cur = residual(ig)
