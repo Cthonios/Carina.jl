@@ -193,10 +193,8 @@ function create_simulation(dict::Dict{String,Any}, basedir::String="";
 
     # Evaluate Dirichlet BC values at t=0 so _update_for_assembly! can set
     # constrained DOFs correctly before IC application and initial acceleration.
+    # Only CPU parameters needed — GPU h1_field is synced via _update_for_assembly!.
     FEC.update_bc_values!(p_cpu)
-    if p !== p_cpu
-        FEC.update_bc_values!(p)
-    end
 
     _apply_initial_displacement_ics!(integrator, mesh, asm_cpu, p, p_cpu,
                                       _parse_displacement_ics(dict), device)
@@ -723,10 +721,11 @@ function _apply_initial_displacement_ics!(integrator::_DynamicIntegrator, mesh, 
         end
     end
     Base.invokelatest(copyto!, integrator.U, U_cpu)
-    # Update h1_field so the assembly sees the initial displacement
-    FEC._update_for_assembly!(p, asm_cpu.dof, integrator.U)
+    # Update h1_field so the assembly sees the initial displacement.
+    # Always update CPU params first; for GPU, sync h1_field data afterward.
+    FEC._update_for_assembly!(p_cpu, asm_cpu.dof, U_cpu)
     if device != :cpu
-        FEC._update_for_assembly!(p_cpu, asm_cpu.dof, Vector{Float64}(integrator.U))
+        Base.invokelatest(copyto!, p.h1_field.data, p_cpu.h1_field.data)
     end
 end
 
