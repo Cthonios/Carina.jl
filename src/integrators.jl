@@ -569,7 +569,7 @@ function _linear_solve!(ls::KrylovLinearSolver, ig::QuasiStaticIntegrator, p, op
     ΔU        = copy(Krylov.solution(ls.workspace))
     kry_iters  = ls.workspace.stats.niter
     kry_solved = ls.workspace.stats.solved
-    _carina_logf(8, :solve, "    Krylov: %d iters, solved=%s", kry_iters,
+    _carina_logf(8, :solve, "    CG: %d iters, converged=%s", kry_iters,
                  kry_solved ? "true" : "STALL")
     return ΔU, t_kry
 end
@@ -598,6 +598,10 @@ function _linear_solve!(ls::KrylovLinearSolver, ig::NewmarkIntegrator, p, ops)
                         M=M_op_mf, atol=0.0, rtol=ls.rtol, itmax=ls.itmax)
                 end
                 copyto!(ΔU, Krylov.solution(ls.workspace))
+                kry_iters  = ls.workspace.stats.niter
+                kry_solved = ls.workspace.stats.solved
+                _carina_logf(8, :solve, "    CG: %d iters, converged=%s",
+                             kry_iters, kry_solved ? "true" : "STALL")
             end
         catch
             ig.failed[] = true
