@@ -130,8 +130,17 @@ function create_simulation(dict::Dict{String,Any}, basedir::String="";
     else
         :cpu
     end
-    device == :rocm && _require_amdgpu!()
-    device == :cuda && _require_cuda!()
+    if device == :rocm
+        _require_amdgpu!()
+        mod = Base.loaded_modules[_AMDGPU_ID]
+        Base.invokelatest(mod.functional) ||
+            error("device: rocm requested but no functional AMD GPU found.")
+    elseif device == :cuda
+        _require_cuda!()
+        mod = Base.loaded_modules[_CUDA_ID]
+        Base.invokelatest(mod.functional) ||
+            error("device: cuda requested but no functional NVIDIA GPU found.")
+    end
     _carina_log(0, :device, device == :rocm ? "ROCm GPU" :
                              device == :cuda ? "CUDA GPU" : "CPU")
 
