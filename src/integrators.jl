@@ -223,19 +223,6 @@ end
 # Helper: preconditioner updates
 # --------------------------------------------------------------------------- #
 
-# Refresh Jacobi diagonal from K(U) + c_M·M at the current iterate U.
-# Uses matrix-free action kernels (no 24×24 K_el formed).
-function _update_jacobi_precond!(precond::JacobiPreconditioner, asm, U, ones_v, c_M, p, scratch)
-    FEC.assemble_matrix_free_action!(asm, FEC.stiffness_action, U, ones_v, p)
-    copyto!(scratch, asm.stiffness_action_storage.data)
-    FEC.assemble_matrix_free_action!(asm, FEC.mass_action, U, ones_v, p)
-    @. asm.stiffness_action_storage.data = scratch + c_M * asm.stiffness_action_storage.data
-    d_eff = FEC.hvp(asm, ones_v)
-    @. precond.inv_diag = 1.0 / max(abs(d_eff), eps(Float64))
-    return nothing
-end
-_update_jacobi_precond!(::NoPreconditioner, args...) = nothing
-
 # Assembled path: update Jacobi diagonal directly from sparse K_eff matrix.
 function _update_jacobi_precond_assembled!(precond::JacobiPreconditioner, K_eff)
     d = diag(K_eff)
@@ -275,16 +262,12 @@ function _update_jacobi_precond_qs!(precond::JacobiPreconditioner, asm, U, ones_
 end
 _update_jacobi_precond_qs!(::NoPreconditioner, args...) = nothing
 
-# Matrix-free acceleration Jacobian: y = (c_K·K + M)·v  where c_K = β·Δt²
-function _acc_stiffness_matvec!(y, v, asm, U, c_K, p, scratch)
-    FEC.assemble_matrix_free_action!(asm, FEC.stiffness_action, U, v, p)
-    copyto!(scratch, asm.stiffness_action_storage.data)
-    FEC.assemble_matrix_free_action!(asm, FEC.mass_action, U, v, p)
-    @. asm.stiffness_action_storage.data =
-        c_K * scratch + asm.stiffness_action_storage.data
-    copyto!(y, FEC.hvp(asm, v))
-    return y
+# Jacobi preconditioner as LinearOperator (shared by Krylov paths).
+function _jacobi_precond_op(precond::JacobiPreconditioner, n)
+    LinearOperator(Float64, n, n, true, true,
+        (y, v) -> (@. y = precond.inv_diag * v; y))
 end
+_jacobi_precond_op(::NoPreconditioner, n) = nothing
 
 # QS K·v via stiffness_action.
 function _stiffness_matvec_qs!(y, v, asm, U, p)
@@ -526,10 +509,7 @@ function _setup_linear_ops(ig::QuasiStaticIntegrator, ls::KrylovLinearSolver, p)
     ls.assembled && return (nothing, nothing)
     K_op = LinearOperator(Float64, n, n, true, true,
         (y, v) -> _stiffness_matvec_qs!(y, v, ig.asm, U, p))
-    M_op = ls.precond isa NoPreconditioner ? nothing :
-        LinearOperator(Float64, n, n, true, true,
-            (y, v) -> (@. y = ls.precond.inv_diag * v; y))
-    return K_op, M_op
+    return K_op, _jacobi_precond_op(ls.precond, n)
 end
 
 function _setup_linear_ops(ig::NewmarkIntegrator, ls::KrylovLinearSolver, p)
@@ -537,10 +517,7 @@ function _setup_linear_ops(ig::NewmarkIntegrator, ls::KrylovLinearSolver, p)
     ls.assembled && return (nothing, nothing)
     K_eff_op = LinearOperator(Float64, n, n, true, true,
         (y, v) -> _eff_stiffness_matvec!(y, v, ig.asm, U, c_M, p, ls.scratch))
-    M_op = ls.precond isa NoPreconditioner ? nothing :
-        LinearOperator(Float64, n, n, true, true,
-            (y, v) -> (@. y = ls.precond.inv_diag * v; y))
-    return K_eff_op, M_op
+    return K_eff_op, _jacobi_precond_op(ls.precond, n)
 end
 
 # --------------------------------------------------------------------------- #
@@ -564,12 +541,11 @@ function _linear_solve!(ls::KrylovLinearSolver, ig::QuasiStaticIntegrator, p, op
     t_kry = @elapsed begin
         if ls.assembled
             K_sparse = FEC.stiffness(asm)
-            if ls.precond isa NoPreconditioner
+            M_op_asm = _jacobi_precond_op(ls.precond, n)
+            if M_op_asm === nothing
                 Krylov.krylov_solve!(ls.workspace, K_sparse, R;
                                      atol=0.0, rtol=ls.rtol, itmax=ls.itmax)
             else
-                M_op_asm = LinearOperator(Float64, n, n, true, true,
-                    (y, v) -> (@. y = ls.precond.inv_diag * v; y))
                 Krylov.krylov_solve!(ls.workspace, K_sparse, R;
                                      M=M_op_asm, atol=0.0, rtol=ls.rtol, itmax=ls.itmax)
             end
@@ -819,27 +795,15 @@ function _restore_state!(ig::QuasiStaticIntegrator{<:NewtonSolver{<:LBFGSLinearS
     p.h1_field_old.data .= p.h1_field.data
 end
 
-# Newmark: always save U, V, A
-function _save_state!(ig::NewmarkIntegrator, p)
-    copyto!(ig.U_save, ig.U)
-    copyto!(ig.V_save, ig.V)
-    copyto!(ig.A_save, ig.A)
-end
-function _restore_state!(ig::NewmarkIntegrator, p)
-    copyto!(ig.U, ig.U_save)
-    copyto!(ig.V, ig.V_save)
-    copyto!(ig.A, ig.A_save)
-    FEC._update_for_assembly!(p, ig.asm.dof, ig.U)
-    p.h1_field_old.data .= p.h1_field.data
-end
+# Newmark and CentralDifference: save/restore U, V, A
+const _DynamicIntegrator = Union{NewmarkIntegrator, CentralDifferenceIntegrator}
 
-# CentralDifference: unchanged
-function _save_state!(ig::CentralDifferenceIntegrator, p)
+function _save_state!(ig::_DynamicIntegrator, p)
     copyto!(ig.U_save, ig.U)
     copyto!(ig.V_save, ig.V)
     copyto!(ig.A_save, ig.A)
 end
-function _restore_state!(ig::CentralDifferenceIntegrator, p)
+function _restore_state!(ig::_DynamicIntegrator, p)
     copyto!(ig.U, ig.U_save)
     copyto!(ig.V, ig.V_save)
     copyto!(ig.A, ig.A_save)
