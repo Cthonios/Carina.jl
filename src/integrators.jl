@@ -81,6 +81,7 @@ struct NoLinearSolver <: AbstractLinearSolver end
 # --------------------------------------------------------------------------- #
 
 mutable struct NewtonSolver{LS <: AbstractLinearSolver} <: AbstractNonlinearSolver
+    min_iters         ::Int
     max_iters         ::Int
     abs_increment_tol ::Float64
     abs_residual_tol  ::Float64
@@ -673,9 +674,10 @@ function solve!(ns::NewtonSolver, ig, p)
         norm_R    = sqrt(sum(abs2, residual(ig)))
         rel_R     = initial_norm > 0.0 ? norm_R / initial_norm : norm_R
         norm_step = sqrt(sum(abs2, ΔU))
-        converged = norm_step < ns.abs_increment_tol ||
+        met_tol   = norm_step < ns.abs_increment_tol ||
                     norm_R   < ns.abs_residual_tol   ||
                     rel_R    < ns.rel_residual_tol
+        converged = met_tol && iter > ns.min_iters
         _carina_logf(8, :solve,
             "Iter [%d] |R| = %.3e : |r| = %.3e : %s  |ΔU|=%.3e : t_eval=%.3fs : t_solve=%.3fs",
             iter, norm_R, rel_R, _status_str(converged), norm_step, t_eval, t_solve)
@@ -729,9 +731,10 @@ function solve!(ns::NewtonSolver{<:LBFGSLinearSolver}, ig, p)
         norm_dU    = step * sqrt(sum(abs2, ls.d))
         new_norm_R = sqrt(sum(abs2, residual(ig)))
         new_rel_R  = initial_norm > 0.0 ? new_norm_R / initial_norm : new_norm_R
-        converged = norm_dU    < ns.abs_increment_tol ||
+        met_tol   = norm_dU    < ns.abs_increment_tol ||
                     new_norm_R < ns.abs_residual_tol   ||
                     new_rel_R  < ns.rel_residual_tol
+        converged = met_tol && iter > ns.min_iters
         _carina_logf(8, :solve,
             "Iter [%d] |R| = %.3e : |r| = %.3e : %s  |ΔU|=%.3e : step=%.2e : LS=%d : t_dir=%.0fms : t_ls=%.0fms",
             iter, new_norm_R, new_rel_R, _status_str(converged),

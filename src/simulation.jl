@@ -581,10 +581,11 @@ function _parse_linear_solver(ls_dict, template, device, make_precond::Function)
 end
 
 function _parse_nonlinear_solver(sol_dict, ls::AbstractLinearSolver)
+    min_iters = Int(get(sol_dict, "minimum iterations", 0))
     max_iters = Int(get(sol_dict, "maximum iterations", 20))
     abs_tol   = Float64(get(sol_dict, "absolute tolerance", 1e-10))
     rel_tol   = Float64(get(sol_dict, "relative tolerance", 1e-14))
-    return NewtonSolver(max_iters, abs_tol, abs_tol, rel_tol, ls)
+    return NewtonSolver(min_iters, max_iters, abs_tol, abs_tol, rel_tol, ls)
 end
 
 # ---- Dirichlet BCs ----
