@@ -1,0 +1,59 @@
+type: single
+
+input mesh file:  clamped.g
+output mesh file: clamped.e
+output interval:  1
+
+model:
+  type: solid mechanics
+  material:
+    blocks:
+      clamped: linear elastic
+    linear elastic:
+      elastic modulus: 1.0e9
+      Poisson's ratio: 0.0
+      density: 1000.0
+
+time integrator:
+  type:  Newmark
+  beta:  0.25
+  gamma: 0.5
+  initial time: 0.0
+  final time:   1.0e-05
+  time step:    1.0e-06
+
+initial conditions:
+  displacement:
+    - node set: nsall
+      component: z
+      function: "a=0.01; s=0.02; a*exp(-z*z/s/s/2)"
+
+boundary conditions:
+  Dirichlet:
+    - nodeset: nsx-
+      component: x
+      function: "0.0"
+    - nodeset: nsx+
+      component: x
+      function: "0.0"
+    - nodeset: nsy-
+      component: y
+      function: "0.0"
+    - nodeset: nsy+
+      component: y
+      function: "0.0"
+    - nodeset: nsz-
+      component: z
+      function: "0.0"
+    - nodeset: nsz+
+      component: z
+      function: "0.0"
+
+solver:
+  type: newton
+  minimum iterations: 0
+  maximum iterations: 4
+  relative tolerance: 1.0e-10
+  absolute tolerance: 1.0e-06
+  linear solver:
+    type: direct

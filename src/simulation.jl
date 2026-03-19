@@ -191,6 +191,8 @@ function create_simulation(dict::Dict{String,Any}, basedir::String="";
         _parse_integrator(dict, asm, asm_cpu, p_cpu, controller, device)
     end
 
+    _apply_initial_displacement_ics!(integrator, mesh, asm_cpu, p, p_cpu,
+                                      _parse_displacement_ics(dict), device)
     _apply_initial_velocity_ics!(integrator, mesh, asm_cpu, p_cpu,
                                   _parse_velocity_ics(dict))
     _compute_initial_acceleration!(integrator, asm_cpu, p_cpu)
@@ -676,6 +678,53 @@ end
 
 # ---- initial conditions ----
 
+function _parse_displacement_ics(dict)
+    ic_dict = get(dict, "initial conditions", nothing)
+    ic_dict === nothing && return Any[]
+    disp_ics = get(ic_dict, "displacement", Any[])
+    disp_ics isa Vector || error("\"initial conditions: displacement:\" must be a list.")
+    return disp_ics
+end
+
+# Apply initial displacement ICs to the displacement vector U and h1_field.
+# Each entry: {node set: <name>, component: x|y|z, function: <expr>}
+function _apply_initial_displacement_ics!(integrator::_DynamicIntegrator, mesh, asm_cpu, p, p_cpu,
+                                           disp_ics, device)
+    isempty(disp_ics) && return
+    dof = asm_cpu.dof
+    X   = p_cpu.h1_coords.data
+
+    n_unk   = length(dof.unknown_dofs)
+    inv_map = zeros(Int, length(dof))
+    for (i, fd) in enumerate(dof.unknown_dofs)
+        inv_map[fd] = i
+    end
+
+    U_init = zeros(Float64, n_unk)
+    for entry in disp_ics
+        var_sym  = _component_to_symbol(entry["component"])
+        func     = _make_function(entry["function"])
+        nset_sym = Symbol(entry["node set"])
+        bk       = FEC.BCBookKeeping(mesh, dof, var_sym; nset_name=nset_sym)
+        for (full_dof, node) in zip(bk.dofs, bk.nodes)
+            unk_idx = inv_map[full_dof]
+            unk_idx == 0 && continue
+            coords = @view X[(node-1)*3+1 : (node-1)*3+3]
+            U_init[unk_idx] = Base.invokelatest(func, coords, 0.0)
+        end
+    end
+    Base.invokelatest(copyto!, integrator.U, U_init)
+    # Update h1_field so the assembly sees the initial displacement
+    FEC._update_for_assembly!(p, asm_cpu.dof, integrator.U)
+    if device != :cpu
+        FEC._update_for_assembly!(p_cpu, asm_cpu.dof, Vector{Float64}(integrator.U))
+    end
+end
+
+function _apply_initial_displacement_ics!(integrator, mesh, asm_cpu, p, p_cpu, disp_ics, device)
+    isempty(disp_ics) || @warn "Displacement ICs ignored for non-dynamic integrator."
+end
+
 function _parse_velocity_ics(dict)
     ic_dict = get(dict, "initial conditions", nothing)
     ic_dict === nothing && return Any[]
@@ -728,13 +777,13 @@ function _compute_initial_acceleration!(integrator::NewmarkIntegrator, asm_cpu, 
     _carina_log(0, :acceleration, "Computing Initial Acceleration...")
     t_start = time()
 
-    n       = length(integrator.U)
-    U_zeros = zeros(Float64, n)
+    n    = length(integrator.U)
+    U_cpu = Vector{Float64}(integrator.U)
 
-    # Assemble residual at t=0 with U=0: R_int = F_int(U=0) − F_ext
-    FEC.assemble_vector!(asm_cpu, FEC.residual, U_zeros, p_cpu)
-    FEC.assemble_vector_neumann_bc!(asm_cpu, U_zeros, p_cpu)
-    rhs = -copy(FEC.residual(asm_cpu))   # F_ext − F_int
+    # Assemble residual at initial displacement U₀: R = F_int(U₀) − F_ext
+    FEC.assemble_vector!(asm_cpu, FEC.residual, U_cpu, p_cpu)
+    FEC.assemble_vector_neumann_bc!(asm_cpu, U_cpu, p_cpu)
+    rhs = -copy(FEC.residual(asm_cpu))   # F_ext − F_int(U₀)
 
     norm_rhs = sqrt(sum(abs2, rhs))
     if norm_rhs < eps(Float64)
@@ -744,7 +793,7 @@ function _compute_initial_acceleration!(integrator::NewmarkIntegrator, asm_cpu, 
     end
 
     # Solve M·A₀ = rhs using CG (M is SPD)
-    FEC.assemble_mass!(asm_cpu, FEC.mass, U_zeros, p_cpu)
+    FEC.assemble_mass!(asm_cpu, FEC.mass, U_cpu, p_cpu)
     M = FEC.mass(asm_cpu)
     A0, stats = Krylov.cg(M, rhs; atol=0.0, rtol=1e-12, verbose=0)
 
