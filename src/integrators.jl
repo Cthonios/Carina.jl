@@ -530,7 +530,12 @@ end
 function _linear_solve!(::DirectLinearSolver, ig, p, _ops)
     K  = FEC.stiffness(ig.asm)
     t  = @elapsed begin
-        F  = cholesky(Symmetric(K))   # SPD: Cholesky ~2× faster than LU
+        # NOTE: K is SPD in theory, but FEC's assembly produces a slightly
+        # asymmetric matrix (~1e-7 relative) due to the AD material tangent
+        # path.  Cholesky(Symmetric(K)) reads only one triangle, giving a
+        # ~50% solve error.  Use LU until the assembly is exactly symmetric,
+        # then switch to cholesky(Symmetric(K)) for ~2× speedup.
+        F  = lu(K)
         ΔU = F \ residual(ig)
     end
     return ΔU, t
