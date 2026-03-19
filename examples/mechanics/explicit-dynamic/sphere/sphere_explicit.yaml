@@ -33,11 +33,3 @@ initial conditions:
     - node set: sphere_surf
       component: z
       function: "0.0"
-
-solver:
-  type: newton
-  maximum iterations: 1
-  relative tolerance: 1.0e-10
-  absolute tolerance: 1.0e-06
-  linear solver:
-    type: none
