@@ -124,31 +124,19 @@ end
 # Per-integrator velocity / acceleration accessors
 # ---------------------------------------------------------------------------
 
-_has_velocity(::NewmarkIntegrator)            = true
-_has_velocity(::CentralDifferenceIntegrator)  = true
-_has_velocity(::QuasiStaticIntegrator)        = false
-_has_velocity(::Any)                          = false
+_has_velocity(::_DynamicIntegrator) = true
+_has_velocity(::Any)               = false
 
-_has_acceleration(::NewmarkIntegrator)            = true
-_has_acceleration(::CentralDifferenceIntegrator)  = true
-_has_acceleration(::QuasiStaticIntegrator)        = false
-_has_acceleration(::Any)                          = false
+_has_acceleration(::_DynamicIntegrator) = true
+_has_acceleration(::Any)               = false
 
-# Bring velocity vector to CPU (no-op if already CPU).
-function _get_velocity_cpu(ig::NewmarkIntegrator, device::Symbol)
-    device == :cpu && return Vector{Float64}(ig.V)
-    return Vector{Float64}(Base.invokelatest(Adapt.adapt, Array, ig.V))
-end
-function _get_velocity_cpu(ig::CentralDifferenceIntegrator, device::Symbol)
+# Bring velocity/acceleration vector to CPU (no-op if already CPU).
+function _get_velocity_cpu(ig::_DynamicIntegrator, device::Symbol)
     device == :cpu && return Vector{Float64}(ig.V)
     return Vector{Float64}(Base.invokelatest(Adapt.adapt, Array, ig.V))
 end
 
-function _get_acceleration_cpu(ig::NewmarkIntegrator, device::Symbol)
-    device == :cpu && return Vector{Float64}(ig.A)
-    return Vector{Float64}(Base.invokelatest(Adapt.adapt, Array, ig.A))
-end
-function _get_acceleration_cpu(ig::CentralDifferenceIntegrator, device::Symbol)
+function _get_acceleration_cpu(ig::_DynamicIntegrator, device::Symbol)
     device == :cpu && return Vector{Float64}(ig.A)
     return Vector{Float64}(Base.invokelatest(Adapt.adapt, Array, ig.A))
 end

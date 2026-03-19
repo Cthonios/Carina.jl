@@ -231,24 +231,26 @@ function _update_jacobi_precond_assembled!(precond::JacobiPreconditioner, K_eff)
 end
 _update_jacobi_precond_assembled!(::NoPreconditioner, _) = nothing
 
-# Acceleration Jacobian Jacobi: diag(c_K·K + M) via matrix-free action.
-function _update_jacobi_precond_eff!(precond::JacobiPreconditioner, asm, U, ones_v, c_M, p, scratch)
-    FEC.assemble_matrix_free_action!(asm, FEC.stiffness_action, U, ones_v, p)
+# Compute (K + c_M·M)·v via matrix-free actions, storing result in asm storage.
+function _apply_eff_stiffness!(asm, U, v, c_M, p, scratch)
+    FEC.assemble_matrix_free_action!(asm, FEC.stiffness_action, U, v, p)
     copyto!(scratch, asm.stiffness_action_storage.data)
-    FEC.assemble_matrix_free_action!(asm, FEC.mass_action, U, ones_v, p)
+    FEC.assemble_matrix_free_action!(asm, FEC.mass_action, U, v, p)
     @. asm.stiffness_action_storage.data = scratch + c_M * asm.stiffness_action_storage.data
+end
+
+# Matrix-free Jacobi preconditioner: diag(K + c_M·M) via (K + c_M·M)·ones.
+function _update_jacobi_precond_eff!(precond::JacobiPreconditioner, asm, U, ones_v, c_M, p, scratch)
+    _apply_eff_stiffness!(asm, U, ones_v, c_M, p, scratch)
     d_eff = FEC.hvp(asm, ones_v)
     @. precond.inv_diag = 1.0 / max(abs(d_eff), eps(Float64))
     return nothing
 end
 _update_jacobi_precond_eff!(::NoPreconditioner, args...) = nothing
 
-# GPU matrix-free displacement Jacobian: y = (K + c_M·M)·v  — same as Norma's K_eff
+# GPU matrix-free displacement Jacobian: y = (K + c_M·M)·v
 function _eff_stiffness_matvec!(y, v, asm, U, c_M, p, scratch)
-    FEC.assemble_matrix_free_action!(asm, FEC.stiffness_action, U, v, p)
-    copyto!(scratch, asm.stiffness_action_storage.data)
-    FEC.assemble_matrix_free_action!(asm, FEC.mass_action, U, v, p)
-    @. asm.stiffness_action_storage.data = scratch + c_M * asm.stiffness_action_storage.data
+    _apply_eff_stiffness!(asm, U, v, c_M, p, scratch)
     copyto!(y, FEC.hvp(asm, v))
     return y
 end

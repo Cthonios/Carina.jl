@@ -464,55 +464,40 @@ end
 #
 # The diagonal is computed on CPU (asm_cpu, p_cpu) and then transferred to
 # the target device (ΔUu_template may be a GPU array).
+# Assemble diag(A·ones) on CPU via matrix-action, copy result to target device.
+# Common boilerplate for Jacobi preconditioner and lumped mass computation.
+function _assemble_diag_cpu(action, asm_cpu, p_cpu, template)
+    n    = length(template)
+    ones_v  = ones(Float64, n)
+    U_zeros = zeros(Float64, n)
+    FEC.assemble_matrix_action!(asm_cpu, action, U_zeros, ones_v, p_cpu)
+    return copy(FEC.hvp(asm_cpu, ones_v))
+end
+
+function _to_device(cpu_vec, template)
+    out = similar(template)
+    copyto!(out, cpu_vec)
+    return out
+end
+
 function _compute_jacobi_precond(β, Δt, asm_cpu, p_cpu, ΔUu_template)
-    c_M   = 1.0 / (β * Δt^2)
-    n_cpu = length(ΔUu_template)
-    ones_v  = ones(Float64, n_cpu)
-    U_zeros = zeros(Float64, n_cpu)
-
-    # M · ones  gives the lumped-mass row sums for each unknown DOF.
-    FEC.assemble_matrix_action!(asm_cpu, FEC.mass, U_zeros, ones_v, p_cpu)
-    m_diag = copy(FEC.hvp(asm_cpu, ones_v))   # copy before next assembly overwrites
-
+    c_M    = 1.0 / (β * Δt^2)
+    m_diag = _assemble_diag_cpu(FEC.mass, asm_cpu, p_cpu, ΔUu_template)
     inv_diag_cpu = 1.0 ./ (c_M .* m_diag)
-
-    # Transfer to device (no-op if already CPU).
-    inv_diag = similar(ΔUu_template)
-    copyto!(inv_diag, inv_diag_cpu)
-    return JacobiPreconditioner(inv_diag)
+    return JacobiPreconditioner(_to_device(inv_diag_cpu, ΔUu_template))
 end
 
-# Compute the Jacobi (diagonal) preconditioner for the quasi-static tangent
-# stiffness K(U=0) via K·ones.  Used as H₀ in L-BFGS so that the first step
-# has units of displacement rather than force.
+# Jacobi preconditioner for quasi-static K(U=0) via K·ones.
 function _compute_stiffness_jacobi_precond(asm_cpu, p_cpu, ΔUu_template)
-    n_cpu   = length(ΔUu_template)
-    ones_v  = ones(Float64, n_cpu)
-    U_zeros = zeros(Float64, n_cpu)
-
-    FEC.assemble_matrix_action!(asm_cpu, FEC.stiffness, U_zeros, ones_v, p_cpu)
-    k_diag = copy(FEC.hvp(asm_cpu, ones_v))
-
+    k_diag = _assemble_diag_cpu(FEC.stiffness, asm_cpu, p_cpu, ΔUu_template)
     inv_diag_cpu = 1.0 ./ max.(abs.(k_diag), eps(Float64))
-
-    inv_diag = similar(ΔUu_template)
-    copyto!(inv_diag, inv_diag_cpu)
-    return JacobiPreconditioner(inv_diag)
+    return JacobiPreconditioner(_to_device(inv_diag_cpu, ΔUu_template))
 end
 
-# Compute the lumped mass vector (diagonal row sums of the consistent mass
-# matrix) via M·ones.  The result is on the same device as ΔUu_template.
+# Lumped mass vector (diagonal row sums of consistent mass matrix).
 function _compute_lumped_mass(asm_cpu, p_cpu, ΔUu_template)
-    n_cpu   = length(ΔUu_template)
-    ones_v  = ones(Float64, n_cpu)
-    U_zeros = zeros(Float64, n_cpu)
-
-    FEC.assemble_matrix_action!(asm_cpu, FEC.mass, U_zeros, ones_v, p_cpu)
-    m_cpu = copy(FEC.hvp(asm_cpu, ones_v))
-
-    m_out = similar(ΔUu_template)
-    copyto!(m_out, m_cpu)
-    return m_out
+    m_cpu = _assemble_diag_cpu(FEC.mass, asm_cpu, p_cpu, ΔUu_template)
+    return _to_device(m_cpu, ΔUu_template)
 end
 
 # ---- solver ----
@@ -698,10 +683,10 @@ function _parse_velocity_ics(dict)
     return vel_ics
 end
 
-# Apply initial velocity ICs to the Newmark velocity vector V.
+# Apply initial velocity ICs to the velocity vector V.
 # Each entry: {node set: <name>, component: x|y|z, function: <expr>}
-# Handles both NewmarkIntegrator{NS,Vec} (merged struct).
-function _apply_initial_velocity_ics!(integrator::NewmarkIntegrator, mesh, asm_cpu, p_cpu, vel_ics)
+# Shared by NewmarkIntegrator and CentralDifferenceIntegrator.
+function _apply_initial_velocity_ics!(integrator::_DynamicIntegrator, mesh, asm_cpu, p_cpu, vel_ics)
     isempty(vel_ics) && return
     dof = asm_cpu.dof                # always CPU dof manager for index arithmetic
     X   = p_cpu.h1_coords.data       # flat, node-major: [x₁,y₁,z₁, x₂,y₂,z₂, ...]
@@ -723,34 +708,6 @@ function _apply_initial_velocity_ics!(integrator::NewmarkIntegrator, mesh, asm_c
         for (full_dof, node) in zip(bk.dofs, bk.nodes)
             unk_idx = inv_map[full_dof]
             unk_idx == 0 && continue   # skip constrained DOFs
-            coords = @view X[(node-1)*3+1 : (node-1)*3+3]
-            V_init[unk_idx] = Base.invokelatest(func, coords, 0.0)
-        end
-    end
-    Base.invokelatest(copyto!, integrator.V, V_init)
-end
-
-# CentralDifferenceIntegrator — same logic as Newmark, copies into integrator.V.
-function _apply_initial_velocity_ics!(integrator::CentralDifferenceIntegrator, mesh, asm_cpu, p_cpu, vel_ics)
-    isempty(vel_ics) && return
-    dof = asm_cpu.dof
-    X   = p_cpu.h1_coords.data
-
-    n_unk   = length(dof.unknown_dofs)
-    inv_map = zeros(Int, length(dof))
-    for (i, fd) in enumerate(dof.unknown_dofs)
-        inv_map[fd] = i
-    end
-
-    V_init = zeros(Float64, n_unk)
-    for entry in vel_ics
-        var_sym  = _component_to_symbol(entry["component"])
-        func     = _make_function(entry["function"])
-        nset_sym = Symbol(entry["node set"])
-        bk       = FEC.BCBookKeeping(mesh, dof, var_sym; nset_name=nset_sym)
-        for (full_dof, node) in zip(bk.dofs, bk.nodes)
-            unk_idx = inv_map[full_dof]
-            unk_idx == 0 && continue
             coords = @view X[(node-1)*3+1 : (node-1)*3+3]
             V_init[unk_idx] = Base.invokelatest(func, coords, 0.0)
         end
