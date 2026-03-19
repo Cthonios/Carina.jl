@@ -208,7 +208,7 @@ function create_simulation(dict::Dict{String,Any}, basedir::String="";
 
     # Write initial state (step 1, t=0).
     write_output!(sim, 1)
-    _carina_logf(0, :stop, "[0/%d,  0%%] : Time = %.4e", n_steps, controller.initial_time)
+    _carina_logf(0, :stop, "[0/%d,   0.0%%] : Time = %.4e", n_steps, controller.initial_time)
     _carina_log(0, :output, output_file)
 
     return sim
@@ -244,18 +244,18 @@ function evolve!(sim::SingleDomainSimulation)
         _subcycle!(sim, t_stop)
 
         t   = controller.time
-        pct = round(Int, 100 * controller.stop / n_steps)
+        pct = 100.0 * controller.stop / n_steps
 
         if controller.stop % output_interval == 0
             write_output!(sim, output_step)
             output_step += 1
             u_max = maximum(abs, params.h1_field.data)
             _carina_logf(0, :stop,
-                "[%d/%d, %3d%%] : Time = %.4e : |U|_max = %.3e : wall = %.2fs",
+                "[%d/%d, %5.1f%%] : Time = %.4e : |U|_max = %.3e : wall = %.2fs",
                 controller.stop, n_steps, pct, t, u_max, time() - t_wall)
             _carina_log(0, :output, post_processor.field_output_db.file_name)
         else
-            _carina_logf(0, :stop, "[%d/%d, %3d%%] : Time = %.4e : wall = %.2fs",
+            _carina_logf(0, :stop, "[%d/%d, %5.1f%%] : Time = %.4e : wall = %.2fs",
                          controller.stop, n_steps, pct, t, time() - t_wall)
         end
     end
