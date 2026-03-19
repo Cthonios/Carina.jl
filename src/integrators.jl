@@ -603,7 +603,7 @@ function _linear_solve!(ls::KrylovLinearSolver, ig::NewmarkIntegrator, p, ops)
             ig.failed[] = true
         end
     end
-    return Vector(ΔU), t_kry
+    return ΔU, t_kry
 end
 
 # --------------------------------------------------------------------------- #

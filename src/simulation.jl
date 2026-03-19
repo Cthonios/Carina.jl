@@ -785,8 +785,8 @@ function _compute_initial_acceleration!(integrator::NewmarkIntegrator, asm_cpu, 
     _carina_log(0, :acceleration, "Computing Initial Acceleration...")
     t_start = time()
 
-    n    = length(integrator.U)
-    U_cpu = Vector{Float64}(integrator.U)
+    U_cpu = Base.invokelatest(Vector{Float64}, integrator.U)
+    n     = length(U_cpu)
 
     # Assemble residual at initial displacement U₀: R = F_int(U₀) − F_ext
     FEC.assemble_vector!(asm_cpu, FEC.residual, U_cpu, p_cpu)
