@@ -46,12 +46,30 @@ of ~2.1 m before the restoring force reverses the motion.
 
 *Neo-Hookean solid (E = 10 kPa, ν = 0.33, ρ = 1000 kg/m³).
 864 hexahedral elements (997 nodes).
-Implicit Newmark-β (β = 0.49, γ = 0.9) with assembled MINRES + Jacobi preconditioner,
+Implicit Newmark-β (β = 0.49, γ = 0.9) with CG + Jacobi preconditioner,
 Δt = 10 ms, 400 steps, 4.0 s simulated.
-Wall time: 4179 s on CPU.
-Left: displacement magnitude [0, 2.1 m].
-Right: velocity magnitude [0, 5.0 m/s].
+Left: displacement magnitude [0, 0.8 m].
+Right: velocity magnitude [0, 4.5 m/s].
 Rainbow Uniform colormap; geometry warped by actual displacements.*
+
+---
+
+### Elastic wave propagation — clamped beam
+
+A 1 m linear elastic beam (1 mm × 1 mm cross section) clamped at both ends
+is given a Gaussian displacement pulse centered at the midpoint.  The pulse
+splits into two counter-propagating waves that reflect off the clamped
+boundaries and return to form the mirror image of the initial condition at
+t = T = L/c = 1 ms.  The computed solution (red) is overlaid on the closed-form
+analytical solution (black).
+
+![Clamped wave](docs/clamped_wave.gif)
+
+*Linear elastic (E = 1 GPa, ν = 0, ρ = 1000 kg/m³); wave speed c = 1000 m/s.
+1000 hexahedral elements (4004 nodes).
+Explicit central difference, Δt = 100 ns, 10,000 steps, 1 ms simulated.
+Top: z-displacement.  Middle: z-velocity.  Bottom: z-acceleration.
+Analytical solution: Mota, Tezaur & Phlipot, IJNME 123:5036–5071, 2022, eq. 28.*
 
 ---
 
