@@ -1,4 +1,4 @@
-# Elastic wave propagation in a clamped beam — implicit Newmark.
+# Elastic wave propagation in a clamped beam — explicit central difference.
 #
 # Reference: Mota, Tezaur, Phlipot, "The Schwarz alternating method for
 #   transient solid dynamics", IJNME 123:5036-5071, 2022, Section 3.3.
@@ -20,12 +20,12 @@
 #   u_z(z, t) = f(z - c*t) + f(z + c*t) - f(z - c*(T-t)) - f(z + c*(T-t))
 #   where f(z) = (a/2) * exp(-z^2 / (2*s^2))  and  T = L/c.
 #
-# Newmark average acceleration (beta=0.25, gamma=0.5), dt = 1e-6 s.
+# CFL: h/c = 0.001/1000 = 1e-6 s.  dt = 1e-7 s gives CFL = 0.1.
 type: single
 
 input mesh file:  clamped.g
 output mesh file: clamped.e
-output interval:  1
+output interval:  10
 
 model:
   type: solid mechanics
@@ -38,12 +38,11 @@ model:
       density: 1000.0
 
 time integrator:
-  type:  Newmark
-  beta:  0.25
-  gamma: 0.5
+  type:        central difference
+  gamma:       0.5
   initial time: 0.0
   final time:   1.0e-05
-  time step:    1.0e-06
+  time step:    1.0e-07
 
 initial conditions:
   displacement:
@@ -74,9 +73,8 @@ boundary conditions:
 
 solver:
   type: newton
-  minimum iterations: 0
-  maximum iterations: 4
+  maximum iterations: 1
   relative tolerance: 1.0e-10
   absolute tolerance: 1.0e-06
   linear solver:
-    type: direct
+    type: none
