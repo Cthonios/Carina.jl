@@ -46,7 +46,6 @@ struct ExplicitSolver <: AbstractNonlinearSolver end
 struct DirectLinearSolver <: AbstractLinearSolver end
 
 mutable struct KrylovLinearSolver{KW, Vec} <: AbstractLinearSolver
-    method   ::Symbol         # :minres or :cg
     itmax    ::Int
     rtol     ::Float64
     assembled::Bool           # true = CPU sparse K_eff; false = GPU matrix-free
@@ -531,7 +530,7 @@ end
 function _linear_solve!(::DirectLinearSolver, ig, p, _ops)
     K  = FEC.stiffness(ig.asm)
     t  = @elapsed begin
-        F  = lu(K)
+        F  = cholesky(Symmetric(K))   # SPD: Cholesky ~2× faster than LU
         ΔU = F \ residual(ig)
     end
     return ΔU, t

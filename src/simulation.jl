@@ -547,7 +547,7 @@ function _parse_linear_solver(ls_dict, template, device, make_precond::Function)
         return DirectLinearSolver()
 
     elseif ls_type in ("iterative", "krylov", "minres", "cg", "conjugate gradient")
-        method    = ls_type in ("cg", "conjugate gradient") ? :cg : :minres
+        # All solid mechanics stiffness matrices are SPD → always use CG.
         itmax     = Int(get(ls_dict, "maximum iterations", 1000))
         rtol      = Float64(get(ls_dict, "tolerance", 1e-8))
         assembled = (device == :cpu)
@@ -556,12 +556,11 @@ function _parse_linear_solver(ls_dict, template, device, make_precond::Function)
         precond_type = lowercase(get(precond_dict, "type", "none"))
         precond = precond_type == "jacobi" ? make_precond() : NoPreconditioner()
 
-        workspace = method == :cg ? Krylov.CgWorkspace(n, n, S) :
-                                    Krylov.MinresWorkspace(n, n, S)
+        workspace = Krylov.CgWorkspace(n, n, S)
         ones_v  = (v = similar(template); fill!(v, one(T)); v)
         scratch = (v = similar(template); fill!(v, zero(T)); v)
 
-        return KrylovLinearSolver(method, itmax, rtol, assembled, precond,
+        return KrylovLinearSolver(itmax, rtol, assembled, precond,
                                    workspace, ones_v, scratch)
 
     elseif ls_type == "lbfgs"
