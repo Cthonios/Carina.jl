@@ -551,24 +551,26 @@ function _linear_solve!(ls::KrylovLinearSolver, ig::QuasiStaticIntegrator, p, op
             M_op_asm = _jacobi_precond_op(ls.precond, n)
             if M_op_asm === nothing
                 Krylov.krylov_solve!(ls.workspace, K_sparse, R;
-                                     atol=0.0, rtol=ls.rtol, itmax=ls.itmax)
+                                     atol=0.0, rtol=ls.rtol, itmax=ls.itmax, history=true)
             else
                 Krylov.krylov_solve!(ls.workspace, K_sparse, R;
-                                     M=M_op_asm, atol=0.0, rtol=ls.rtol, itmax=ls.itmax)
+                                     M=M_op_asm, atol=0.0, rtol=ls.rtol, itmax=ls.itmax, history=true)
             end
         else
             if M_op === nothing
                 Krylov.krylov_solve!(ls.workspace, K_op, R;
-                                     atol=0.0, rtol=ls.rtol, itmax=ls.itmax)
+                                     atol=0.0, rtol=ls.rtol, itmax=ls.itmax, history=true)
             else
                 Krylov.krylov_solve!(ls.workspace, K_op, R;
-                                     M=M_op, atol=0.0, rtol=ls.rtol, itmax=ls.itmax)
+                                     M=M_op, atol=0.0, rtol=ls.rtol, itmax=ls.itmax, history=true)
             end
         end
     end
-    ΔU        = copy(Krylov.solution(ls.workspace))
-    _carina_logf(8, :solve, "    CG: %d iters : %s",
-                 ls.workspace.stats.niter,
+    ΔU  = copy(Krylov.solution(ls.workspace))
+    res = ls.workspace.stats.residuals
+    r_cg = isempty(res) ? NaN : res[end]
+    _carina_logf(8, :solve, "    CG: %d iters : |r|_CG = %.3e : %s",
+                 ls.workspace.stats.niter, r_cg,
                  _cg_status_str(ls.workspace.stats.solved))
     return ΔU, t_kry
 end
@@ -592,14 +594,16 @@ function _linear_solve!(ls::KrylovLinearSolver, ig::NewmarkIntegrator, p, ops)
             else
                 if M_op_mf === nothing
                     Krylov.krylov_solve!(ls.workspace, K_eff_op, R;
-                        atol=0.0, rtol=ls.rtol, itmax=ls.itmax)
+                        atol=0.0, rtol=ls.rtol, itmax=ls.itmax, history=true)
                 else
                     Krylov.krylov_solve!(ls.workspace, K_eff_op, R;
-                        M=M_op_mf, atol=0.0, rtol=ls.rtol, itmax=ls.itmax)
+                        M=M_op_mf, atol=0.0, rtol=ls.rtol, itmax=ls.itmax, history=true)
                 end
                 copyto!(ΔU, Krylov.solution(ls.workspace))
-                _carina_logf(8, :solve, "    CG: %d iters : %s",
-                             ls.workspace.stats.niter,
+                res = ls.workspace.stats.residuals
+                r_cg = isempty(res) ? NaN : res[end]
+                _carina_logf(8, :solve, "    CG: %d iters : |r|_CG = %.3e : %s",
+                             ls.workspace.stats.niter, r_cg,
                              _cg_status_str(ls.workspace.stats.solved))
             end
         catch
