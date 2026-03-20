@@ -29,6 +29,7 @@ using LinearAlgebra
 import Krylov
 import LinearOperators: LinearOperator
 import IterativeSolvers
+import LimitedLDLFactorizations: lldl
 
 # --------------------------------------------------------------------------- #
 # Abstract solver types
@@ -230,6 +231,7 @@ function _update_jacobi_precond_assembled!(precond::JacobiPreconditioner, K_eff)
     return nothing
 end
 _update_jacobi_precond_assembled!(::NoPreconditioner, _) = nothing
+_update_jacobi_precond_assembled!(::ICPreconditioner, _) = nothing  # IC built in _linear_solve!
 
 # Compute (K + c_M·M)·v via matrix-free actions, storing result in asm storage.
 function _apply_eff_stiffness!(asm, U, v, c_M, p, scratch)
@@ -541,6 +543,21 @@ function _linear_solve!(::DirectLinearSolver, ig, p, _ops)
     return ΔU, t
 end
 
+function _build_precond_op(::NoPreconditioner, K_sparse, n)
+    return nothing
+end
+function _build_precond_op(precond::JacobiPreconditioner, K_sparse, n)
+    return _jacobi_precond_op(precond, n)
+end
+function _build_precond_op(::ICPreconditioner, K_sparse, n)
+    # Incomplete LDLᵀ factorization from the lower triangle of K.
+    # α > 0 adds a diagonal shift to guarantee positive definiteness
+    # of the factor (at the cost of a weaker preconditioner).
+    F_ic = lldl(Symmetric(K_sparse, :L); memory=20, α=0.01)
+    return LinearOperator(Float64, n, n, true, true,
+        (y, v) -> ldiv!(y, F_ic, v))
+end
+
 function _linear_solve!(ls::KrylovLinearSolver, ig::QuasiStaticIntegrator, p, ops)
     U = ig.solution; asm = ig.asm; n = length(U)
     K_op, M_op = ops
@@ -548,7 +565,7 @@ function _linear_solve!(ls::KrylovLinearSolver, ig::QuasiStaticIntegrator, p, op
     t_kry = @elapsed begin
         if ls.assembled
             K_sparse = FEC.stiffness(asm)
-            M_op_asm = _jacobi_precond_op(ls.precond, n)
+            M_op_asm = _build_precond_op(ls.precond, K_sparse, n)
             if M_op_asm === nothing
                 Krylov.krylov_solve!(ls.workspace, K_sparse, R;
                                      atol=0.0, rtol=ls.rtol, itmax=ls.itmax, history=true)
@@ -584,8 +601,15 @@ function _linear_solve!(ls::KrylovLinearSolver, ig::NewmarkIntegrator, p, ops)
         try
             if ls.assembled
                 K_eff_sparse = FEC.stiffness(asm)
-                ΔU_vec, cg_hist = IterativeSolvers.cg(K_eff_sparse, R;
-                    abstol=0.0, reltol=ls.rtol, log=true)
+                if ls.precond isa ICPreconditioner
+                    Ks = Symmetric((K_eff_sparse + K_eff_sparse') / 2)
+                    F_ic = lldl(Ks)
+                    ΔU_vec, cg_hist = IterativeSolvers.cg(K_eff_sparse, R;
+                        Pl=F_ic, abstol=0.0, reltol=ls.rtol, log=true)
+                else
+                    ΔU_vec, cg_hist = IterativeSolvers.cg(K_eff_sparse, R;
+                        abstol=0.0, reltol=ls.rtol, log=true)
+                end
                 _carina_logf(8, :solve, "    CG: %d iters : |r|_CG = %.3e : %s",
                     length(cg_hist.data[:resnorm]),
                     cg_hist.data[:resnorm][end],

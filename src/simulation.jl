@@ -571,7 +571,13 @@ function _parse_linear_solver(ls_dict, template, device, make_precond::Function)
 
         precond_dict = get(ls_dict, "preconditioner", Dict{String,Any}())
         precond_type = lowercase(get(precond_dict, "type", "none"))
-        precond = precond_type == "jacobi" ? make_precond() : NoPreconditioner()
+        precond = if precond_type == "jacobi"
+            make_precond()
+        elseif precond_type in ("ic", "incomplete cholesky", "ildl", "incomplete ldlt")
+            ICPreconditioner()
+        else
+            NoPreconditioner()
+        end
 
         workspace = Krylov.CgWorkspace(n, n, S)
         ones_v  = (v = similar(template); fill!(v, one(T)); v)

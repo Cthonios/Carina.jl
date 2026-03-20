@@ -72,4 +72,4 @@ solver:
     maximum iterations: 1000
     tolerance: 1.0e-08
     preconditioner:
-      type: jacobi
+      type: ic

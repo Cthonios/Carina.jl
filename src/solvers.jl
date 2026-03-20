@@ -26,3 +26,13 @@ struct NoPreconditioner <: Preconditioner end
 struct JacobiPreconditioner{V} <: Preconditioner
     inv_diag::V
 end
+
+# --------------------------------------------------------------------------- #
+# Incomplete LDLᵀ preconditioner (CPU assembled path only)
+#
+# Computes an incomplete factorization of the symmetric part of K at the
+# start of each Newton step.  Much stronger than Jacobi for ill-conditioned
+# systems (e.g. J2 plasticity on non-uniform meshes).
+# --------------------------------------------------------------------------- #
+
+struct ICPreconditioner <: Preconditioner end
