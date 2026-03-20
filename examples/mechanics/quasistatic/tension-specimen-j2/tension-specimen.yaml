@@ -20,6 +20,10 @@ input mesh file:  tension-specimen.g
 output mesh file: tension-specimen.e
 output interval:  1
 
+output:
+  stress:             true
+  internal variables: true
+
 model:
   type: solid mechanics
   material:
