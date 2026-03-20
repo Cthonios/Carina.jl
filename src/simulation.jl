@@ -233,18 +233,24 @@ end
 Run the full time loop, writing Exodus output at every `output_interval` stops.
 """
 function evolve!(sim::SingleDomainSimulation)
-    (; params, post_processor, controller, output_interval, device) = sim
+    (; params, post_processor, controller, output_interval, device, integrator) = sim
     n_steps = controller.num_stops - 1
+    is_explicit = integrator isa CentralDifferenceIntegrator
 
     output_step = 2  # step 1 is the initial frame written in create_simulation
+    t_batch = time()  # wall time since last output
 
     for _ in 1:n_steps
         _advance_controller!(controller)
         t_prev = controller.prev_time
         t_stop = controller.time
 
-        _carina_logf(4, :advance, "[%.4e, %.4e] : Δt = %.4e",
-            t_prev, t_stop, controller.control_step)
+        # For implicit, print each step's time interval (Newton iters follow).
+        # For explicit, suppress — only output steps are printed.
+        if !is_explicit
+            _carina_logf(4, :advance, "[%.4e, %.4e] : Δt = %.4e",
+                t_prev, t_stop, controller.control_step)
+        end
 
         # Reset FEC clock to start of this control interval
         params.times.time_current = t_prev
@@ -259,11 +265,13 @@ function evolve!(sim::SingleDomainSimulation)
             write_output!(sim, output_step)
             output_step += 1
             u_max = maximum(abs, params.h1_field.data)
+            wall_elapsed = time() - t_batch
             _carina_logf(0, :stop,
                 "[%d/%d, %5.1f%%] : Time = %.4e : |U|_max = %.3e : wall = %.2fs",
-                controller.stop, n_steps, pct, t, u_max, time() - t_wall)
+                controller.stop, n_steps, pct, t, u_max, wall_elapsed)
             _carina_log(0, :output, post_processor.field_output_db.file_name)
-        else
+            t_batch = time()
+        elseif !is_explicit
             _carina_logf(0, :stop, "[%d/%d, %5.1f%%] : Time = %.4e : wall = %.2fs",
                          controller.stop, n_steps, pct, t, time() - t_wall)
         end
