@@ -794,21 +794,14 @@ end
 # State save / restore
 # --------------------------------------------------------------------------- #
 
-# QuasiStatic Newton (Direct or Krylov): rollback via h1_field_old
-_save_state!(ig::QuasiStaticIntegrator, p) = nothing
-function _restore_state!(ig::QuasiStaticIntegrator, p)
-    copyto!(p.h1_field.data, p.h1_field_old.data)
-    FEC._update_for_assembly!(p, ig.asm.dof, ig.solution)
-end
-
-# QuasiStatic LBFGS: save/restore U
-function _save_state!(ig::QuasiStaticIntegrator{<:NewtonSolver{<:LBFGSLinearSolver}}, p)
+# QuasiStatic: always save/restore ig.solution for adaptive stepping rollback.
+function _save_state!(ig::QuasiStaticIntegrator, p)
     copyto!(ig.U_save, ig.solution)
 end
-function _restore_state!(ig::QuasiStaticIntegrator{<:NewtonSolver{<:LBFGSLinearSolver}}, p)
+function _restore_state!(ig::QuasiStaticIntegrator, p)
     copyto!(ig.solution, ig.U_save)
+    copyto!(p.h1_field.data, p.h1_field_old.data)
     FEC._update_for_assembly!(p, ig.asm.dof, ig.solution)
-    p.h1_field_old.data .= p.h1_field.data
 end
 
 # Newmark and CentralDifference: save/restore U, V, A

@@ -32,9 +32,9 @@ time integrator:
   type: quasi static
   initial time: 0.0
   final time:   1.0
-  time step:    0.1
+  time step:    0.01
   minimum time step: 0.001
-  maximum time step: 0.1
+  maximum time step: 0.05
   decrease factor:   0.5
   increase factor:   1.5
 
@@ -60,4 +60,8 @@ solver:
   relative tolerance: 1.0e-12
   absolute tolerance: 1.0e-08
   linear solver:
-    type: direct
+    type: cg
+    maximum iterations: 1000
+    tolerance: 1.0e-08
+    preconditioner:
+      type: jacobi
