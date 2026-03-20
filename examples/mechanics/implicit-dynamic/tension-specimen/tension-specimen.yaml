@@ -1,0 +1,60 @@
+# Tension specimen — implicit dynamic (Newmark).
+#
+# Quarter-symmetry neo-Hookean tension specimen with grip, transition, and
+# gauge sections.  Smooth displacement ramp on the top grip face:
+#   u_y(t) = 0.005 * 0.5 * (1 - cos(pi*t))
+# reaching 0.005 m at t = 1 s (zero velocity at start and end).
+#
+# Symmetry BCs: u_x = 0 on sym_x, u_y = 0 on sym_y, u_z = 0 on sym_z.
+#
+# Material: neo-Hookean, E = 1 GPa, nu = 0.25, rho = 1000 kg/m^3.
+# Geometry scaled to inches (journal file applies 0.0254 factor).
+#
+# Matches Norma examples/ahead/single/tension-specimen/dynamic/.
+type: single
+
+input mesh file:  tension-specimen.g
+output mesh file: tension-specimen.e
+output interval:  1
+
+model:
+  type: solid mechanics
+  material:
+    blocks:
+      tension: neohookean
+    neohookean:
+      elastic modulus: 1.0e9
+      Poisson's ratio: 0.25
+      density: 1000.0
+
+time integrator:
+  type:  Newmark
+  beta:  0.25
+  gamma: 0.5
+  initial time: 0.0
+  final time:   1.0
+  time step:    0.01
+
+boundary conditions:
+  Dirichlet:
+    - nodeset: sym_y
+      component: y
+      function: "0.0"
+    - nodeset: sym_x
+      component: x
+      function: "0.0"
+    - nodeset: sym_z
+      component: z
+      function: "0.0"
+    - nodeset: top_y
+      component: y
+      function: "0.005 * 0.5 * (1.0 - cos(pi*t))"
+
+solver:
+  type: newton
+  minimum iterations: 0
+  maximum iterations: 16
+  relative tolerance: 1.0e-07
+  absolute tolerance: 1.0e-05
+  linear solver:
+    type: direct
