@@ -1,0 +1,71 @@
+# Tension specimen — quasi-static, J2 plasticity.
+#
+# Quarter-symmetry tension specimen with grip, transition, and gauge sections.
+# Linear displacement ramp on the top grip face:
+#   u_y(t) = 0.005 * t
+# reaching 0.005 m at t = 1 s.
+#
+# Symmetry BCs: u_x = 0 on sym_x, u_y = 0 on sym_y, u_z = 0 on sym_z.
+#
+# Material: finite-deformation J2 plasticity (aluminum-like).
+#   E = 70 GPa, nu = 0.36, rho = 2700 kg/m^3
+#   yield stress = 250 MPa, hardening modulus = 700 MPa
+#
+# This is a harder nonlinear problem than the neo-Hookean version:
+# plasticity introduces path dependence and potential localization
+# in the gauge section.
+type: single
+
+input mesh file:  tension-specimen.g
+output mesh file: tension-specimen.e
+output interval:  1
+
+model:
+  type: solid mechanics
+  material:
+    blocks:
+      tension: j2 plasticity
+    j2 plasticity:
+      elastic modulus:    70.0e9
+      Poisson's ratio:    0.36
+      density:            2700.0
+      yield stress:       250.0e6
+      hardening modulus:  0.7e9
+
+time integrator:
+  type: quasi static
+  initial time: 0.0
+  final time:   1.0
+  time step:    0.01
+  minimum time step: 0.001
+  maximum time step: 0.05
+  decrease factor:   0.5
+  increase factor:   1.5
+
+boundary conditions:
+  Dirichlet:
+    - nodeset: sym_y
+      component: y
+      function: "0.0"
+    - nodeset: sym_x
+      component: x
+      function: "0.0"
+    - nodeset: sym_z
+      component: z
+      function: "0.0"
+    - nodeset: top_y
+      component: y
+      function: "0.005 * t"
+
+solver:
+  type: newton
+  minimum iterations: 0
+  maximum iterations: 16
+  relative tolerance: 1.0e-12
+  absolute tolerance: 1.0e-08
+  linear solver:
+    type: cg
+    maximum iterations: 1000
+    tolerance: 1.0e-08
+    preconditioner:
+      type: jacobi
