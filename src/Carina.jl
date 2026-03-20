@@ -3,16 +3,19 @@ module Carina
 # ---------------------------------------------------------------------------
 # Dependencies
 # ---------------------------------------------------------------------------
-
-import FiniteElementContainers as FEC
+import Adapt
 import ConstitutiveModels as CM
-using LinearAlgebra
-using StaticArrays
-using Tensors
+import Exodus
+import FiniteElementContainers as FEC
 import Krylov
 import LinearOperators
+import ReferenceFiniteElements as RFE
 import SparseArrays
 import YAML
+using LinearAlgebra
+using StaticArrays
+using StructArrays
+using Tensors
 
 # ---------------------------------------------------------------------------
 # Submodules / source files
