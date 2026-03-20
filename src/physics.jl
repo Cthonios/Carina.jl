@@ -112,12 +112,13 @@ end
     ∇u_q = FEC.interpolate_field_gradients(physics, cell, u_el)
     ∇u_q = FEC.modify_field_gradients(FEC.ThreeDimensional(), ∇u_q)
 
-    # Use a scratch buffer for state_new to prevent CM.material_tangent from
-    # corrupting the actual state (some models like J2 plasticity mutate Z_new
-    # as a side effect of computing the tangent).
+    # Pass state_new_q (updated by the last evaluate!/pk1_stress call) as the
+    # "old" state for the tangent.  This ensures the tangent's internal yield
+    # check is consistent with the residual's — both see the same converged
+    # plastic state at the current displacement.
     state_scratch = similar(state_new_q)
     A_q = CM.material_tangent(
-        physics.constitutive_model, props_el, dt, ∇u_q, 0.0, state_old_q, state_scratch,
+        physics.constitutive_model, props_el, dt, ∇u_q, 0.0, state_new_q, state_scratch,
     )
 
     A_v = FEC.extract_stiffness(FEC.ThreeDimensional(), A_q)
@@ -143,10 +144,9 @@ end
     ∇u_q = FEC.interpolate_field_gradients(physics, cell, u_el)
     ∇u_q = FEC.modify_field_gradients(FEC.ThreeDimensional(), ∇u_q)
 
-    # Scratch buffer — same reason as FEC.stiffness above.
     state_scratch = similar(state_new_q)
     A_q = CM.material_tangent(
-        physics.constitutive_model, props_el, dt, ∇u_q, 0.0, state_old_q, state_scratch,
+        physics.constitutive_model, props_el, dt, ∇u_q, 0.0, state_new_q, state_scratch,
     )
 
     A_v = FEC.extract_stiffness(FEC.ThreeDimensional(), A_q)
