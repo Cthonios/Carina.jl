@@ -7,7 +7,7 @@
 #
 # Symmetry BCs: u_x = 0 on sym_x, u_y = 0 on sym_y, u_z = 0 on sym_z.
 #
-# Material: neo-Hookean, E = 1 GPa, nu = 0.25.
+# Material: neo-Hookean, E = 70 GPa, nu = 0.36 (aluminum-like).
 # Geometry scaled to inches (journal file applies 0.0254 factor).
 #
 # Quasi-static counterpart of the implicit-dynamic tension-specimen example.
@@ -24,15 +24,19 @@ model:
     blocks:
       tension: neohookean
     neohookean:
-      elastic modulus: 1.0e9
-      Poisson's ratio: 0.25
-      density: 1000.0
+      elastic modulus: 70.0e9
+      Poisson's ratio: 0.36
+      density: 2700.0
 
 time integrator:
   type: quasi static
   initial time: 0.0
   final time:   1.0
   time step:    0.1
+  minimum time step: 0.001
+  maximum time step: 0.1
+  decrease factor:   0.5
+  increase factor:   1.5
 
 boundary conditions:
   Dirichlet:
