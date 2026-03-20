@@ -823,5 +823,37 @@ function _compute_initial_acceleration!(integrator::NewmarkIntegrator, asm_cpu, 
     return nothing
 end
 
-# No-op for quasi-static and central-difference integrators.
+function _compute_initial_acceleration!(integrator::CentralDifferenceIntegrator, asm_cpu, p_cpu)
+    _carina_log(0, :acceleration, "Computing Initial Acceleration...")
+    t_start = time()
+
+    U_cpu = Base.invokelatest(Vector{Float64}, integrator.U)
+    n     = length(U_cpu)
+
+    # A₀ = M_lumped⁻¹ · (F_ext − F_int(U₀))
+    FEC.assemble_vector!(asm_cpu, FEC.residual, U_cpu, p_cpu)
+    FEC.assemble_vector_neumann_bc!(asm_cpu, U_cpu, p_cpu)
+    rhs = -copy(FEC.residual(asm_cpu))   # F_ext − F_int(U₀)
+
+    norm_rhs = sqrt(sum(abs2, rhs))
+    if norm_rhs < eps(Float64)
+        elapsed = time() - t_start
+        _carina_logf(0, :acceleration, "Initial Acceleration = 0 (trivial RHS, %.3fs)", elapsed)
+        return nothing
+    end
+
+    # Lumped mass is already on CPU (computed during integrator construction)
+    m_cpu = Vector{Float64}(integrator.m_lumped)
+    A0 = rhs ./ m_cpu
+
+    elapsed = time() - t_start
+    _carina_logf(0, :acceleration,
+        "Initial Acceleration: |A₀| = %.3e (%.3fs)",
+        sqrt(sum(abs2, A0)), elapsed)
+
+    Base.invokelatest(copyto!, integrator.A, A0)
+    return nothing
+end
+
+# No-op for quasi-static integrators.
 _compute_initial_acceleration!(integrator, asm_cpu, p_cpu) = nothing
