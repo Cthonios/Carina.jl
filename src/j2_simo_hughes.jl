@@ -85,7 +85,9 @@ end
     F::Tensor{2,3,T,9},
     state_old::AbstractVector,
 ) where T
-    κ = T(props[1]); μ = T(props[2]); σ_y = T(props[3]); K = T(props[4])
+    # CM.initialize_props returns [λ, μ, σ_y, H]; convert λ → κ = λ + 2μ/3
+    λ_or_κ = T(props[1]); μ = T(props[2]); σ_y = T(props[3]); K = T(props[4])
+    κ = λ_or_κ + 2μ / 3
 
     Fp_old = Tensor{2,3,T,9}(ntuple(i -> T(state_old[i]), Val(9)))
     α_n    = T(state_old[10])
@@ -209,7 +211,9 @@ end
     Δγ::T,
     α_n::T,
 ) where T
-    κ = T(props[1]); μ = T(props[2]); σ_y = T(props[3]); K = T(props[4])
+    # CM.initialize_props returns [λ, μ, σ_y, H]; convert λ → κ = λ + 2μ/3
+    λ_or_κ = T(props[1]); μ = T(props[2]); σ_y = T(props[3]); K = T(props[4])
+    κ = λ_or_κ + 2μ / 3
 
     J = det(F)
     F_inv = inv(F)
