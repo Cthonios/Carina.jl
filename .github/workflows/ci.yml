@@ -1,0 +1,48 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: '0 0 * * *'  # midnight UTC daily
+  workflow_dispatch:  # manual trigger
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Julia ${{ matrix.julia-version }} - ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        julia-version: ['1.12']
+        os: [ubuntu-latest]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: julia-actions/setup-julia@v2
+        with:
+          version: ${{ matrix.julia-version }}
+
+      # Rewrite SSH URLs to HTTPS so Pkg can clone without SSH keys.
+      # The [sources] in Project.toml use git@github.com: syntax.
+      - name: Configure git for HTTPS
+        run: git config --global url."https://github.com/".insteadOf "git@github.com:"
+
+      - uses: julia-actions/cache@v2
+
+      - name: Install dependencies
+        run: |
+          julia --project=. -e '
+            using Pkg
+            Pkg.update()
+            Pkg.instantiate()
+            Pkg.precompile()
+          '
+
+      - name: Run tests
+        run: julia --project=. test/runtests.jl
