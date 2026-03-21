@@ -477,11 +477,14 @@ nonlinear_solver(::CentralDifferenceIntegrator) = ExplicitSolver()
 function _finalize_step!(ig, p)
     FEC._update_for_assembly!(p, ig.asm.dof, _displacement(ig))
     p.h1_field_old.data .= p.h1_field.data
+    # Promote converged state: state_old ← state_new
+    p.state_old.data .= p.state_new.data
 end
 
 function _finalize_step!(ig::NewmarkIntegrator, p)
     FEC._update_for_assembly!(p, ig.asm.dof, ig.U)
     p.h1_field_old.data .= p.h1_field.data
+    p.state_old.data .= p.state_new.data
     if ig.α_hht != 0.0 && !ig.failed[]
         FEC.assemble_vector!(ig.asm, FEC.residual, ig.U, p)
         copyto!(ig.F_int_n, FEC.residual(ig.asm))
@@ -825,6 +828,8 @@ end
 function _restore_state!(ig::QuasiStaticIntegrator, p)
     copyto!(ig.solution, ig.U_save)
     copyto!(p.h1_field.data, p.h1_field_old.data)
+    # Reset state_new from state_old so retried Newton starts from clean state
+    p.state_new.data .= p.state_old.data
     FEC._update_for_assembly!(p, ig.asm.dof, ig.solution)
 end
 
@@ -842,6 +847,7 @@ function _restore_state!(ig::_DynamicIntegrator, p)
     copyto!(ig.A, ig.A_save)
     FEC._update_for_assembly!(p, ig.asm.dof, ig.U)
     p.h1_field_old.data .= p.h1_field.data
+    p.state_new.data .= p.state_old.data
 end
 
 # --------------------------------------------------------------------------- #
