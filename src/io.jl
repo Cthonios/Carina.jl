@@ -260,9 +260,17 @@ function _write_element_fields!(pp, p_cpu, h1_field_cpu, state_old_cpu, state_ne
 
         if output_spec.internal_variables
             state_new_b = FEC.block_view(state_new_cpu, b)
-            NS = size(state_new_b, 1)
-            if NS > 0
-                FEC.write_field(pp, step, block_str, "iv", state_new_b)
+            NS = size(state_new_b, 1)   # (NS, nquad, nelem)
+            nquad = size(state_new_b, 2)
+            nelem = size(state_new_b, 3)
+            for iv in 1:NS
+                for q in 1:nquad
+                    Exodus.write_values(
+                        pp.field_output_db, Exodus.ElementVariable,
+                        step, block_str, "iv_$(iv)_$q",
+                        Vector{Float64}(state_new_b[iv, q, :])
+                    )
+                end
             end
         end
     end
