@@ -218,31 +218,20 @@ end
     I2 = one(SymmetricTensor{2,3,T})
     I4_sym = one(SymmetricTensor{4,3,T})
 
-    # Pressure and its derivative
-    p     = κ * (J - one(T))
-    dpJ   = κ * J   # d(Jp)/dJ = J dp/dJ + p = J·κ + κ(J-1) = κ(2J-1)...
-    # Actually for U(J) = κ/2 (J-1)²: p = κ(J-1), dp/dJ = κ
-    # The volumetric tangent in BOX 9.2 is (JU'')' · J = d(Jp)/dJ · 1
-    # Jp = κJ(J-1), d(Jp)/dJ = κ(2J-1)
-    dJp_dJ = κ * (2*J - one(T))
+    # BOX 9.2, Step 1: Volumetric spatial tangent
+    #
+    # C = (JU')'·J · (1⊗1) − 2·J·U' · I_sym + C̄
+    #
+    # For U(J) = κ/2 (J−1)²:
+    #   U'  = κ(J−1),  JU' = κJ(J−1)
+    #   (JU')' = d/dJ[κJ(J−1)] = κ(2J−1)
+    #   (JU')'·J = κ·J·(2J−1)
+    #   2·J·U'   = 2·κ·J·(J−1)
+    coeff_1x1 = κ * J * (2*J - one(T))       # (JU')' · J
+    coeff_I   = 2 * κ * J * (J - one(T))      # 2 · J · U'
+    c_vol = coeff_1x1 * (I2 ⊗ I2) - coeff_I * I4_sym
 
-    # Volumetric spatial tangent: dJp/dJ · (1⊗1) - 2p · I_sym
-    c_vol = dJp_dJ * (I2 ⊗ I2) - 2 * p * I4_sym
-
-    s_norm = norm(s_new)
-    n = s_trial_norm > zero(T) ? (s_new + 2μ̄*Δγ*(s_new/s_norm)) / s_trial_norm :
-        zero(SymmetricTensor{2,3,T})
-    # Actually n = s_trial / ‖s_trial‖ = s_trial_norm > 0 ? s_trial/s_trial_norm
-    # And s_trial = s_new + 2μ̄ Δγ n (from return map: s = s_trial - 2μ̄ Δγ n)
-    # So n = s_trial / ‖s_trial‖. Let me compute it directly.
-    s_trial = s_new + 2μ̄ * Δγ * (s_trial_norm > zero(T) ?
-        s_new / s_norm * one(T) : zero(SymmetricTensor{2,3,T}))
-    # This is circular. Just recompute n from the trial state.
-    n = s_trial_norm > zero(T) ? s_trial / s_trial_norm :
-        zero(SymmetricTensor{2,3,T})
-
-    # Wait, s_trial is not available here. We need it. Let me pass it or recompute.
-    # s_trial = μ dev(be_bar_tr), so:
+    # Unit normal n = s_trial / ‖s_trial‖ (recomputed from be_bar_tr)
     s_trial_recomp = μ * dev(be_bar_tr)
     n = s_trial_norm > zero(T) ? s_trial_recomp / s_trial_norm :
         zero(SymmetricTensor{2,3,T})
