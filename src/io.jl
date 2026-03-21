@@ -149,8 +149,8 @@ function write_output!(sim::SingleDomainSimulation, step::Int)
 
     # --- displacement (always) ---
     h1_cpu = device != :cpu ?
-        Base.invokelatest(Adapt.adapt, Array, params.h1_field) :
-        Adapt.adapt(Array, params.h1_field)
+        Base.invokelatest(Adapt.adapt, Array, params.field) :
+        Adapt.adapt(Array, params.field)
 
     FEC.write_times(post_processor, step, t)
     FEC.write_field(post_processor, step,
@@ -176,7 +176,7 @@ function write_output!(sim::SingleDomainSimulation, step::Int)
     if output_spec.stress || output_spec.deformation_gradient ||
        output_spec.internal_variables
 
-        # For GPU runs, bring h1_field and state_new back to CPU.
+        # For GPU runs, bring field and state_new back to CPU.
         # h1_cpu already computed above.
         state_old_cpu = device != :cpu ?
             Base.invokelatest(Adapt.adapt, Array, params.state_old) :
@@ -227,7 +227,7 @@ function quadrature_field_output(
     return QuadratureFieldOutput(F_q, σ_q)
 end
 
-function _write_element_fields!(pp, p_cpu, h1_field_cpu, state_old_cpu, state_new_cpu,
+function _write_element_fields!(pp, p_cpu, field_cpu, state_old_cpu, state_new_cpu,
                                 asm_cpu, output_spec::OutputSpec, step::Int)
     fspace = FEC.function_space(asm_cpu.dof)
 
@@ -243,7 +243,7 @@ function _write_element_fields!(pp, p_cpu, h1_field_cpu, state_old_cpu, state_ne
     FEC.assemble_quadrature_quantity!(
         q_outputs, nothing, asm_cpu.dof,
         quadrature_field_output,
-        h1_field_cpu, p_cpu
+        field_cpu, p_cpu
     )
 
     # Write fields

@@ -202,7 +202,7 @@ function create_simulation(dict::Dict{String,Any}, basedir::String="";
 
     # Evaluate Dirichlet BC values at t=0 so _update_for_assembly! can set
     # constrained DOFs correctly before IC application and initial acceleration.
-    # Only CPU parameters needed — GPU h1_field is synced via _update_for_assembly!.
+    # Only CPU parameters needed — GPU field is synced via _update_for_assembly!.
     FEC.update_bc_values!(p_cpu)
 
     _apply_initial_displacement_ics!(integrator, mesh, asm_cpu, p, p_cpu,
@@ -264,7 +264,7 @@ function evolve!(sim::SingleDomainSimulation)
         if controller.stop % output_interval == 0
             write_output!(sim, output_step)
             output_step += 1
-            u_max = maximum(abs, params.h1_field.data)
+            u_max = maximum(abs, params.field.data)
             wall_elapsed = time() - t_batch
             _carina_logf(0, :stop,
                 "[%d/%d, %5.1f%%] : Time = %.4e : |U|_max = %.3e : wall = %.2fs",
@@ -713,13 +713,13 @@ function _parse_displacement_ics(dict)
     return disp_ics
 end
 
-# Apply initial displacement ICs to the displacement vector U and h1_field.
+# Apply initial displacement ICs to the displacement vector U and field.
 # Each entry: {node set: <name>, component: x|y|z, function: <expr>}
 function _apply_initial_displacement_ics!(integrator::_DynamicIntegrator, mesh, asm_cpu, p, p_cpu,
                                            disp_ics, device)
     isempty(disp_ics) && return
     dof = asm_cpu.dof
-    X   = p_cpu.h1_coords.data
+    X   = p_cpu.coords.data
 
     n_unk   = length(dof.unknown_dofs)
     inv_map = zeros(Int, length(dof))
@@ -743,11 +743,11 @@ function _apply_initial_displacement_ics!(integrator::_DynamicIntegrator, mesh, 
         end
     end
     Base.invokelatest(copyto!, integrator.U, U_cpu)
-    # Update h1_field so the assembly sees the initial displacement.
-    # Always update CPU params first; for GPU, sync h1_field data afterward.
+    # Update field so the assembly sees the initial displacement.
+    # Always update CPU params first; for GPU, sync field data afterward.
     FEC._update_for_assembly!(p_cpu, asm_cpu.dof, U_cpu)
     if device != :cpu
-        Base.invokelatest(copyto!, p.h1_field.data, p_cpu.h1_field.data)
+        Base.invokelatest(copyto!, p.field.data, p_cpu.field.data)
     end
 end
 
@@ -769,7 +769,7 @@ end
 function _apply_initial_velocity_ics!(integrator::_DynamicIntegrator, mesh, asm_cpu, p_cpu, vel_ics)
     isempty(vel_ics) && return
     dof = asm_cpu.dof                # always CPU dof manager for index arithmetic
-    X   = p_cpu.h1_coords.data       # flat, node-major: [x₁,y₁,z₁, x₂,y₂,z₂, ...]
+    X   = p_cpu.coords.data       # flat, node-major: [x₁,y₁,z₁, x₂,y₂,z₂, ...]
 
     # Inverse map: full_dof_idx -> index in unknown_dofs (0 = constrained DOF)
     n_unk   = length(dof.unknown_dofs)
