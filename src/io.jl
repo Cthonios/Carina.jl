@@ -196,14 +196,11 @@ end
 # Element-level field writer (stress, F, internal variables)
 # ---------------------------------------------------------------------------
 
-# add any additional "material" fields here
-# except for state variables.
-# as long as some constitutive quantity, e.g. cauchy stress,
-# energy, etc. is calculated, then the state variables should be
-# updated
+# Per-quadrature-point output: stress and deformation gradient.
+# Always computed at output time from the converged state — no storage needed.
 struct QuadratureFieldOutput
-    deformation_gradient::Union{Nothing, Tensor{2, 3, Float64, 9}}
-    stress::Union{Nothing, SymmetricTensor{2, 3, Float64, 6}}
+    deformation_gradient::Tensor{2, 3, Float64, 9}
+    stress::SymmetricTensor{2, 3, Float64, 6}
 end
 
 function quadrature_field_output(
@@ -213,27 +210,28 @@ function quadrature_field_output(
     u_el, u_el_old,
     state_old_q, state_new_q,
     props_el,
-    output_spec::OutputSpec
 )
-    # Map reference interpolants to physical coordinates
     cell = FEC.map_interpolants(interps, x_el)
-    (; ∇N_X, JxW) = cell
-
-    # Displacement gradient at quadrature point: SMatrix{3,3} → Tensor{2,3}
     ∇u_q = FEC.interpolate_field_gradients(physics, cell, u_el)
     ∇u_q = FEC.modify_field_gradients(FEC.ThreeDimensional(), ∇u_q)
 
-    # fields to return via QuadratureFieldOutput
-    F_q = output_spec.deformation_gradient ? ∇u_q + one(∇u_q) : nothing
-    σ_q = output_spec.stress ? CM.cauchy_stress(
-        physics.constitutive_model, props_el, dt, ∇u_q, 0.0, state_old_q, state_new_q,
-    ) |> symmetric : nothing
+    F_q = ∇u_q + one(∇u_q)
+
+    # Compute Cauchy stress from the converged state (state_old after promotion).
+    # Use a scratch buffer for state_new to prevent mutation.
+    state_scratch = similar(state_new_q)
+    σ_q = symmetric(CM.cauchy_stress(
+        physics.constitutive_model, props_el, dt, ∇u_q, 0.0, state_old_q, state_scratch,
+    ))
+
     return QuadratureFieldOutput(F_q, σ_q)
 end
 
 function _write_element_fields!(pp, p_cpu, h1_field_cpu, state_old_cpu, state_new_cpu,
                                 asm_cpu, output_spec::OutputSpec, step::Int)
     fspace = FEC.function_space(asm_cpu.dof)
+
+    # Assemble per-QP stress and F via FEC's quadrature assembly
     q_outputs = StructArray{QuadratureFieldOutput}[]
     for (b, ref_fe) in enumerate(fspace.ref_fes)
         nquad = RFE.num_cell_quadrature_points(ref_fe)
@@ -241,23 +239,31 @@ function _write_element_fields!(pp, p_cpu, h1_field_cpu, state_old_cpu, state_ne
         push!(q_outputs, StructArray{QuadratureFieldOutput}(undef, nquad, nelem))
     end
     q_outputs = NamedTuple{keys(fspace.ref_fes)}(q_outputs)
-    func = (x1, x2, x3, x4, x5, x6, x7, x8, x9, x10) -> quadrature_field_output(
-        x1, x2, x3, x4, x5, x6, x7, x8, x9, x10, output_spec
-    )
+
     FEC.assemble_quadrature_quantity!(
         q_outputs, nothing, asm_cpu.dof,
-        func,
+        quadrature_field_output,
         h1_field_cpu, p_cpu
     )
+
+    # Write fields
     for (b, (block_name, vals)) in enumerate(zip(keys(fspace.ref_fes), values(q_outputs)))
         block_str = String(block_name)
 
-        FEC.write_field(pp, step, block_str, "stress", vals.stress)
-        FEC.write_field(pp, step, block_str, "F", vals.deformation_gradient)
+        if output_spec.stress
+            FEC.write_field(pp, step, block_str, "stress", vals.stress)
+        end
 
-        if output_spec.internal_variables && NS > 0
-            state_new_b = FEC.block_view(p_cpu.state_new, b)
-            FEC.write_field(pp, step, block_str, "iv", state_new_b)
+        if output_spec.deformation_gradient
+            FEC.write_field(pp, step, block_str, "F", vals.deformation_gradient)
+        end
+
+        if output_spec.internal_variables
+            state_new_b = FEC.block_view(state_new_cpu, b)
+            NS = size(state_new_b, 1)
+            if NS > 0
+                FEC.write_field(pp, step, block_str, "iv", state_new_b)
+            end
         end
     end
 end
