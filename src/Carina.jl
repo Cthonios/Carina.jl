@@ -27,6 +27,7 @@ include("physics.jl")
 include("solvers.jl")
 include("integrators.jl")
 include("materials.jl")
+include("j2_tangent_simo_hughes.jl")
 include("io.jl")
 include("simulation.jl")
 
