@@ -163,21 +163,6 @@ end
     return _convect_tangent(CC, S, F)
 end
 
-# ---------------------------------------------------------------------------
-# Override CM.material_tangent for FiniteDefJ2Plasticity
-#
-# The default CM implementation uses the frozen-Fp approximation which
-# gives only linear Newton convergence under active plasticity.
-# This override uses the exact Simo-Hughes consistent tangent (BOX 9.2).
-# ---------------------------------------------------------------------------
-
-function CM.material_tangent(
-    ::CM.FiniteDefJ2Plasticity,
-    props, Δt,
-    ∇u, θ, Z_old, Z_new
-)
-    F = ∇u + one(∇u)
-    _, P, state_new_vec = CM._j2_stress(props, F, Z_old)
-    Z_new .= state_new_vec
-    return _j2_tangent_simo_hughes(props, F, Z_old, P, state_new_vec)
-end
+# NOTE: The CM.material_tangent override for FiniteDefJ2Plasticity is now
+# in j2_simo_hughes.jl which provides the complete Simo-Hughes model
+# (both stress update and tangent).
