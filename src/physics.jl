@@ -112,10 +112,9 @@ end
     ∇u_q = FEC.interpolate_field_gradients(physics, cell, u_el)
     ∇u_q = FEC.modify_field_gradients(FEC.ThreeDimensional(), ∇u_q)
 
-    # Pass state_new_q (updated by the last evaluate!/pk1_stress call) as the
+    # Use state_new_q (updated by the last evaluate!/pk1_stress call) as the
     # "old" state for the tangent.  This ensures the tangent's internal yield
-    # check is consistent with the residual's — both see the same converged
-    # plastic state at the current displacement.
+    # check sees the converged plastic state at the current displacement.
     state_scratch = similar(state_new_q)
     A_q = CM.material_tangent(
         physics.constitutive_model, props_el, dt, ∇u_q, 0.0, state_new_q, state_scratch,
