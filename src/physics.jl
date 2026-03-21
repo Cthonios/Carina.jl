@@ -148,12 +148,11 @@ end
     ∇u_q = FEC.interpolate_field_gradients(physics, cell, u_el)
     ∇u_q = FEC.modify_field_gradients(FEC.ThreeDimensional(), ∇u_q)
 
-    # Analytical tangent using state_new_q (updated by last evaluate!) as
-    # starting state. For models without an analytical tangent, replace with:
-    #   A_q = _fd_material_tangent(model, props_el, dt, ∇u_q, state_new_q)
+    # Use state_old_q as the starting state — same as the residual kernel.
+    # The tangent must be the Jacobian of the same function the residual evaluates.
     state_scratch = similar(state_new_q)
     A_q = CM.material_tangent(
-        physics.constitutive_model, props_el, dt, ∇u_q, 0.0, state_new_q, state_scratch,
+        physics.constitutive_model, props_el, dt, ∇u_q, 0.0, state_old_q, state_scratch,
     )
 
     A_v = FEC.extract_stiffness(FEC.ThreeDimensional(), A_q)
@@ -181,7 +180,7 @@ end
 
     state_scratch = similar(state_new_q)
     A_q = CM.material_tangent(
-        physics.constitutive_model, props_el, dt, ∇u_q, 0.0, state_new_q, state_scratch,
+        physics.constitutive_model, props_el, dt, ∇u_q, 0.0, state_old_q, state_scratch,
     )
 
     A_v = FEC.extract_stiffness(FEC.ThreeDimensional(), A_q)

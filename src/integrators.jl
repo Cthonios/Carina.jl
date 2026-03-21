@@ -398,9 +398,7 @@ end
 # Returns true on success, false on exception (may set ig.failed[]).
 
 function setup_jacobian!(ig::QuasiStaticIntegrator{<:NewtonSolver{DirectLinearSolver}}, p)
-    # Element-level FD stiffness (Sierra/SM approach) — exact Jacobian of residual
-    FEC._update_for_assembly!(p, ig.asm.dof, ig.solution)
-    assemble_stiffness_fd!(ig.asm, p)
+    FEC.assemble_stiffness!(ig.asm, FEC.stiffness, ig.solution, p)
     return true
 end
 
