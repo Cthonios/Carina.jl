@@ -13,11 +13,11 @@ cp_example(src, dst) = cp(src, dst; follow_symlinks=true)
 # so component i (1-based) is at data[i:NF:end].
 #
 # All helpers accept a SingleDomainSimulation and work on the final state of
-# params.field, which is always a CPU array in test runs.
+# params.h1_field, which is always a CPU array in test runs.
 # ---------------------------------------------------------------------------
 
 function _field_matrix(sim::Carina.SingleDomainSimulation)
-    d  = sim.params.field.data
+    d  = sim.params.h1_field.data
     NF = 3   # number of displacement components (3D)
     return reshape(d, NF, :)   # NF × n_nodes
 end

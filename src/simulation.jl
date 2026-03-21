@@ -264,7 +264,7 @@ function evolve!(sim::SingleDomainSimulation)
         if controller.stop % output_interval == 0
             write_output!(sim, output_step)
             output_step += 1
-            u_max = maximum(abs, params.field.data)
+            u_max = maximum(abs, params.h1_field.data)
             wall_elapsed = time() - t_batch
             _carina_logf(0, :stop,
                 "[%d/%d, %5.1f%%] : Time = %.4e : |U|_max = %.3e : wall = %.2fs",
@@ -719,7 +719,7 @@ function _apply_initial_displacement_ics!(integrator::_DynamicIntegrator, mesh, 
                                            disp_ics, device)
     isempty(disp_ics) && return
     dof = asm_cpu.dof
-    X   = p_cpu.coords.data
+    X   = p_cpu.h1_coords.data
 
     n_unk   = length(dof.unknown_dofs)
     inv_map = zeros(Int, length(dof))
@@ -747,7 +747,7 @@ function _apply_initial_displacement_ics!(integrator::_DynamicIntegrator, mesh, 
     # Always update CPU params first; for GPU, sync field data afterward.
     FEC._update_for_assembly!(p_cpu, asm_cpu.dof, U_cpu)
     if device != :cpu
-        Base.invokelatest(copyto!, p.field.data, p_cpu.field.data)
+        Base.invokelatest(copyto!, p.h1_field.data, p_cpu.h1_field.data)
     end
 end
 
@@ -769,7 +769,7 @@ end
 function _apply_initial_velocity_ics!(integrator::_DynamicIntegrator, mesh, asm_cpu, p_cpu, vel_ics)
     isempty(vel_ics) && return
     dof = asm_cpu.dof                # always CPU dof manager for index arithmetic
-    X   = p_cpu.coords.data       # flat, node-major: [x₁,y₁,z₁, x₂,y₂,z₂, ...]
+    X   = p_cpu.h1_coords.data       # flat, node-major: [x₁,y₁,z₁, x₂,y₂,z₂, ...]
 
     # Inverse map: full_dof_idx -> index in unknown_dofs (0 = constrained DOF)
     n_unk   = length(dof.unknown_dofs)

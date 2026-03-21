@@ -29,8 +29,8 @@ end
 
 # Relative error in z-displacement averaged over all nodes at the final time.
 function _clamped_z_disp_rel_error(sim)
-    coords = reshape(sim.params_cpu.coords.data, 3, :)
-    disp   = reshape(sim.params.field.data, 3, :)
+    coords = reshape(sim.params_cpu.h1_coords.data, 3, :)
+    disp   = reshape(sim.params.h1_field.data, 3, :)
     z_coords = coords[3, :]
     uz_comp  = disp[3, :]
 
