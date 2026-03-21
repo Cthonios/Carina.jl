@@ -614,7 +614,13 @@ function _parse_nonlinear_solver(sol_dict, ls::AbstractLinearSolver)
     max_iters = Int(get(sol_dict, "maximum iterations", 20))
     abs_tol   = Float64(get(sol_dict, "absolute tolerance", 1e-10))
     rel_tol   = Float64(get(sol_dict, "relative tolerance", 1e-14))
-    return NewtonSolver(min_iters, max_iters, abs_tol, abs_tol, rel_tol, ls)
+    # Line search parameters
+    use_ls     = Bool(get(sol_dict, "use line search", false))
+    ls_back    = Float64(get(sol_dict, "line search backtrack factor", 0.5))
+    ls_dec     = Float64(get(sol_dict, "line search decrease factor", 1e-4))
+    ls_max     = Int(get(sol_dict, "line search maximum iterations", 10))
+    return NewtonSolver(min_iters, max_iters, abs_tol, abs_tol, rel_tol, ls,
+                        use_ls, ls_back, ls_dec, ls_max)
 end
 
 # ---- Dirichlet BCs ----

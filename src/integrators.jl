@@ -87,6 +87,11 @@ mutable struct NewtonSolver{LS <: AbstractLinearSolver} <: AbstractNonlinearSolv
     abs_residual_tol  ::Float64
     rel_residual_tol  ::Float64
     linear_solver     ::LS
+    # Line search parameters
+    use_line_search   ::Bool
+    ls_backtrack      ::Float64   # step reduction factor (default 0.5)
+    ls_decrease       ::Float64   # Armijo sufficient decrease (default 1e-4)
+    ls_max_iters      ::Int       # max backtracking steps (default 10)
 end
 
 # --------------------------------------------------------------------------- #
@@ -691,6 +696,56 @@ function _lbfgs_trial_rhs!(ig::NewmarkIntegrator, ls, step, p)
 end
 
 # --------------------------------------------------------------------------- #
+# Backtracking line search
+# --------------------------------------------------------------------------- #
+#
+# Given Newton direction ΔU, find step length α ∈ (0, 1] such that the
+# merit function m(α) = 0.5 * ‖R(U + α*ΔU)‖² satisfies the Armijo
+# sufficient decrease condition:
+#   m(α) ≤ m(0) + c * α * m'(0)
+# where c = ls_decrease (typically 1e-4) and m'(0) = -‖R‖² (Newton direction
+# is the steepest descent direction for the merit function).
+#
+# If the Armijo condition is not met, α is reduced by ls_backtrack (default 0.5).
+# Returns the accepted α.
+
+function _backtrack_line_search(ns::NewtonSolver, ig, p, ΔU)
+    α = 1.0
+    merit_0 = sum(abs2, residual(ig))  # ‖R(U)‖² (before step)
+    U = _displacement(ig)
+    U_save = copy(U)
+    state_new_save = copy(p.state_new.data)
+
+    for ls_iter in 1:ns.ls_max_iters
+        # Trial point: U + α * ΔU
+        @. U = U_save + α * ΔU
+        FEC._update_for_assembly!(p, ig.asm.dof, U)
+        evaluate!(ig, p)
+
+        merit = sum(abs2, residual(ig))
+
+        # Armijo condition: sufficient decrease in merit
+        if merit ≤ (1.0 - 2.0 * ns.ls_decrease * α) * merit_0
+            _carina_logf(8, :linesearch, "    LS: α = %.3e : m = %.3e → %.3e : [ACCEPT]",
+                         α, merit_0, merit)
+            return α
+        end
+
+        _carina_logf(8, :linesearch, "    LS: α = %.3e : m = %.3e → %.3e : [REDUCE]",
+                     α, merit_0, merit)
+        α *= ns.ls_backtrack
+    end
+
+    # Max iterations reached — restore original state and accept full step
+    copyto!(U, U_save)
+    copyto!(p.state_new.data, state_new_save)
+    FEC._update_for_assembly!(p, ig.asm.dof, U)
+    evaluate!(ig, p)
+    _carina_logf(8, :linesearch, "    LS: max iters reached, using α = 1.0")
+    return 1.0
+end
+
+# --------------------------------------------------------------------------- #
 # Nonlinear solvers
 # --------------------------------------------------------------------------- #
 
@@ -707,11 +762,20 @@ function solve!(ns::NewtonSolver, ig, p)
     for iter in 1:ns.max_iters
         ΔU, t_solve = _linear_solve!(ns.linear_solver, ig, p, ops)
         ig.failed[] && return
-        apply_increment!(ig, ΔU, p)
-        t_eval = @elapsed evaluate!(ig, p)
+
+        if ns.use_line_search
+            α = _backtrack_line_search(ns, ig, p, ΔU)
+            # Line search already applied the step and evaluated the residual
+            norm_step = α * sqrt(sum(abs2, ΔU))
+            t_eval = 0.0  # already done inside line search
+        else
+            apply_increment!(ig, ΔU, p)
+            t_eval = @elapsed evaluate!(ig, p)
+            norm_step = sqrt(sum(abs2, ΔU))
+        end
+
         norm_R    = sqrt(sum(abs2, residual(ig)))
         rel_R     = initial_norm > 0.0 ? norm_R / initial_norm : norm_R
-        norm_step = sqrt(sum(abs2, ΔU))
         met_tol   = norm_step < ns.abs_increment_tol ||
                     norm_R   < ns.abs_residual_tol   ||
                     rel_R    < ns.rel_residual_tol
