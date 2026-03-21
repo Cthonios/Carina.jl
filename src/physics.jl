@@ -95,6 +95,42 @@ end
 end
 
 # --------------------------------------------------------------------------- #
+# Material-point finite-difference tangent ∂P/∂∇u
+# --------------------------------------------------------------------------- #
+#
+# Forward FD with adaptive perturbation (Sierra/SM approach):
+#   h_j = max(sqrt(ε_mach) * |∇u_j|, μ * 1e-10)
+# where μ is the shear modulus (approximated from props).
+# Cost: 9 pk1_stress evaluations (one per ∇u component).
+
+@inline function _fd_material_tangent(model, props, dt, ∇u, state_q)
+    # Base stress
+    s0 = similar(state_q)
+    P0 = CM.pk1_stress(model, props, dt, ∇u, 0.0, state_q, s0)
+
+    # Adaptive perturbation (Sierra/SM approach, Wallin 2001):
+    # h_j = max(sqrt(ε_mach) * |∇u_j|, floor)
+    # Floor must be small enough for the strain scale but large enough
+    # to avoid FP cancellation. Use 1e-10 as absolute floor.
+    sqrt_eps = 1.49e-8  # sqrt(machine epsilon)
+    h_floor  = 1e-10
+
+    A = MArray{Tuple{3,3,3,3},Float64,4,81}(undef)
+    for k in 1:3, l in 1:3
+        idx = 3 * (l - 1) + k   # column-major flat index
+        val = ∇u.data[idx]
+        h = max(sqrt_eps * abs(val), h_floor)
+        ∇u_p = Tensor{2,3}((i,j) -> ∇u[i,j] + (i==k && j==l ? h : 0.0))
+        s_p = similar(state_q)
+        P_p = CM.pk1_stress(model, props, dt, ∇u_p, 0.0, state_q, s_p)
+        for i in 1:3, j in 1:3
+            A[i,j,k,l] = (P_p[i,j] - P0[i,j]) / h
+        end
+    end
+    return Tensor{4,3,Float64,81}(ntuple(i -> A[i], Val(81)))
+end
+
+# --------------------------------------------------------------------------- #
 # FEC interface: stiffness (tangent stiffness matrix, per quadrature point)
 # --------------------------------------------------------------------------- #
 
@@ -112,9 +148,9 @@ end
     ∇u_q = FEC.interpolate_field_gradients(physics, cell, u_el)
     ∇u_q = FEC.modify_field_gradients(FEC.ThreeDimensional(), ∇u_q)
 
-    # Use state_new_q (updated by the last evaluate!/pk1_stress call) as the
-    # "old" state for the tangent.  This ensures the tangent's internal yield
-    # check sees the converged plastic state at the current displacement.
+    # Analytical tangent using state_new_q (updated by last evaluate!) as
+    # starting state. For models without an analytical tangent, replace with:
+    #   A_q = _fd_material_tangent(model, props_el, dt, ∇u_q, state_new_q)
     state_scratch = similar(state_new_q)
     A_q = CM.material_tangent(
         physics.constitutive_model, props_el, dt, ∇u_q, 0.0, state_new_q, state_scratch,
