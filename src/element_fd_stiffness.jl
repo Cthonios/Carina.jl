@@ -114,9 +114,9 @@ function assemble_stiffness_fd!(asm, p)
 
         for e in 1:nelem
             conn     = connectivity(ref_fe, conns.data, e, coffset)
-            x_el     = _element_level_fields_flat(p.h1_coords, ref_fe, conn)
-            u_el     = _element_level_fields_flat(p.h1_field,  ref_fe, conn)
-            u_el_old = _element_level_fields_flat(p.h1_field_old, ref_fe, conn)
+            x_el     = _element_level_fields_flat(p.coords, ref_fe, conn)
+            u_el     = _element_level_fields_flat(p.field,  ref_fe, conn)
+            u_el_old = _element_level_fields_flat(p.field_old, ref_fe, conn)
             props_el = _element_level_properties(props, e)
 
             K_el = _element_fd_stiffness(

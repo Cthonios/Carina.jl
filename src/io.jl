@@ -149,8 +149,8 @@ function write_output!(sim::SingleDomainSimulation, step::Int)
 
     # --- displacement (always) ---
     h1_cpu = device != :cpu ?
-        Base.invokelatest(Adapt.adapt, Array, params.h1_field) :
-        Adapt.adapt(Array, params.h1_field)
+        Base.invokelatest(Adapt.adapt, Array, params.field) :
+        Adapt.adapt(Array, params.field)
 
     FEC.write_times(post_processor, step, t)
     FEC.write_field(post_processor, step,

@@ -27,8 +27,6 @@ include("physics.jl")
 include("solvers.jl")
 include("integrators.jl")
 include("materials.jl")
-include("j2_tangent_simo_hughes.jl")   # _convect_tangent utility
-include("j2_simo_hughes.jl")           # complete SH J2 model (overrides CM)
 include("element_fd_stiffness.jl")     # element-level FD stiffness (Sierra/SM)
 include("io.jl")
 include("simulation.jl")

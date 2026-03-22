@@ -25,7 +25,7 @@ Tensors = "48a634ad-e948-5137-8d70-aa71f2a747f4"
 YAML = "ddb6d928-2868-570f-bddf-ab3f9cf99eb6"
 
 [sources]
-ConstitutiveModels = {rev = "main", url = "git@github.com:Cthonios/ConstitutiveModels.jl.git"}
+ConstitutiveModels = {path = "/home/mota/Repos/ConstitutiveModels.jl"}
 FiniteElementContainers = {rev = "main", url = "git@github.com:Cthonios/FiniteElementContainers.jl.git"}
 ReferenceFiniteElements = {rev = "main", url = "git@github.com:Cthonios/ReferenceFiniteElements.jl.git"}
 
