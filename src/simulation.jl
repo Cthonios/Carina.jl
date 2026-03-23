@@ -155,7 +155,9 @@ function create_simulation(dict::Dict{String,Any}, basedir::String="";
     physics = SolidMechanics(cm, density)
 
     mesh    = FEC.UnstructuredMesh(input_mesh)
-    V       = FEC.FunctionSpace(mesh, FEC.H1Field, FEC.Lagrange)
+    q_type, q_order = _parse_quadrature(dict)
+    V       = FEC.FunctionSpace(mesh, FEC.H1Field, FEC.Lagrange;
+                                q_degree=q_order, q_type=q_type)
     asm_cpu = FEC.SparseMatrixAssembler(FEC.VectorFunction(V, :displ); use_condensed=true)
 
     dbcs = _parse_dirichlet_bcs(dict)
@@ -352,6 +354,25 @@ function _resolve(dict, key, basedir)
     val = get(dict, key, nothing)
     val === nothing && error("Missing required YAML key: \"$key\"")
     isabspath(val) ? val : joinpath(basedir, val)
+end
+
+# ---- quadrature ----
+
+function _parse_quadrature(dict)
+    q_section = get(dict, "quadrature", nothing)
+    if q_section === nothing
+        return RFE.GaussLegendre, 2
+    end
+    type_str = lowercase(get(q_section, "type", "gauss legendre"))
+    order    = Int(get(q_section, "order", 2))
+    if type_str in ("gauss legendre", "gl")
+        return RFE.GaussLegendre, order
+    elseif type_str in ("gauss lobatto legendre", "gll")
+        return RFE.GaussLobattoLegendre, order
+    else
+        error("Unknown \"quadrature: type: $type_str\". " *
+              "Supported: \"gauss legendre\", \"gauss lobatto legendre\".")
+    end
 end
 
 # ---- material ----

@@ -87,9 +87,10 @@ function _element_var_names(asm_cpu, physics::SolidMechanics,
     end
 
     if output_spec.internal_variables && NS > 0
-        for iv in 1:NS
+        iv_names = CM.state_variable_names(physics.constitutive_model)
+        for name in iv_names
             for q in 1:nq_max
-                push!(names, "iv_$(iv)_$q")
+                push!(names, "$(name)_$q")
             end
         end
     end
@@ -262,12 +263,13 @@ function _write_element_fields!(pp, p_cpu, field_cpu, state_old_cpu, state_new_c
             state_new_b = FEC.block_view(state_new_cpu, b)
             NS = size(state_new_b, 1)   # (NS, nquad, nelem)
             nquad = size(state_new_b, 2)
-            nelem = size(state_new_b, 3)
-            for iv in 1:NS
+            block_physics = p_cpu.physics[block_name]
+            iv_names = CM.state_variable_names(block_physics.constitutive_model)
+            for (iv, name) in enumerate(iv_names)
                 for q in 1:nquad
                     Exodus.write_values(
                         pp.field_output_db, Exodus.ElementVariable,
-                        step, block_str, "iv_$(iv)_$q",
+                        step, block_str, "$(name)_$q",
                         Vector{Float64}(state_new_b[iv, q, :])
                     )
                 end
