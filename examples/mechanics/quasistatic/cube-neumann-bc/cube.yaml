@@ -2,7 +2,6 @@ type: single
 
 input mesh file:  cube.g
 output mesh file: cube.e
-output interval:  1
 
 model:
   type: solid mechanics

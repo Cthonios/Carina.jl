@@ -146,7 +146,6 @@ function create_simulation(dict::Dict{String,Any}, basedir::String="";
 
     input_mesh  = _resolve(dict, "input mesh file",  basedir)
     output_file = _resolve(dict, "output mesh file", basedir)
-    output_interval = Int(get(dict, "output interval", 1))
     _carina_log(0, :setup, "Mesh:   $input_mesh")
     _carina_log(0, :setup, "Output: $output_file")
 
@@ -163,7 +162,11 @@ function create_simulation(dict::Dict{String,Any}, basedir::String="";
     dbcs = _parse_dirichlet_bcs(dict)
     nbcs = _parse_neumann_bcs(dict)
 
-    controller, times = _parse_times(dict)
+    t0, tf, dt, times = _parse_times(dict)
+    raw_oi = get(dict, "output interval", nothing)
+    output_interval = raw_oi === nothing ? dt : Float64(raw_oi)
+    num_stops = round(Int, (tf - t0) / output_interval) + 1
+    controller = TimeController(t0, tf, output_interval, t0, t0, num_stops, 0)
 
     p_cpu = FEC.create_parameters(
         mesh, asm_cpu, physics, props;
@@ -215,7 +218,7 @@ function create_simulation(dict::Dict{String,Any}, basedir::String="";
 
     n_steps = controller.num_stops - 1
     sim = SingleDomainSimulation(p, p_cpu, asm_cpu, integrator, pp,
-                                  controller, output_interval, device, output_spec)
+                                  controller, device, output_spec)
 
     # Write initial state (step 1, t=0).
     write_output!(sim, 1)
@@ -234,17 +237,18 @@ end
 """
     evolve!(sim::SingleDomainSimulation)
 
-Run the full time loop, writing Exodus output at every `output_interval` stops.
+Run the full time loop, writing Exodus output at every output stop.
+The controller's `control_step` equals the output interval; the integrator
+subcycles within each interval using its own (possibly adaptive) time step.
 """
 function evolve!(sim::SingleDomainSimulation)
-    (; params, post_processor, controller, output_interval, device, integrator) = sim
+    (; params, post_processor, controller, device, integrator) = sim
     n_steps = controller.num_stops - 1
     is_explicit = integrator isa CentralDifferenceIntegrator
 
     # Dynamic percentage format: 0 decimals for ≤100 steps, 1 for ≤1000, etc.
     pct_digits = max(0, Int(ceil(log10(n_steps))) - 2)
-    pct_fmt_output = "[%d/%d, %." * string(pct_digits) * "f%%] : Time = %.4e : |U|_max = %.3e : wall = %.2fs"
-    pct_fmt_plain  = "[%d/%d, %." * string(pct_digits) * "f%%] : Time = %.4e : wall = %.2fs"
+    pct_fmt = "[%d/%d, %." * string(pct_digits) * "f%%] : Time = %.4e : |U|_max = %.3e : wall = %.2fs"
 
     output_step = 2  # step 1 is the initial frame written in create_simulation
     t_batch = time()  # wall time since last output
@@ -254,8 +258,6 @@ function evolve!(sim::SingleDomainSimulation)
         t_prev = controller.prev_time
         t_stop = controller.time
 
-        # For implicit, print each step's time interval (Newton iters follow).
-        # For explicit, suppress — only output steps are printed.
         if !is_explicit
             _carina_logf(4, :advance, "[%.4e, %.4e] : Δt = %.4e",
                 t_prev, t_stop, controller.control_step)
@@ -264,25 +266,19 @@ function evolve!(sim::SingleDomainSimulation)
         # Reset FEC clock to start of this control interval
         params.times.time_current = t_prev
 
-        t_wall = time()
         _subcycle!(sim, t_stop)
 
         t   = controller.time
         pct = 100.0 * controller.stop / n_steps
 
-        if controller.stop % output_interval == 0
-            write_output!(sim, output_step)
-            output_step += 1
-            u_max = maximum(abs, params.field.data)
-            wall_elapsed = time() - t_batch
-            _carina_logf(0, :stop, pct_fmt_output,
-                controller.stop, n_steps, pct, t, u_max, wall_elapsed)
-            _carina_log(0, :output, post_processor.field_output_db.file_name)
-            t_batch = time()
-        elseif !is_explicit
-            _carina_logf(0, :stop, pct_fmt_plain,
-                         controller.stop, n_steps, pct, t, time() - t_wall)
-        end
+        write_output!(sim, output_step)
+        output_step += 1
+        u_max = maximum(abs, params.field.data)
+        wall_elapsed = time() - t_batch
+        _carina_logf(0, :stop, pct_fmt,
+            controller.stop, n_steps, pct, t, u_max, wall_elapsed)
+        _carina_log(0, :output, post_processor.field_output_db.file_name)
+        t_batch = time()
     end
 end
 
@@ -300,7 +296,7 @@ function _subcycle!(sim, target::Float64)
         dt = _adjusted_step(t, integrator.time_step, target)
         params.times.Δt = dt
 
-        _pre_step_hook!(integrator, params)
+        _pre_step_hook!(integrator, sim)
         _advance_one_step!(sim)
 
         isapprox(FEC.current_time(params.times), target;
@@ -308,11 +304,11 @@ function _subcycle!(sim, target::Float64)
     end
 end
 
-function _adjusted_step(t::Float64, dt::Float64, t_stop::Float64,
-                         eps::Float64=0.01)::Float64
-    gap    = t_stop - t
+function _adjusted_step(t::Float64, dt::Float64, t_stop::Float64)::Float64
+    gap = t_stop - t
+    gap <= 0.0 && return 0.0
     t_next = t + dt
-    return t_next >= t_stop - eps * dt ? gap : dt
+    return t_stop - t_next <= 0.5 * dt ? gap : dt
 end
 
 function _advance_one_step!(sim)
@@ -407,12 +403,10 @@ function _parse_times(dict)
     t0  = Float64(get(ti_dict, "initial time", 0.0))
     tf  = Float64(ti_dict["final time"])
     dt  = Float64(ti_dict["time step"])
-    num_stops = round(Int, (tf - t0) / dt) + 1
-    controller = TimeController(t0, tf, dt, t0, t0, num_stops, 0)
     # FEC.TimeStepper: used by FEC internals (BC evaluation, time queries).
     # Δt will be overwritten each sub-step during subcycling.
     times = FEC.TimeStepper(t0, tf, round(Int, (tf - t0) / dt))
-    return controller, times
+    return t0, tf, dt, times
 end
 
 # ---- adaptive stepping ----
@@ -493,17 +487,32 @@ function _parse_integrator(dict, asm, asm_cpu, p_cpu, controller, device=:cpu)
         γ = Float64(get(ti_dict, "gamma", get(ti_dict, "γ", 0.5)))
         min_dt, max_dt, dec, inc = _parse_adaptive_stepping(ti_dict, dt)
         CFL_val = Float64(get(ti_dict, "CFL", get(ti_dict, "cfl", 0.0)))
+        stable_dt_interval = Int(get(ti_dict, "stable time step interval", 0))
 
         m_lumped = _compute_lumped_mass(asm_cpu, p_cpu, template)
 
-        return CentralDifferenceIntegrator(γ, asm, m_lumped;
-                                            time_step=dt,
-                                            min_time_step=min_dt,
-                                            max_time_step=max_dt,
-                                            decrease_factor=dec,
-                                            increase_factor=inc,
-                                            CFL=CFL_val,
-                                            c_p_max=Inf)
+        ig = CentralDifferenceIntegrator(γ, asm, m_lumped;
+                                          time_step=dt,
+                                          min_time_step=min_dt,
+                                          max_time_step=max_dt,
+                                          decrease_factor=dec,
+                                          increase_factor=inc,
+                                          CFL=CFL_val,
+                                          stable_dt_interval=stable_dt_interval)
+
+        # Compute initial stable time step estimate
+        if CFL_val > 0.0
+            stable_dt = _compute_stable_dt(asm_cpu, p_cpu, CFL_val)
+            if stable_dt < ig.time_step
+                _carina_logf(0, :warning,
+                    "Δt = %.3e exceeds stable Δt = %.3e — using stable step.",
+                    ig.time_step, stable_dt)
+            end
+            ig.time_step = min(stable_dt, ig.time_step)
+            _carina_logf(0, :setup, "Stable Δt = %.3e (CFL = %.2f)", stable_dt, CFL_val)
+        end
+
+        return ig
     else
         error("Unknown time integrator type: \"$type_str\". " *
               "Supported: \"quasi static\", \"Newmark\", \"central difference\".")
@@ -549,6 +558,44 @@ end
 function _compute_lumped_mass(asm_cpu, p_cpu, ΔUu_template)
     m_cpu = _assemble_diag_cpu(FEC.mass, asm_cpu, p_cpu, ΔUu_template)
     return _to_device(m_cpu, ΔUu_template)
+end
+
+# Stable time step estimate for explicit dynamics (GPU-native).
+# Uses FEC's quadrature assembly to compute per-element characteristic length
+# on the device, then takes minimum over all blocks.
+function _compute_stable_dt(asm, p, CFL)
+    fspace = FEC.function_space(asm.dof)
+
+    # Pre-allocate per-block storage for element char lengths (nq × nelem)
+    char_len_storage = []
+    for (b, ref_fe) in enumerate(fspace.ref_fes)
+        nquad = RFE.num_cell_quadrature_points(ref_fe)
+        nelem = FEC.num_elements(fspace, b)
+        push!(char_len_storage, zeros(Float64, nquad, nelem))
+    end
+    char_len_storage = NamedTuple{keys(fspace.ref_fes)}(char_len_storage)
+
+    # Assemble per-element char lengths on device
+    U_zeros = zeros(Float64, length(asm.dof))
+    FEC.assemble_quadrature_quantity!(
+        char_len_storage, nothing, asm.dof,
+        element_char_length,
+        U_zeros, p
+    )
+
+    # Min-reduction over all blocks
+    stable_dt = Inf
+    for (b, (block_physics, block_storage, props)) in enumerate(zip(
+        values(p.physics), values(char_len_storage), values(p.properties),
+    ))
+        ρ   = block_physics.density
+        M   = CM.p_wave_modulus(block_physics.constitutive_model, props)
+        c_p = sqrt(M / ρ)
+        h_min = minimum(block_storage)   # GPU-native reduction if on device
+        block_dt = CFL * h_min / c_p
+        stable_dt = min(stable_dt, block_dt)
+    end
+    return stable_dt
 end
 
 # ---- solver ----

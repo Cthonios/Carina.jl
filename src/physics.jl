@@ -354,3 +354,35 @@ end
     end
     return JxW * physics.density * tup
 end
+
+# --------------------------------------------------------------------------- #
+# Characteristic element length kernel (for stable time step estimation).
+# Returns a scalar per QP — all QPs in an element give the same value.
+# Uses current (deformed) coordinates: X + u.
+# --------------------------------------------------------------------------- #
+
+function element_char_length(
+    physics::SolidMechanics, interps, x_el,
+    t, dt, u_el, u_el_old,
+    state_old_q, state_new_q, props_el,
+)
+    x_cur = x_el + u_el
+    ndim = 3
+    nnpe = length(x_cur) ÷ ndim
+    T = eltype(x_cur)
+    cx = cy = cz = zero(T)
+    for i in 1:nnpe
+        cx += x_cur[(i-1)*ndim + 1]
+        cy += x_cur[(i-1)*ndim + 2]
+        cz += x_cur[(i-1)*ndim + 3]
+    end
+    cx /= nnpe; cy /= nnpe; cz /= nnpe
+    total = zero(T)
+    for i in 1:nnpe
+        dx = x_cur[(i-1)*ndim + 1] - cx
+        dy = x_cur[(i-1)*ndim + 2] - cy
+        dz = x_cur[(i-1)*ndim + 3] - cz
+        total += sqrt(dx*dx + dy*dy + dz*dz)
+    end
+    return 2 * total / nnpe
+end

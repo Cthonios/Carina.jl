@@ -60,7 +60,6 @@ struct SingleDomainSimulation{Params, ParamsCPU, Asm, Integrator, PP}
     integrator      ::Integrator
     post_processor  ::PP
     controller      ::TimeController
-    output_interval ::Int
     device          ::Symbol       # :cpu, :rocm, or :cuda
     output_spec     ::OutputSpec
 end

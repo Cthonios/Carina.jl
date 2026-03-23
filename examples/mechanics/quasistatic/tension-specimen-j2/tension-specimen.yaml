@@ -18,7 +18,6 @@ type: single
 
 input mesh file:  tension-specimen.g
 output mesh file: tension-specimen.e
-output interval:  1
 
 output:
   stress:             true

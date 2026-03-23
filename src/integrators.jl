@@ -195,10 +195,11 @@ mutable struct CentralDifferenceIntegrator{Asm, Vec}
     max_time_step   ::Float64
     decrease_factor ::Float64
     increase_factor ::Float64
-    # CFL (deferred — CFL=0.0 means disabled)
-    CFL             ::Float64
-    c_p_max         ::Float64
-    failed          ::Base.RefValue{Bool}
+    # CFL stable time step
+    CFL                ::Float64
+    stable_dt_interval ::Int      # steps between recomputation (0 = init only)
+    stable_dt_counter  ::Int      # steps since last recomputation
+    failed             ::Base.RefValue{Bool}
     # Rollback state
     U_save::Vec; V_save::Vec; A_save::Vec
 end
@@ -210,7 +211,7 @@ function CentralDifferenceIntegrator(γ::Float64, asm, m_lumped::Vec;
                                       decrease_factor::Float64=1.0,
                                       increase_factor::Float64=1.0,
                                       CFL::Float64=0.0,
-                                      c_p_max::Float64=Inf) where {Vec}
+                                      stable_dt_interval::Int=0) where {Vec}
     T  = eltype(m_lumped)
     mk() = (v = similar(m_lumped); fill!(v, zero(T)); v)
     U, V, A = mk(), mk(), mk()
@@ -219,7 +220,7 @@ function CentralDifferenceIntegrator(γ::Float64, asm, m_lumped::Vec;
     return CentralDifferenceIntegrator(
         γ, asm, U, V, A, m_lumped, R_eff,
         time_step, min_time_step, max_time_step, decrease_factor, increase_factor,
-        CFL, c_p_max,
+        CFL, stable_dt_interval, 0,
         Ref(false),
         U_save, V_save, A_save,
     )
@@ -499,7 +500,7 @@ end
 # ---- _mark_failed_on_nonconvergence ----
 
 _mark_failed_on_nonconvergence(::QuasiStaticIntegrator) = true
-_mark_failed_on_nonconvergence(::NewmarkIntegrator)     = false
+_mark_failed_on_nonconvergence(::NewmarkIntegrator)     = true
 
 # ---- _displacement ----
 
@@ -935,5 +936,15 @@ function _decrease_step!(ig, params)
     _carina_logf(0, :recover, "Step failed → reducing Δt to %.3e", new_dt)
 end
 
-# --- CFL hook (no-op today; add dispatch for CentralDifferenceIntegrator later) ---
-_pre_step_hook!(integrator, params) = nothing
+# --- CFL stable time step hook ---
+_pre_step_hook!(integrator, sim) = nothing
+
+function _pre_step_hook!(ig::CentralDifferenceIntegrator, sim)
+    ig.CFL <= 0.0 && return
+    ig.stable_dt_interval <= 0 && return
+    ig.stable_dt_counter += 1
+    ig.stable_dt_counter < ig.stable_dt_interval && return
+    ig.stable_dt_counter = 0
+    stable_dt = _compute_stable_dt(ig.asm, sim.params, ig.CFL)
+    ig.time_step = min(stable_dt, ig.max_time_step)
+end

@@ -3,7 +3,6 @@ device: cpu
 
 input mesh file:  sphere.g
 output mesh file: sphere_implicit.e
-output interval:  1
 
 model:
   type: solid mechanics

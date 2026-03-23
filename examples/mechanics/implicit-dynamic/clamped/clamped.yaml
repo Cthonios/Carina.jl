@@ -25,7 +25,6 @@ type: single
 
 input mesh file:  clamped.g
 output mesh file: clamped.e
-output interval:  1
 
 model:
   type: solid mechanics

@@ -15,7 +15,6 @@ type: single
 
 input mesh file:  tension-specimen.g
 output mesh file: tension-specimen.e
-output interval:  1
 
 model:
   type: solid mechanics

@@ -2,7 +2,7 @@ type: single
 
 input mesh file:  cube.g
 output mesh file: cube.e
-output interval:  10
+output interval:  0.1
 
 output:
   velocity:             true

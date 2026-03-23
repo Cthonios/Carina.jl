@@ -3,7 +3,6 @@ device: cpu
 
 input mesh file:  torsion.g
 output mesh file: torsion_explicit.e
-output interval:  1
 
 model:
   type: solid mechanics

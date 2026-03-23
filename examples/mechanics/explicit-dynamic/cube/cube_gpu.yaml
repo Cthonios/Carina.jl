@@ -3,7 +3,7 @@ device: rocm
 
 input mesh file:  cube.g
 output mesh file: cube_gpu.e
-output interval:  10
+output interval:  0.1
 
 model:
   type: solid mechanics
