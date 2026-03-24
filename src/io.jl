@@ -71,7 +71,7 @@ function _element_var_names(asm_cpu, physics::SolidMechanics,
     names = String[]
 
     if output_spec.stress
-        for ext in ("xx", "yy", "zz", "yz", "xz", "xy")
+        for ext in ("xx", "xy", "xz", "yy", "yz", "zz")
             for q in 1:nq_max
                 push!(names, "stress_$(ext)_$q")
             end
@@ -79,7 +79,7 @@ function _element_var_names(asm_cpu, physics::SolidMechanics,
     end
 
     if output_spec.deformation_gradient
-        for ext in ("xx", "yy", "zz", "yz", "xz", "xy", "zy", "zx", "yx")
+        for ext in ("xx", "yx", "zx", "xy", "yy", "zy", "xz", "yz", "zz")
             for q in 1:nq_max
                 push!(names, "F_$(ext)_$q")
             end
