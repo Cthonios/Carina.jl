@@ -457,7 +457,7 @@ function _parse_integrator(dict, asm, asm_cpu, p_cpu, controller, device=:cpu)
 
         make_precond = () -> _compute_stiffness_jacobi_precond(asm_cpu, p_cpu, template)
         ls = _parse_linear_solver(ls_dict, template, device, make_precond)
-        ns = _parse_nonlinear_solver(sol_dict, ls)
+        ns = _parse_nonlinear_solver(sol_dict, ls; template=template, make_precond=make_precond)
         return QuasiStaticIntegrator(ns, asm, template;
                                       time_step=dt,
                                       min_time_step=min_dt,
@@ -474,7 +474,7 @@ function _parse_integrator(dict, asm, asm_cpu, p_cpu, controller, device=:cpu)
 
         make_precond = () -> _compute_jacobi_precond(β, dt, asm_cpu, p_cpu, template)
         ls = _parse_linear_solver(ls_dict, template, device, make_precond)
-        ns = _parse_nonlinear_solver(sol_dict, ls)
+        ns = _parse_nonlinear_solver(sol_dict, ls; template=template, make_precond=make_precond)
         return NewmarkIntegrator(ns, asm, β, γ, template;
                                   α_hht=α_hht,
                                   time_step=dt,
@@ -611,17 +611,21 @@ function _read_solver_dicts(dict)
         error("Missing required \"solver: type:\". " *
               "Supported values: \"newton\", \"hessian minimizer\".")
     nl_type = lowercase(sol_dict["type"])
-    nl_type in ("newton", "hessian minimizer") ||
+    nl_type in ("newton", "hessian minimizer", "nonlinear cg", "nlcg", "conjugate gradient") ||
         error("Unknown \"solver: type: $(sol_dict["type"])\". " *
-              "Supported values: \"newton\", \"hessian minimizer\".")
+              "Supported values: \"newton\", \"hessian minimizer\", \"nonlinear cg\".")
 
-    haskey(sol_dict, "linear solver") ||
-        error("Missing required \"solver: linear solver:\" section.")
-    ls_dict = sol_dict["linear solver"]
-
-    haskey(ls_dict, "type") ||
-        error("Missing required \"solver: linear solver: type:\". " *
-              "Supported values: \"direct\", \"iterative\", \"cg\", \"minres\", \"lbfgs\", \"none\".")
+    if nl_type in ("nonlinear cg", "nlcg", "conjugate gradient")
+        # NLCG is matrix-free; linear solver section is optional
+        ls_dict = get(sol_dict, "linear solver", Dict{String,Any}("type" => "none"))
+    else
+        haskey(sol_dict, "linear solver") ||
+            error("Missing required \"solver: linear solver:\" section.")
+        ls_dict = sol_dict["linear solver"]
+        haskey(ls_dict, "type") ||
+            error("Missing required \"solver: linear solver: type:\". " *
+                  "Supported values: \"direct\", \"iterative\", \"cg\", \"minres\", \"lbfgs\", \"none\".")
+    end
 
     return sol_dict, ls_dict
 end
@@ -683,7 +687,9 @@ function _parse_linear_solver(ls_dict, template, device, make_precond::Function)
     end
 end
 
-function _parse_nonlinear_solver(sol_dict, ls::AbstractLinearSolver)
+function _parse_nonlinear_solver(sol_dict, ls::AbstractLinearSolver;
+                                  template=nothing, make_precond=nothing)
+    solver_type = lowercase(get(sol_dict, "type", "newton"))
     min_iters = Int(get(sol_dict, "minimum iterations", 0))
     max_iters = Int(get(sol_dict, "maximum iterations", 20))
     abs_tol   = Float64(get(sol_dict, "absolute tolerance", 1e-10))
@@ -693,8 +699,26 @@ function _parse_nonlinear_solver(sol_dict, ls::AbstractLinearSolver)
     ls_back    = Float64(get(sol_dict, "line search backtrack factor", 0.5))
     ls_dec     = Float64(get(sol_dict, "line search decrease factor", 1e-4))
     ls_max     = Int(get(sol_dict, "line search maximum iterations", 10))
-    return NewtonSolver(min_iters, max_iters, abs_tol, abs_tol, rel_tol, ls,
-                        use_ls, ls_back, ls_dec, ls_max)
+
+    if solver_type in ("nonlinear cg", "nlcg", "conjugate gradient")
+        orth_tol = Float64(get(sol_dict, "orthogonality tolerance", 0.5))
+        restart  = Int(get(sol_dict, "restart interval", 0))
+        pc_dict  = get(sol_dict, "preconditioner", nothing)
+        precond  = if pc_dict !== nothing && make_precond !== nothing
+            make_precond()
+        else
+            NoPreconditioner()
+        end
+        T = eltype(template)
+        mk() = (v = similar(template); fill!(v, zero(T)); v)
+        return NLCGSolver(min_iters, max_iters, abs_tol, abs_tol, rel_tol,
+                          ls_back, ls_dec, ls_max,
+                          orth_tol, restart, precond,
+                          mk(), mk(), mk(), mk())
+    else
+        return NewtonSolver(min_iters, max_iters, abs_tol, abs_tol, rel_tol, ls,
+                            use_ls, ls_back, ls_dec, ls_max)
+    end
 end
 
 # ---- Dirichlet BCs ----

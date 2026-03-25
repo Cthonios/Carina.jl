@@ -95,6 +95,31 @@ mutable struct NewtonSolver{LS <: AbstractLinearSolver} <: AbstractNonlinearSolv
 end
 
 # --------------------------------------------------------------------------- #
+# Nonlinear Conjugate Gradient solver (matrix-free, GPU-friendly)
+# --------------------------------------------------------------------------- #
+
+mutable struct NLCGSolver{Vec, PC <: Preconditioner} <: AbstractNonlinearSolver
+    min_iters         ::Int
+    max_iters         ::Int
+    abs_increment_tol ::Float64
+    abs_residual_tol  ::Float64
+    rel_residual_tol  ::Float64
+    # Line search
+    ls_backtrack      ::Float64   # step reduction factor (default 0.5)
+    ls_decrease       ::Float64   # Armijo parameter (default 1e-4)
+    ls_max_iters      ::Int       # max backtracking steps (default 10)
+    # CG parameters
+    orthogonality_tol ::Float64   # restart threshold (default 0.5)
+    restart_interval  ::Int       # periodic restart every N iters (0 = disabled)
+    # Preconditioner and work vectors (device-resident)
+    precond   ::PC
+    g         ::Vec    # preconditioned gradient M⁻¹R
+    g_old     ::Vec    # previous preconditioned gradient
+    d         ::Vec    # search direction
+    U_save    ::Vec    # saved displacement for line search
+end
+
+# --------------------------------------------------------------------------- #
 # QuasiStaticIntegrator{NS, Vec}
 # --------------------------------------------------------------------------- #
 
@@ -856,6 +881,94 @@ function solve!(ns::NewtonSolver{<:LBFGSLinearSolver}, ig, p)
         converged && break
     end
     ig.failed[] = !converged
+end
+
+# ---- Nonlinear CG (Preconditioned Polak-Ribière+) ----
+
+function _apply_precond!(g, R, ::NoPreconditioner)
+    copyto!(g, R)
+end
+
+function _apply_precond!(g, R, pc::JacobiPreconditioner)
+    @. g = pc.inv_diag * R
+end
+
+function solve!(ns::NLCGSolver, ig, p)
+    evaluate!(ig, p) || (ig.failed[] = true; return)
+    initial_norm = norm_R = sqrt(sum(abs2, residual(ig)))
+    _carina_logf(8, :solve, "Iter [0] |R| = %.3e : |r| = %.3e : %s",
+                 initial_norm, 1.0, _status_str(false))
+
+    # g = M⁻¹ R (preconditioned gradient)
+    _apply_precond!(ns.g, residual(ig), ns.precond)
+    copyto!(ns.d, ns.g)    # initial direction = steepest descent
+    rg = dot(residual(ig), ns.g)   # R·g for β denominator
+
+    converged = false
+    for iter in 1:ns.max_iters
+        # Save U for line search restore
+        U = _displacement(ig)
+        copyto!(ns.U_save, U)
+
+        # Backtracking line search
+        α = 1.0
+        for _ in 1:ns.ls_max_iters
+            @. U = ns.U_save + α * ns.d
+            FEC._update_for_assembly!(p, ig.asm.dof, U)
+            evaluate!(ig, p) || (ig.failed[] = true; return)
+            norm_R_trial = sqrt(sum(abs2, residual(ig)))
+            if isfinite(norm_R_trial) && norm_R_trial < norm_R
+                break
+            end
+            α *= ns.ls_backtrack
+        end
+
+        # Accept step
+        @. U = ns.U_save + α * ns.d
+        FEC._update_for_assembly!(p, ig.asm.dof, U)
+        evaluate!(ig, p) || (ig.failed[] = true; return)
+
+        # Convergence check
+        norm_R = sqrt(sum(abs2, residual(ig)))
+        rel_R  = initial_norm > 0 ? norm_R / initial_norm : norm_R
+        norm_step = α * sqrt(sum(abs2, ns.d))
+        met_tol = norm_step < ns.abs_increment_tol ||
+                  norm_R   < ns.abs_residual_tol   ||
+                  rel_R    < ns.rel_residual_tol
+        converged = met_tol && iter > ns.min_iters
+        _carina_logf(8, :solve,
+            "Iter [%d] |R| = %.3e : |r| = %.3e : |ΔU| = %.3e : α = %.3e : %s",
+            iter, norm_R, rel_R, norm_step, α, _status_str(converged))
+        converged && break
+
+        # Update preconditioned gradient
+        copyto!(ns.g_old, ns.g)
+        rg_old = rg
+        _apply_precond!(ns.g, residual(ig), ns.precond)
+        rg = dot(residual(ig), ns.g)
+
+        # Polak-Ribière+ β (clamped ≥ 0)
+        β = rg_old != 0.0 ? max(0.0, (rg - dot(residual(ig), ns.g_old)) / rg_old) : 0.0
+
+        # Restart on orthogonality loss
+        if ns.orthogonality_tol > 0 && rg != 0
+            γ = abs(dot(residual(ig), ns.g_old)) / abs(rg)
+            if γ > ns.orthogonality_tol
+                β = 0.0
+            end
+        end
+        # Periodic restart
+        if ns.restart_interval > 0 && iter % ns.restart_interval == 0
+            β = 0.0
+        end
+
+        # Update search direction
+        @. ns.d = ns.g + β * ns.d
+    end
+
+    if !converged && _mark_failed_on_nonconvergence(ig)
+        ig.failed[] = true
+    end
 end
 
 # ---- ExplicitSolver ----
