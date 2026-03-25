@@ -40,9 +40,26 @@ struct OutputSpec
     stress              ::Bool
     deformation_gradient::Bool
     internal_variables  ::Bool
+    recovery            ::Symbol   # :none, :lumped, :consistent
 end
 
-OutputSpec() = OutputSpec(false, false, false, false, false)
+OutputSpec() = OutputSpec(false, false, false, false, false, :none)
+
+# ---------------------------------------------------------------------------
+# Recovery data for L2 projection of QP fields to nodes
+# ---------------------------------------------------------------------------
+
+abstract type AbstractRecoveryData end
+
+struct NoRecovery <: AbstractRecoveryData end
+
+struct LumpedRecovery <: AbstractRecoveryData
+    inv_m_lumped::Vector{Float64}   # 1/M_lumped per scalar DOF (n_nodes)
+end
+
+struct ConsistentRecovery <: AbstractRecoveryData
+    M_factor::Any   # Cholesky or LDLᵀ factorization of scalar mass matrix
+end
 
 # ---------------------------------------------------------------------------
 # Single-domain simulation
@@ -53,7 +70,7 @@ OutputSpec() = OutputSpec(false, false, false, false, false)
 
 Holds all objects needed to run one domain.
 """
-struct SingleDomainSimulation{Params, ParamsCPU, Asm, Integrator, PP}
+struct SingleDomainSimulation{Params, ParamsCPU, Asm, Integrator, PP, RD <: AbstractRecoveryData}
     params          ::Params       # device params (GPU or CPU)
     params_cpu      ::ParamsCPU    # always-CPU params (coords, physics, props)
     asm_cpu         ::Asm          # always-CPU assembler (DOF manager, ref_fes)
@@ -62,4 +79,5 @@ struct SingleDomainSimulation{Params, ParamsCPU, Asm, Integrator, PP}
     controller      ::TimeController
     device          ::Symbol       # :cpu, :rocm, or :cuda
     output_spec     ::OutputSpec
+    recovery_data   ::RD           # L2 projection data (NoRecovery, LumpedRecovery, or ConsistentRecovery)
 end

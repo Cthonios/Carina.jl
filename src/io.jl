@@ -14,12 +14,23 @@
 
 function _parse_output_spec(dict::Dict{String,Any})
     out = get(dict, "output", Dict{String,Any}())
+    rec_str = lowercase(get(out, "recovery", "lumped"))
+    recovery = if rec_str == "lumped"
+        :lumped
+    elseif rec_str in ("consistent", "l2")
+        :consistent
+    elseif rec_str == "none"
+        :none
+    else
+        :none
+    end
     return OutputSpec(
         Bool(get(out, "velocity",              false)),
         Bool(get(out, "acceleration",          false)),
-        Bool(get(out, "stress",                false)),
-        Bool(get(out, "deformation gradient",  false)),
+        Bool(get(out, "stress",                true)),
+        Bool(get(out, "deformation gradient",  true)),
         Bool(get(out, "internal variables",    false)),
+        recovery,
     )
 end
 
@@ -96,6 +107,120 @@ function _element_var_names(asm_cpu, physics::SolidMechanics,
     end
 
     return names
+end
+
+# ---------------------------------------------------------------------------
+# Recovered (nodal) variable names for L2 projection
+# ---------------------------------------------------------------------------
+
+function _recovered_nodal_var_names(physics::SolidMechanics, output_spec::OutputSpec)
+    output_spec.recovery == :none && return String[]
+    names = String[]
+    if output_spec.stress
+        for ext in ("xx", "xy", "xz", "yy", "yz", "zz")
+            push!(names, "nodal_stress_$(ext)")
+        end
+    end
+    if output_spec.deformation_gradient
+        for ext in ("xx", "yx", "zx", "xy", "yy", "zy", "xz", "yz", "zz")
+            push!(names, "nodal_F_$(ext)")
+        end
+    end
+    return names
+end
+
+# ---------------------------------------------------------------------------
+# L2 projection recovery: project QP stress to nodes
+# ---------------------------------------------------------------------------
+
+"""
+    _write_recovered_fields!(sim, step)
+
+Assemble RHS of L2 projection b_i = Σ_e Σ_q N_i(ξ_q) σ_qp w_q |J|,
+then compute σ_nodal = M_lumped⁻¹ · b and write as nodal variables.
+"""
+function _write_recovered_fields!(sim, step)
+    (; params_cpu, asm_cpu, post_processor, output_spec, recovery_data) = sim
+    recovery_data isa NoRecovery && return
+
+    if !output_spec.stress
+        return
+    end
+
+    fspace = FEC.function_space(asm_cpu.dof)
+    n_nodes = size(params_cpu.coords, 2)
+
+    # Assemble RHS for each stress component: b_i = Σ_e Σ_q N_i σ_comp w |J|
+    # We recompute stress at QPs (same as _write_element_fields!) and weight by N_i * JxW
+    stress_nodal = zeros(Float64, 6, n_nodes)  # 6 symmetric components
+
+    conns = fspace.elem_conns
+    t  = FEC.current_time(params_cpu.times)
+    dt = FEC.time_step(params_cpu.times)
+
+    for (b, (block_physics, ref_fe, props)) in enumerate(zip(
+        values(params_cpu.physics), values(fspace.ref_fes), values(params_cpu.properties),
+    ))
+        nelem   = conns.nelems[b]
+        coffset = conns.offsets[b]
+        state_old_b = FEC.block_view(params_cpu.state_old, b)
+        state_new_b = FEC.block_view(params_cpu.state_new, b)
+
+        for e in 1:nelem
+            conn = FEC.connectivity(ref_fe, conns.data, e, coffset)
+            x_el = FEC._element_level_fields_flat(params_cpu.coords, ref_fe, conn)
+            u_el = FEC._element_level_fields_flat(params_cpu.field, ref_fe, conn)
+            u_el_old = FEC._element_level_fields_flat(params_cpu.field_old, ref_fe, conn)
+            props_el = FEC._element_level_properties(props, e)
+
+            for q in 1:RFE.num_cell_quadrature_points(ref_fe)
+                interps = FEC._cell_interpolants(ref_fe, q)
+                state_old_q = FEC._quadrature_level_state(state_old_b, q, e)
+                state_new_q = FEC._quadrature_level_state(state_new_b, q, e)
+
+                # Compute stress at this QP (same as quadrature_field_output)
+                cell = FEC.map_interpolants(interps, x_el)
+                ∇u_q = FEC.interpolate_field_gradients(block_physics, cell, u_el)
+                ∇u_q = FEC.modify_field_gradients(FEC.ThreeDimensional(), ∇u_q)
+                state_scratch = zero(state_new_q)
+                σ_q = symmetric(CM.cauchy_stress(
+                    block_physics.constitutive_model, props_el, dt, ∇u_q, 0.0, state_old_q, state_scratch,
+                ))
+
+                # Shape function values at this QP
+                N = RFE.cell_shape_function_value(ref_fe, q)
+                JxW = cell.JxW
+
+                # Accumulate b_i += N_i * σ_comp * JxW for each node in element
+                nnpe = RFE.num_cell_dofs(ref_fe)
+                for i in 1:nnpe
+                    node = conn[i]
+                    NiJxW = N[i] * JxW
+                    for c in 1:6
+                        stress_nodal[c, node] += NiJxW * σ_q.data[c]
+                    end
+                end
+            end
+        end
+    end
+
+    # Apply lumped mass inverse: σ_nodal = M_lumped⁻¹ · b
+    if recovery_data isa LumpedRecovery
+        for node in 1:n_nodes
+            inv_m = recovery_data.inv_m_lumped[node]
+            for c in 1:6
+                stress_nodal[c, node] *= inv_m
+            end
+        end
+    end
+
+    # Write as nodal variables
+    exo = post_processor.field_output_db
+    comp_names = ("xx", "xy", "xz", "yy", "yz", "zz")
+    for (c, ext) in enumerate(comp_names)
+        Exodus.write_values(exo, Exodus.NodalVariable, step,
+                            "nodal_stress_$(ext)", stress_nodal[c, :])
+    end
 end
 
 # ---------------------------------------------------------------------------
@@ -189,6 +314,9 @@ function write_output!(sim::SingleDomainSimulation, step::Int)
         _write_element_fields!(post_processor, params_cpu, h1_cpu,
                                state_old_cpu, state_new_cpu, asm_cpu, output_spec, step)
     end
+
+    # --- recovered nodal fields (L2 projection, CPU only) ---
+    _write_recovered_fields!(sim, step)
 
     return nothing
 end

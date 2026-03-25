@@ -180,9 +180,11 @@ function create_simulation(dict::Dict{String,Any}, basedir::String="";
 
     # Build VectorFunction list for PostProcessor (all nodal vars in one call).
     nodal_vars = _build_nodal_vars(V, output_spec, is_dynamic)
-    pp = FEC.PostProcessor(mesh, output_file, nodal_vars...)
+    rec_names  = _recovered_nodal_var_names(physics, output_spec)
+    pp = FEC.PostProcessor(mesh, output_file, nodal_vars...;
+                           extra_nodal_names = rec_names)
 
-    # Register element variable names (stress, F, IVs) before first write.
+    # Register element variable names (stress, F, IVs at QPs) before first write.
     el_names = _element_var_names(asm_cpu, physics, output_spec)
     if !isempty(el_names)
         Exodus.write_names(pp.field_output_db, Exodus.ElementVariable, el_names)
@@ -216,9 +218,12 @@ function create_simulation(dict::Dict{String,Any}, basedir::String="";
                                   _parse_velocity_ics(dict))
     _compute_initial_acceleration!(integrator, asm_cpu, p_cpu)
 
+    # Build recovery data for L2 projection (CPU-only)
+    recovery_data = _build_recovery_data(output_spec.recovery, asm_cpu, p_cpu)
+
     n_steps = controller.num_stops - 1
     sim = SingleDomainSimulation(p, p_cpu, asm_cpu, integrator, pp,
-                                  controller, device, output_spec)
+                                  controller, device, output_spec, recovery_data)
 
     # Write initial state (step 1, t=0).
     write_output!(sim, 1)
@@ -558,6 +563,55 @@ end
 function _compute_lumped_mass(asm_cpu, p_cpu, ΔUu_template)
     m_cpu = _assemble_diag_cpu(FEC.mass, asm_cpu, p_cpu, ΔUu_template)
     return _to_device(m_cpu, ΔUu_template)
+end
+
+# Build L2 projection recovery data (CPU-only).
+function _build_recovery_data(recovery::Symbol, asm_cpu, p_cpu)
+    recovery == :none && return NoRecovery()
+
+    if recovery == :lumped
+        # Compute geometric lumped "mass" per node: vol_i = Σ_e Σ_q N_i(ξ_q) w_q |J|
+        # This is the volume tributary to each node (no density).
+        # Assembled directly from the element loop on CPU.
+        fspace = FEC.function_space(asm_cpu.dof)
+        n_nodes = size(p_cpu.coords, 2)
+        vol = zeros(Float64, n_nodes)
+        conns = fspace.elem_conns
+
+        for (b, ref_fe) in enumerate(fspace.ref_fes)
+            nelem = conns.nelems[b]
+            coffset = conns.offsets[b]
+            for e in 1:nelem
+                conn = FEC.connectivity(ref_fe, conns.data, e, coffset)
+                x_el = FEC._element_level_fields_flat(p_cpu.coords, ref_fe, conn)
+                nnpe = RFE.num_cell_dofs(ref_fe)
+                for q in 1:RFE.num_cell_quadrature_points(ref_fe)
+                    interps = FEC._cell_interpolants(ref_fe, q)
+                    cell = FEC.map_interpolants(interps, x_el)
+                    N = RFE.cell_shape_function_value(ref_fe, q)
+                    for i in 1:nnpe
+                        vol[conn[i]] += N[i] * cell.JxW
+                    end
+                end
+            end
+        end
+
+        inv_vol = zeros(Float64, n_nodes)
+        for i in 1:n_nodes
+            if vol[i] > 0.0
+                inv_vol[i] = 1.0 / vol[i]
+            end
+        end
+        _carina_log(0, :setup, "L2 lumped recovery initialized")
+        return LumpedRecovery(inv_vol)
+
+    elseif recovery == :consistent
+        # TODO: assemble and factor scalar mass matrix
+        _carina_log(0, :warning, "Consistent L2 recovery not yet implemented, falling back to lumped")
+        return _build_recovery_data(:lumped, asm_cpu, p_cpu)
+    else
+        return NoRecovery()
+    end
 end
 
 # Stable time step estimate for explicit dynamics (GPU-native).
