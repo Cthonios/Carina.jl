@@ -105,7 +105,7 @@ end
 
 @inline function _fd_material_tangent(model, props, dt, ∇u, state_q)
     # Base stress
-    s0 = similar(state_q)
+    s0 = zero(state_q)
     P0 = CM.pk1_stress(model, props, dt, ∇u, 0.0, state_q, s0)
 
     # Adaptive perturbation (Sierra/SM approach, Wallin 2001):
@@ -121,7 +121,7 @@ end
         val = ∇u.data[idx]
         h = max(sqrt_eps * abs(val), h_floor)
         ∇u_p = Tensor{2,3}((i,j) -> ∇u[i,j] + (i==k && j==l ? h : 0.0))
-        s_p = similar(state_q)
+        s_p = zero(state_q)
         P_p = CM.pk1_stress(model, props, dt, ∇u_p, 0.0, state_q, s_p)
         for i in 1:3, j in 1:3
             A[i,j,k,l] = (P_p[i,j] - P0[i,j]) / h
@@ -150,9 +150,8 @@ end
 
     # Use state_old_q as the starting state — same as the residual kernel.
     # The tangent must be the Jacobian of the same function the residual evaluates.
-    state_scratch = similar(state_new_q)
     A_q = CM.material_tangent(
-        physics.constitutive_model, props_el, dt, ∇u_q, 0.0, state_old_q, state_scratch,
+        physics.constitutive_model, props_el, dt, ∇u_q, 0.0, state_old_q, state_new_q,
     )
 
     A_v = FEC.extract_stiffness(FEC.ThreeDimensional(), A_q)
@@ -178,9 +177,8 @@ end
     ∇u_q = FEC.interpolate_field_gradients(physics, cell, u_el)
     ∇u_q = FEC.modify_field_gradients(FEC.ThreeDimensional(), ∇u_q)
 
-    state_scratch = similar(state_new_q)
     A_q = CM.material_tangent(
-        physics.constitutive_model, props_el, dt, ∇u_q, 0.0, state_old_q, state_scratch,
+        physics.constitutive_model, props_el, dt, ∇u_q, 0.0, state_old_q, state_new_q,
     )
 
     A_v = FEC.extract_stiffness(FEC.ThreeDimensional(), A_q)
