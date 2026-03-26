@@ -82,15 +82,15 @@ function _element_var_names(asm_cpu, physics::SolidMechanics,
     names = String[]
 
     if output_spec.stress
-        for ext in ("xx", "xy", "xz", "yy", "yz", "zz")
+        for ext in ("XX", "XY", "XZ", "YY", "YZ", "ZZ")
             for q in 1:nq_max
-                push!(names, "stress_$(ext)_$q")
+                push!(names, "sigma_$(ext)_$q")
             end
         end
     end
 
     if output_spec.deformation_gradient
-        for ext in ("xx", "yx", "zx", "xy", "yy", "zy", "xz", "yz", "zz")
+        for ext in ("XX", "YX", "ZX", "XY", "YY", "ZY", "XZ", "YZ", "ZZ")
             for q in 1:nq_max
                 push!(names, "F_$(ext)_$q")
             end
@@ -117,12 +117,12 @@ function _recovered_nodal_var_names(physics::SolidMechanics, output_spec::Output
     output_spec.recovery == :none && return String[]
     names = String[]
     if output_spec.stress
-        for ext in ("xx", "xy", "xz", "yy", "yz", "zz")
-            push!(names, "nodal_stress_$(ext)")
+        for ext in ("XX", "XY", "XZ", "YY", "YZ", "ZZ")
+            push!(names, "nodal_sigma_$(ext)")
         end
     end
     if output_spec.deformation_gradient
-        for ext in ("xx", "yx", "zx", "xy", "yy", "zy", "xz", "yz", "zz")
+        for ext in ("XX", "YX", "ZX", "XY", "YY", "ZY", "XZ", "YZ", "ZZ")
             push!(names, "nodal_F_$(ext)")
         end
     end
@@ -216,10 +216,10 @@ function _write_recovered_fields!(sim, step)
 
     # Write as nodal variables
     exo = post_processor.field_output_db
-    comp_names = ("xx", "xy", "xz", "yy", "yz", "zz")
+    comp_names = ("XX", "XY", "XZ", "YY", "YZ", "ZZ")
     for (c, ext) in enumerate(comp_names)
         Exodus.write_values(exo, Exodus.NodalVariable, step,
-                            "nodal_stress_$(ext)", stress_nodal[c, :])
+                            "nodal_sigma_$(ext)", stress_nodal[c, :])
     end
 end
 
@@ -380,7 +380,7 @@ function _write_element_fields!(pp, p_cpu, field_cpu, state_old_cpu, state_new_c
         block_str = String(block_name)
 
         if output_spec.stress
-            FEC.write_field(pp, step, block_str, "stress", vals.stress)
+            FEC.write_field(pp, step, block_str, "sigma", vals.stress)
         end
 
         if output_spec.deformation_gradient
