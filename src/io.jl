@@ -82,7 +82,7 @@ function _element_var_names(asm_cpu, physics::SolidMechanics,
     names = String[]
 
     if output_spec.stress
-        for ext in ("XX", "XY", "XZ", "YY", "YZ", "ZZ")
+        for ext in ("(XX)", "(XY)", "(XZ)", "(YY)", "(YZ)", "(ZZ)")
             for q in 1:nq_max
                 push!(names, "sigma_$(ext)_$q")
             end
@@ -90,7 +90,7 @@ function _element_var_names(asm_cpu, physics::SolidMechanics,
     end
 
     if output_spec.deformation_gradient
-        for ext in ("XX", "YX", "ZX", "XY", "YY", "ZY", "XZ", "YZ", "ZZ")
+        for ext in ("(XX)", "(YX)", "(ZX)", "(XY)", "(YY)", "(ZY)", "(XZ)", "(YZ)", "(ZZ)")
             for q in 1:nq_max
                 push!(names, "F_$(ext)_$q")
             end
@@ -117,12 +117,12 @@ function _recovered_nodal_var_names(physics::SolidMechanics, output_spec::Output
     output_spec.recovery == :none && return String[]
     names = String[]
     if output_spec.stress
-        for ext in ("XX", "XY", "XZ", "YY", "YZ", "ZZ")
+        for ext in ("(XX)", "(XY)", "(XZ)", "(YY)", "(YZ)", "(ZZ)")
             push!(names, "nodal_sigma_$(ext)")
         end
     end
     if output_spec.deformation_gradient
-        for ext in ("XX", "YX", "ZX", "XY", "YY", "ZY", "XZ", "YZ", "ZZ")
+        for ext in ("(XX)", "(YX)", "(ZX)", "(XY)", "(YY)", "(ZY)", "(XZ)", "(YZ)", "(ZZ)")
             push!(names, "nodal_F_$(ext)")
         end
     end
@@ -216,7 +216,7 @@ function _write_recovered_fields!(sim, step)
 
     # Write as nodal variables
     exo = post_processor.field_output_db
-    comp_names = ("XX", "XY", "XZ", "YY", "YZ", "ZZ")
+    comp_names = ("(XX)", "(XY)", "(XZ)", "(YY)", "(YZ)", "(ZZ)")
     for (c, ext) in enumerate(comp_names)
         Exodus.write_values(exo, Exodus.NodalVariable, step,
                             "nodal_sigma_$(ext)", stress_nodal[c, :])
