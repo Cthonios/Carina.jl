@@ -855,10 +855,12 @@ function _make_function(expr_str::String)
     if body isa Expr && body.head === :toplevel
         body = Expr(:block, body.args...)
     end
-    return @eval (coords, t) -> begin
+
+    expression = :((coords, t) -> begin
         x = coords[1]; y = coords[2]; z = coords[3]
         $body
-    end
+    end)
+    return @RuntimeGeneratedFunction(expression)
 end
 
 # ---- initial conditions ----
