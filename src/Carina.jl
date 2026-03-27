@@ -13,9 +13,12 @@ import ReferenceFiniteElements as RFE
 import SparseArrays
 import YAML
 using LinearAlgebra
+using RuntimeGeneratedFunctions
 using StaticArrays
 using StructArrays
 using Tensors
+
+RuntimeGeneratedFunctions.init(@__MODULE__)
 
 # ---------------------------------------------------------------------------
 # Submodules / source files
