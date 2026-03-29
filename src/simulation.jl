@@ -212,10 +212,11 @@ function create_simulation(dict::Dict{String,Any}, basedir::String="";
     # Only CPU parameters needed — GPU field is synced via _update_for_assembly!.
     FEC.update_bc_values!(p_cpu)
 
+    t0 = controller.initial_time
     _apply_initial_displacement_ics!(integrator, mesh, asm_cpu, p, p_cpu,
-                                      _parse_displacement_ics(dict), device)
+                                      _parse_displacement_ics(dict), device, t0)
     _apply_initial_velocity_ics!(integrator, mesh, asm_cpu, p_cpu,
-                                  _parse_velocity_ics(dict))
+                                  _parse_velocity_ics(dict), t0)
     _compute_initial_acceleration!(integrator, asm_cpu, p_cpu)
 
     # Build recovery data for L2 projection (CPU-only)
@@ -876,7 +877,7 @@ end
 # Apply initial displacement ICs to the displacement vector U and field.
 # Each entry: {node set: <name>, component: x|y|z, function: <expr>}
 function _apply_initial_displacement_ics!(integrator::_DynamicIntegrator, mesh, asm_cpu, p, p_cpu,
-                                           disp_ics, device)
+                                           disp_ics, device, t0::Float64)
     isempty(disp_ics) && return
     dof = asm_cpu.dof
     X   = p_cpu.coords.data
@@ -899,7 +900,7 @@ function _apply_initial_displacement_ics!(integrator::_DynamicIntegrator, mesh, 
             unk_idx = inv_map[full_dof]
             unk_idx == 0 && continue
             coords = @view X[(node-1)*3+1 : (node-1)*3+3]
-            U_cpu[full_dof] = Base.invokelatest(func, coords, 0.0)
+            U_cpu[full_dof] = Base.invokelatest(func, coords, t0)
         end
     end
     Base.invokelatest(copyto!, integrator.U, U_cpu)
@@ -911,7 +912,7 @@ function _apply_initial_displacement_ics!(integrator::_DynamicIntegrator, mesh, 
     end
 end
 
-function _apply_initial_displacement_ics!(integrator, mesh, asm_cpu, p, p_cpu, disp_ics, device)
+function _apply_initial_displacement_ics!(integrator, mesh, asm_cpu, p, p_cpu, disp_ics, device, t0)
     isempty(disp_ics) || @warn "Displacement ICs ignored for non-dynamic integrator."
 end
 
@@ -926,7 +927,7 @@ end
 # Apply initial velocity ICs to the velocity vector V.
 # Each entry: {node set: <name>, component: x|y|z, function: <expr>}
 # Shared by NewmarkIntegrator and CentralDifferenceIntegrator.
-function _apply_initial_velocity_ics!(integrator::_DynamicIntegrator, mesh, asm_cpu, p_cpu, vel_ics)
+function _apply_initial_velocity_ics!(integrator::_DynamicIntegrator, mesh, asm_cpu, p_cpu, vel_ics, t0::Float64)
     isempty(vel_ics) && return
     dof = asm_cpu.dof                # always CPU dof manager for index arithmetic
     X   = p_cpu.coords.data       # flat, node-major: [x₁,y₁,z₁, x₂,y₂,z₂, ...]
@@ -950,14 +951,14 @@ function _apply_initial_velocity_ics!(integrator::_DynamicIntegrator, mesh, asm_
             unk_idx = inv_map[full_dof]
             unk_idx == 0 && continue   # skip constrained DOFs
             coords = @view X[(node-1)*3+1 : (node-1)*3+3]
-            V_cpu[full_dof] = Base.invokelatest(func, coords, 0.0)
+            V_cpu[full_dof] = Base.invokelatest(func, coords, t0)
         end
     end
     Base.invokelatest(copyto!, integrator.V, V_cpu)
 end
 
 # No-op for integrators that do not support initial velocity ICs.
-function _apply_initial_velocity_ics!(integrator, mesh, asm_cpu, p_cpu, vel_ics)
+function _apply_initial_velocity_ics!(integrator, mesh, asm_cpu, p_cpu, vel_ics, t0)
     isempty(vel_ics) || @warn "Initial velocity ICs ignored for non-Newmark integrator."
 end
 
