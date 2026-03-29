@@ -161,6 +161,7 @@ function create_simulation(dict::Dict{String,Any}, basedir::String="";
 
     dbcs = _parse_dirichlet_bcs(dict)
     nbcs = _parse_neumann_bcs(dict)
+    bfs  = _parse_body_forces(dict)
 
     t0, tf, dt, times = _parse_times(dict)
     raw_oi = get(dict, "output interval", nothing)
@@ -172,6 +173,7 @@ function create_simulation(dict::Dict{String,Any}, basedir::String="";
         mesh, asm_cpu, physics, props;
         dirichlet_bcs = dbcs,
         neumann_bcs   = nbcs,
+        body_forces   = bfs,
         times         = times,
     )
 
@@ -833,6 +835,32 @@ function _parse_neumann_bcs(dict)
     return nbcs
 end
 
+# ---- Body Forces ----
+
+function _parse_body_forces(dict)
+    bf_section = get(dict, "body forces", nothing)
+    bf_section === nothing && return FEC.BodyForce[]
+    entries = bf_section isa Vector ? bf_section : [bf_section]
+
+    bfs = FEC.BodyForce[]
+    for entry in entries
+        var_sym  = _component_to_symbol(entry["component"])
+        comp_idx = var_sym === :displ_x ? 1 : var_sym === :displ_y ? 2 : 3
+        scalar   = _make_function(entry["function"])
+        func = let idx = comp_idx, f = scalar
+            (coords, t) -> begin
+                v = f(coords, t)
+                SVector{3, Float64}(idx == 1 ? v : 0.0,
+                                    idx == 2 ? v : 0.0,
+                                    idx == 3 ? v : 0.0)
+            end
+        end
+        block = Symbol(get(entry, "block", "all"))
+        push!(bfs, FEC.BodyForce(var_sym, func, block))
+    end
+    return bfs
+end
+
 # ---- Helpers ----
 
 # Map "x" / "y" / "z" → :displ_x / :displ_y / :displ_z
@@ -978,6 +1006,7 @@ function _compute_initial_acceleration!(integrator::NewmarkIntegrator, asm_cpu, 
     # Assemble residual at initial displacement U₀: R = F_int(U₀) − F_ext
     FEC.assemble_vector!(asm_cpu, FEC.residual, U_cpu, p_cpu)
     FEC.assemble_vector_neumann_bc!(asm_cpu, U_cpu, p_cpu)
+    FEC.assemble_vector_body_force!(asm_cpu, U_cpu, p_cpu)
     rhs = -copy(FEC.residual(asm_cpu))   # F_ext − F_int(U₀)
 
     norm_rhs = sqrt(sum(abs2, rhs))
@@ -1011,6 +1040,7 @@ function _compute_initial_acceleration!(integrator::CentralDifferenceIntegrator,
     # A₀ = M_lumped⁻¹ · (F_ext − F_int(U₀))
     FEC.assemble_vector!(asm_cpu, FEC.residual, U_cpu, p_cpu)
     FEC.assemble_vector_neumann_bc!(asm_cpu, U_cpu, p_cpu)
+    FEC.assemble_vector_body_force!(asm_cpu, U_cpu, p_cpu)
     rhs = -copy(FEC.residual(asm_cpu))   # F_ext − F_int(U₀)
 
     norm_rhs = sqrt(sum(abs2, rhs))
