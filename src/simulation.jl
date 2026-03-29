@@ -218,6 +218,7 @@ function create_simulation(dict::Dict{String,Any}, basedir::String="";
     _apply_initial_velocity_ics!(integrator, mesh, asm_cpu, p_cpu,
                                   _parse_velocity_ics(dict), t0)
     _compute_initial_acceleration!(integrator, asm_cpu, p_cpu)
+    _compute_initial_equilibrium!(integrator, p)
 
     # Build recovery data for L2 projection (CPU-only)
     recovery_data = _build_recovery_data(output_spec.recovery, asm_cpu, p_cpu)
@@ -460,6 +461,7 @@ function _parse_integrator(dict, asm, asm_cpu, p_cpu, controller, device=:cpu)
     if type_str in ("quasi static", "quasistatic", "static")
         sol_dict, ls_dict = _read_solver_dicts(dict)
         min_dt, max_dt, dec, inc = _parse_adaptive_stepping(ti_dict, dt)
+        init_eq = Bool(get(ti_dict, "initial equilibrium", true))
 
         make_precond = () -> _compute_stiffness_jacobi_precond(asm_cpu, p_cpu, template)
         ls = _parse_linear_solver(ls_dict, template, device, make_precond)
@@ -469,7 +471,8 @@ function _parse_integrator(dict, asm, asm_cpu, p_cpu, controller, device=:cpu)
                                       min_time_step=min_dt,
                                       max_time_step=max_dt,
                                       decrease_factor=dec,
-                                      increase_factor=inc)
+                                      increase_factor=inc,
+                                      initial_equilibrium=init_eq)
 
     elseif type_str in ("newmark", "newmark-beta", "newmark beta")
         sol_dict, ls_dict = _read_solver_dicts(dict)
@@ -1032,3 +1035,31 @@ end
 
 # No-op for quasi-static integrators.
 _compute_initial_acceleration!(integrator, asm_cpu, p_cpu) = nothing
+
+# ---------------------------------------------------------------------------
+# Initial equilibrium solve for quasi-static simulations.
+# Solves R(U₀) = 0 at t₀ before time stepping begins.
+# ---------------------------------------------------------------------------
+
+function _compute_initial_equilibrium!(integrator::QuasiStaticIntegrator, p)
+    integrator.initial_equilibrium || return nothing
+    _carina_log(0, :equilibrium, "Establishing Initial Equilibrium...")
+    t_start = time()
+
+    # Solve R(U) = 0 at t₀ without advancing time.
+    # BC values are already set at t₀ by the preceding FEC.update_bc_values!(p_cpu).
+    # We call evaluate! + solve! directly (not FEC.evolve! which advances time).
+    solve!(nonlinear_solver(integrator), integrator, p)
+
+    elapsed = time() - t_start
+    if integrator.failed[]
+        error("Failed to establish initial equilibrium.")
+    end
+    _carina_logf(0, :equilibrium, "Initial Equilibrium established (%.3fs)", elapsed)
+    # Promote converged state so time stepping starts from equilibrium.
+    _finalize_step!(integrator, p)
+    return nothing
+end
+
+# No-op for dynamic integrators.
+_compute_initial_equilibrium!(integrator, p) = nothing

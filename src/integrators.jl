@@ -135,6 +135,7 @@ mutable struct QuasiStaticIntegrator{NS <: AbstractNonlinearSolver, Vec}
     failed           ::Base.RefValue{Bool}
     U_save           ::Vec   # rollback snapshot (used by LBFGS path)
     R_eff            ::Vec   # effective residual for Newton solve
+    initial_equilibrium::Bool  # solve for equilibrium at t₀ before time stepping
 end
 
 function QuasiStaticIntegrator(ns::NS, asm, template::Vec;
@@ -142,14 +143,16 @@ function QuasiStaticIntegrator(ns::NS, asm, template::Vec;
                                 min_time_step::Float64=0.0,
                                 max_time_step::Float64=0.0,
                                 decrease_factor::Float64=1.0,
-                                increase_factor::Float64=1.0) where {NS, Vec}
+                                increase_factor::Float64=1.0,
+                                initial_equilibrium::Bool=true) where {NS, Vec}
     T  = eltype(template)
     mk() = (v = similar(template); fill!(v, zero(T)); v)
     solution = mk()
     U_save   = mk()
     R_eff    = mk()
     return QuasiStaticIntegrator(ns, asm, solution, time_step, min_time_step, max_time_step,
-                                  decrease_factor, increase_factor, Ref(false), U_save, R_eff)
+                                  decrease_factor, increase_factor, Ref(false), U_save, R_eff,
+                                  initial_equilibrium)
 end
 
 # --------------------------------------------------------------------------- #
