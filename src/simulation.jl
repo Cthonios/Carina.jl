@@ -558,9 +558,15 @@ function _compute_jacobi_precond(β, Δt, asm_cpu, p_cpu, ΔUu_template)
     return JacobiPreconditioner(_to_device(inv_diag_cpu, ΔUu_template))
 end
 
-# Jacobi preconditioner for quasi-static K(U=0) via K·ones.
+# Jacobi preconditioner for quasi-static: diag(K(U=0))⁻¹.
+# Assembles the full stiffness matrix on CPU to extract the true diagonal,
+# then transfers to the target device.
 function _compute_stiffness_jacobi_precond(asm_cpu, p_cpu, ΔUu_template)
-    k_diag = _assemble_diag_cpu(FEC.stiffness, asm_cpu, p_cpu, ΔUu_template)
+    n = length(ΔUu_template)
+    U_zeros = zeros(Float64, n)
+    FEC.assemble_stiffness!(asm_cpu, FEC.stiffness, U_zeros, p_cpu)
+    K = FEC.stiffness(asm_cpu)
+    k_diag = [K[i, i] for i in 1:size(K, 1)]
     inv_diag_cpu = 1.0 ./ max.(abs.(k_diag), eps(Float64))
     return JacobiPreconditioner(_to_device(inv_diag_cpu, ΔUu_template))
 end

@@ -907,9 +907,10 @@ function solve!(ns::NLCGSolver, ig, p)
     _carina_logf(8, :solve, "Iter [0] |R| = %.3e : |r| = %.3e : %s",
                  initial_norm, 1.0, _status_str(false))
 
-    # g = M⁻¹ R (preconditioned gradient)
+    # g = M⁻¹ R_eff (preconditioned negative gradient of energy)
+    # R_eff = F_ext - F_int = -∇Π, so d = g is the descent direction.
     _apply_precond!(ns.g, residual(ig), ns.precond)
-    copyto!(ns.d, ns.g)    # initial direction = steepest descent
+    copyto!(ns.d, ns.g)
     rg = dot(residual(ig), ns.g)   # R·g for β denominator
 
     converged = false
@@ -970,7 +971,7 @@ function solve!(ns::NLCGSolver, ig, p)
             β = 0.0
         end
 
-        # Update search direction
+        # Update search direction: d = g + β * d_old
         @. ns.d = ns.g + β * ns.d
     end
 

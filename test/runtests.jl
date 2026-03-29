@@ -20,7 +20,8 @@ const indexed_test_files = [
     (9, "mechanics-quasistatic-cube-neumann-bc.jl"),
     (10, "mechanics-clamped-wave.jl"),
     (11, "mechanics-quasistatic-cube-gravity.jl"),
-    (12, "mechanics-gpu-device.jl"),
+    (12, "mechanics-quasistatic-cube-nlcg.jl"),
+    (13, "mechanics-gpu-device.jl"),
 ]
 
 # ---------------------------------------------------------------------------
