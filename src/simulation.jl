@@ -552,9 +552,16 @@ function _to_device(cpu_vec, template)
 end
 
 function _compute_jacobi_precond(β, Δt, asm_cpu, p_cpu, ΔUu_template)
-    c_M    = 1.0 / (β * Δt^2)
+    c_M = 1.0 / (β * Δt^2)
+    n = length(ΔUu_template)
+    U_zeros = zeros(Float64, n)
+    # diag(K_eff) = diag(K) + c_M · diag(M)
+    FEC.assemble_stiffness!(asm_cpu, FEC.stiffness, U_zeros, p_cpu)
+    K = FEC.stiffness(asm_cpu)
+    k_diag = [K[i, i] for i in 1:size(K, 1)]
     m_diag = _assemble_diag_cpu(FEC.mass, asm_cpu, p_cpu, ΔUu_template)
-    inv_diag_cpu = 1.0 ./ (c_M .* m_diag)
+    eff_diag = k_diag .+ c_M .* m_diag
+    inv_diag_cpu = 1.0 ./ max.(abs.(eff_diag), eps(Float64))
     return JacobiPreconditioner(_to_device(inv_diag_cpu, ΔUu_template))
 end
 

@@ -42,3 +42,6 @@ solver:
   relative tolerance: 1.0e-10
   absolute tolerance: 1.0e-06
   use line search: true
+  line search maximum iterations: 30
+  preconditioner:
+    type: jacobi
