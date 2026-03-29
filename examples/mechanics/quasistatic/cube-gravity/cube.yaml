@@ -1,0 +1,64 @@
+# Unit cube under self-weight (gravity in -z direction).
+#
+# Cube: [-0.5, 0.5]³.  ν = 0 eliminates Poisson coupling so the problem
+# is strictly 1-D (uniaxial strain in z).  Symmetry BCs on all faces
+# except z=+0.5 (free).
+#
+# Analytical solution (1-D, ζ = z + 0.5 ∈ [0, 1]):
+#   u_z(ζ) = −ρg·ζ·(1 − ζ/2) / E
+#   u_z(z = +0.5) = −ρgL²/(2E) = −9810 / (2 × 1e9) = −4.905e-6 m
+#   σ_zz(z = −0.5) = −ρgL = −9810 Pa
+#
+# With ν = 0 and symmetry BCs the FE solution is exact (the analytical
+# displacement is quadratic in z, representable by the hex8 basis).
+type: single
+
+input mesh file:  cube.g
+output mesh file: cube.e
+
+model:
+  type: solid mechanics
+  material:
+    blocks:
+      cube: linear elastic
+    linear elastic:
+      elastic modulus: 1.0e9
+      Poisson's ratio: 0.0
+      density: 1000.0
+
+time integrator:
+  type: quasi static
+  initial time: 0.0
+  final time:   1.0
+  time step:    1.0
+
+body forces:
+  - block: cube
+    component: z
+    function: "-9810.0"
+
+boundary conditions:
+  Dirichlet:
+    - sideset:   ssz-
+      component: z
+      function:  "0.0"
+    - sideset:   ssx-
+      component: x
+      function:  "0.0"
+    - sideset:   ssx+
+      component: x
+      function:  "0.0"
+    - sideset:   ssy-
+      component: y
+      function:  "0.0"
+    - sideset:   ssy+
+      component: y
+      function:  "0.0"
+
+solver:
+  type: newton
+  maximum iterations: 16
+  relative tolerance: 1.0e-14
+  absolute tolerance: 1.0e-08
+  linear solver:
+    type: direct

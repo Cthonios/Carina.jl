@@ -1,0 +1,54 @@
+# Tension specimen — quasi-static, J2 plasticity, dt=0.001.
+# Fixed time step for step-by-step comparison with Norma.
+type: single
+
+input mesh file:  tension-specimen.g
+output mesh file: tension-specimen-dt001.e
+output interval:  1
+
+output:
+  stress:             true
+  internal variables: true
+
+model:
+  type: solid mechanics
+  material:
+    blocks:
+      tension: j2 plasticity
+    j2 plasticity:
+      elastic modulus:    70.0e9
+      Poisson's ratio:    0.36
+      density:            2700.0
+      yield stress:       250.0e6
+      hardening modulus:  0.7e9
+
+time integrator:
+  type: quasi static
+  initial time: 0.0
+  final time:   1.0
+  time step:    0.01
+
+boundary conditions:
+  Dirichlet:
+    - nodeset: sym_y
+      component: y
+      function: "0.0"
+    - nodeset: sym_x
+      component: x
+      function: "0.0"
+    - nodeset: sym_z
+      component: z
+      function: "0.0"
+    - nodeset: top_y
+      component: y
+      function: "0.005 * t"
+
+solver:
+  type: newton
+  minimum iterations: 0
+  maximum iterations: 16
+  relative tolerance: 1.0e-12
+  absolute tolerance: 1.0e-08
+  use line search: true
+  linear solver:
+    type: direct
