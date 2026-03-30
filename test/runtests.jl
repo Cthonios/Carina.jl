@@ -93,9 +93,9 @@ Carina._carina_log(0, :carina, "BEGIN TESTS")
         Carina._carina_log(0, :setup, "[$i] $file")
         t0 = time()
         include(file)
-        Carina._carina_logf(0, :time, "[$i] wall = %.2fs", time() - t0)
+        Carina._carina_log(0, :time, "[$i] wall = $(Carina.format_time(time() - t0))")
     end
 end
 
-Carina._carina_logf(0, :time, "Total wall time = %.2fs", time() - start_time)
+Carina._carina_log(0, :time, "Total wall time = $(Carina.format_time(time() - start_time))")
 Carina._carina_log(0, :carina, "END TESTS")

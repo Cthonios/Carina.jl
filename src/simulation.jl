@@ -103,7 +103,7 @@ function run(yaml_file::String; device::Union{String,Nothing}=nothing)
     end
 
     _carina_log(0, :done, "Simulation complete")
-    _carina_logf(0, :time, "Total wall time = %.2fs", time() - t_start)
+    _carina_log(0, :time, "Total wall time = $(format_time(time() - t_start))")
     _carina_log(0, :carina, "END SIMULATION")
     return sim
 end
@@ -243,7 +243,7 @@ function create_simulation(dict::Dict{String,Any}, basedir::String="";
     # Build recovery data for L2 projection (CPU-only)
     recovery_data = _build_recovery_data(output_spec.recovery, asm_cpu, p_cpu)
 
-    _carina_logf(0, :setup, "Setup complete (%.2fs)", time() - t_setup)
+    _carina_log(0, :setup, "Setup complete ($(format_time(time() - t_setup)))")
 
     n_steps = controller.num_stops - 1
     sim = SingleDomainSimulation(p, p_cpu, asm_cpu, integrator, pp,
@@ -306,8 +306,8 @@ function evolve!(sim::SingleDomainSimulation)
         u_max = maximum(abs, params.field.data)
         wall_elapsed = time() - t_batch
         if wall_elapsed > 0.01
-            _carina_logf(0, :stop, pct_base * " : wall = %.2fs",
-                controller.stop, n_steps, pct, t, u_max, wall_elapsed)
+            _carina_logf(0, :stop, pct_base * " : wall = %s",
+                controller.stop, n_steps, pct, t, u_max, format_time(wall_elapsed))
         else
             _carina_logf(0, :stop, pct_base,
                 controller.stop, n_steps, pct, t, u_max)
@@ -1081,7 +1081,7 @@ function _compute_initial_acceleration!(integrator::NewmarkIntegrator, asm_cpu, 
     norm_rhs = sqrt(sum(abs2, rhs))
     if norm_rhs < eps(Float64)
         elapsed = time() - t_start
-        _carina_logf(0, :acceleration, "Initial Acceleration = 0 (trivial RHS, %.2fs)", elapsed)
+        _carina_logf(0, :acceleration, "Initial Acceleration = 0 (trivial RHS, %s)", format_time(elapsed))
         return nothing
     end
 
@@ -1092,8 +1092,8 @@ function _compute_initial_acceleration!(integrator::NewmarkIntegrator, asm_cpu, 
 
     elapsed = time() - t_start
     _carina_logf(0, :acceleration,
-        "Initial Acceleration: |A₀| = %.2e, CG iters = %d (%.2fs)",
-        sqrt(sum(abs2, A0)), stats.niter, elapsed)
+        "Initial Acceleration: |A₀| = %.2e, CG iters = %d (%s)",
+        sqrt(sum(abs2, A0)), stats.niter, format_time(elapsed))
 
     copyto!(integrator.A, A0)
     return nothing
@@ -1115,7 +1115,7 @@ function _compute_initial_acceleration!(integrator::CentralDifferenceIntegrator,
     norm_rhs = sqrt(sum(abs2, rhs))
     if norm_rhs < eps(Float64)
         elapsed = time() - t_start
-        _carina_logf(0, :acceleration, "Initial Acceleration = 0 (trivial RHS, %.2fs)", elapsed)
+        _carina_logf(0, :acceleration, "Initial Acceleration = 0 (trivial RHS, %s)", format_time(elapsed))
         return nothing
     end
 
@@ -1125,8 +1125,8 @@ function _compute_initial_acceleration!(integrator::CentralDifferenceIntegrator,
 
     elapsed = time() - t_start
     _carina_logf(0, :acceleration,
-        "Initial Acceleration: |A₀| = %.2e (%.2fs)",
-        sqrt(sum(abs2, A0)), elapsed)
+        "Initial Acceleration: |A₀| = %.2e (%s)",
+        sqrt(sum(abs2, A0)), format_time(elapsed))
 
     Base.invokelatest(copyto!, integrator.A, A0)
     return nothing
@@ -1154,7 +1154,7 @@ function _compute_initial_equilibrium!(integrator::QuasiStaticIntegrator, p)
     if integrator.failed[]
         error("Failed to establish initial equilibrium.")
     end
-    _carina_logf(0, :equilibrium, "Initial Equilibrium established (%.2fs)", elapsed)
+    _carina_log(0, :equilibrium, "Initial Equilibrium established ($(format_time(elapsed)))")
     # Promote converged state so time stepping starts from equilibrium.
     _finalize_step!(integrator, p)
     return nothing

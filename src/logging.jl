@@ -57,6 +57,29 @@ function _carina_logf(level::Int, keyword::Symbol, fmt::AbstractString, args...)
     _carina_log(level, keyword, Printf.format(Printf.Format(fmt), args...))
 end
 
+"""
+Format seconds as a human-readable wall time string.
+  < 60s:     "12.34s"
+  < 3600s:   "2m 34.56s"
+  < 86400s:  "1h 23m 45.67s"
+  ≥ 86400s:  "1d 2h 3m 4.56s"
+"""
+function format_time(seconds::Float64)
+    if seconds < 60.0
+        return Printf.@sprintf("%.2fs", seconds)
+    end
+    d = floor(Int, seconds / 86400);  seconds -= d * 86400
+    h = floor(Int, seconds / 3600);   seconds -= h * 3600
+    m = floor(Int, seconds / 60);     seconds -= m * 60
+    s = Printf.@sprintf("%.2fs", seconds)
+    parts = String[]
+    d > 0 && push!(parts, "$(d)d")
+    h > 0 && push!(parts, "$(h)h")
+    m > 0 && push!(parts, "$(m)m")
+    push!(parts, s)
+    return join(parts, " ")
+end
+
 function _status_str(converged::Bool)
     if _use_color()
         converged ? "\e[32m[DONE]\e[39m" : "\e[33m[WAIT]\e[39m"
