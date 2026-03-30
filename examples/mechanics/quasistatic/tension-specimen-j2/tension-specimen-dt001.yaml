@@ -4,7 +4,7 @@ type: single
 
 input mesh file:  tension-specimen.g
 output mesh file: tension-specimen-dt001.e
-output interval:  1
+output interval:  0.01
 
 output:
   stress:             true
