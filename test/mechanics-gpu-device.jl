@@ -1,4 +1,15 @@
 @testset "GPU Device Verification" begin
+    # ---- BC function GPU compatibility (runs on all platforms) ----
+    # @eval closures must be isbits so they can be passed as GPU kernel arguments.
+    # This guards against regressions (e.g. switching to RuntimeGeneratedFunctions
+    # which stores Expr and is non-isbits).
+    @testset "BC functions are isbits (GPU-compatible)" begin
+        f = Carina._make_function("0.005 * t")
+        @test isbitstype(typeof(f))
+        dbcf = Carina.FEC.DirichletBCFunction(f)
+        @test isbitstype(typeof(dbcf))
+    end
+
     # Run the explicit sphere for 1 step on the best available device.
     # If a GPU is present, verify that sim.device is :rocm or :cuda
     # and that the result matches CPU to machine precision.
