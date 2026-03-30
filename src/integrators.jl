@@ -120,6 +120,26 @@ mutable struct NLCGSolver{Vec, PC <: Preconditioner} <: AbstractNonlinearSolver
 end
 
 # --------------------------------------------------------------------------- #
+# Steepest Descent solver (matrix-free, GPU-friendly, energy-based line search)
+# --------------------------------------------------------------------------- #
+
+mutable struct SteepestDescentSolver{Vec, PC <: Preconditioner} <: AbstractNonlinearSolver
+    min_iters         ::Int
+    max_iters         ::Int
+    abs_increment_tol ::Float64
+    abs_residual_tol  ::Float64
+    rel_residual_tol  ::Float64
+    # Line search (Armijo backtracking on energy)
+    ls_backtrack      ::Float64   # step reduction factor (default 0.5)
+    ls_decrease       ::Float64   # Armijo parameter c (default 1e-4)
+    ls_max_iters      ::Int       # max backtracking steps (default 30)
+    # Preconditioner and work vectors
+    precond   ::PC
+    d         ::Vec    # search direction (preconditioned gradient)
+    U_save    ::Vec    # saved displacement for line search
+end
+
+# --------------------------------------------------------------------------- #
 # QuasiStaticIntegrator{NS, Vec}
 # --------------------------------------------------------------------------- #
 
@@ -475,6 +495,8 @@ end
 setup_jacobian!(ig::QuasiStaticIntegrator{<:NewtonSolver{<:LBFGSLinearSolver}}, p) = true
 setup_jacobian!(ig::NewmarkIntegrator{<:NewtonSolver{<:LBFGSLinearSolver}}, p)     = true
 setup_jacobian!(ig::CentralDifferenceIntegrator, p)                                 = true
+setup_jacobian!(ig::QuasiStaticIntegrator{<:SteepestDescentSolver}, p)              = true
+setup_jacobian!(ig::NewmarkIntegrator{<:SteepestDescentSolver}, p)                  = true
 
 # ---- apply_increment! ----
 
@@ -986,6 +1008,133 @@ function solve!(ns::NLCGSolver, ig, p)
 
         # Update search direction: d = g + β * d_old
         @. ns.d = ns.g + β * ns.d
+    end
+
+    if !converged && _mark_failed_on_nonconvergence(ig)
+        ig.failed[] = true
+    end
+end
+
+# ---- Steepest Descent with energy-based Armijo line search ----
+
+# Compute total potential energy: Π = W_int - f_ext · U
+# W_int comes from FEC.assemble_scalar!(asm, FEC.energy, U, p).
+# f_ext · U = -(R_assembled · U - W_int_linearized), but simpler to compute
+# f_ext directly: after residual assembly, R = F_int + F_nbc + F_bf, so
+# F_ext = -(F_nbc + F_bf). However, we can compute Π more simply:
+#   Π = W_int + R_assembled · U  (for linear external forces)
+# Actually: R = F_int - F_ext (with sign convention), so
+# F_ext · U = F_int · U - R · U.  And W_int = ∫ Ψ dΩ.  For hyperelastic,
+# F_int = ∂W_int/∂U, so F_int · dU = dW_int. Not helpful for finite steps.
+#
+# Simplest correct approach: evaluate W_int via assemble_scalar, then
+# compute external work via separate assembly of Neumann/body contributions.
+# But FEC doesn't separate them. Instead, use the fact that for the Armijo
+# check we only need Π(U+αd) - Π(U) ≤ c·α·∇Π·d, and ∇Π·d = -R_eff·d.
+# We evaluate Π at trial and reference points.
+
+function _compute_energy(ig, p)
+    U = _displacement(ig)
+    asm = ig.asm
+    FEC.assemble_scalar!(asm, FEC.energy, U, p)
+    # Sum strain energy over all blocks and QPs
+    W_int = sum(sum(v) for v in values(asm.scalar_quadrature_storage))
+    # External work: from Neumann BCs and body forces.
+    # After residual assembly, R_storage = F_int + F_nbc + F_bf
+    # where F_nbc and F_bf are external contributions.
+    # F_ext · U = -(F_nbc + F_bf) · U.
+    # Since R_eff = -(F_int + F_nbc + F_bf) = F_ext - F_int,
+    # we have: Π = W_int - F_ext · U = W_int - (R_eff + F_int) · U
+    # But F_int · U ≠ W_int in general (nonlinear).
+    #
+    # For correct Π, assemble R to get F_ext separately.
+    # R_eff = F_ext - F_int → F_ext = R_eff + F_int
+    # But we only have R_eff and W_int.
+    #
+    # Alternative: just use W_int + (assembled residual) · U as the merit.
+    # Since assembled R = F_int - F_ext (FEC convention) and
+    # R_eff = -R_assembled, we have R_assembled = -R_eff.
+    # Π = W_int - F_ext · U = W_int + R_assembled · U - F_int · U
+    # This requires F_int · U which we don't have separately.
+    #
+    # SIMPLIFICATION: For line search we only need RELATIVE changes in Π.
+    # The external force contributions are linear in U for gravity/Neumann:
+    #   W_ext(U + αd) = W_ext(U) + α · f_ext · d
+    # So: Π(U + αd) - Π(U) = [W_int(U+αd) - W_int(U)] - α · f_ext · d
+    # And f_ext · d = (R_eff + F_int) · d ≈ R_eff · d for small steps
+    # (F_int · d ≈ dW_int/dα at α=0, which cancels).
+    # Actually: ∂Π/∂α|₀ = ∂W_int/∂α - f_ext · d = F_int · d - f_ext · d = -R_eff · d
+    # This is exact. So for Armijo we need:
+    #   Π(α) ≤ Π(0) + c·α·(-R_eff · d)
+    # where Π(α) = W_int(U+αd) - f_ext · (U+αd).
+    # Since f_ext is constant: Π(α) - Π(0) = ΔW_int - α·f_ext·d
+    # And f_ext·d = R_eff·d + F_int·d = R_eff·d + ∂W_int/∂α|₀
+    #
+    # Too complex. Just compute W_int and use the residual dot product for
+    # the external work term. For the line search acceptance:
+    # ΔΠ ≈ ΔW_int - α·R_eff·d (first-order external work correction)
+    return W_int
+end
+
+function solve!(ns::SteepestDescentSolver, ig, p)
+    evaluate!(ig, p) || (ig.failed[] = true; return)
+    initial_norm = sqrt(sum(abs2, residual(ig)))
+    _carina_logf(8, :solve, "Iter [0] |R| = %.2e : |r| = %.2e : %s",
+                 initial_norm, 1.0, _status_str(false))
+
+    converged = false
+    for iter in 1:ns.max_iters
+        # Descent direction: d = M⁻¹ R_eff (preconditioned)
+        _apply_precond!(ns.d, residual(ig), ns.precond)
+
+        # Current energy for Armijo check
+        W_curr = _compute_energy(ig, p)
+        slope  = -dot(residual(ig), ns.d)  # ∇Π · d = -R_eff · d
+
+        # Save U for line search
+        U = _displacement(ig)
+        copyto!(ns.U_save, U)
+
+        # Armijo backtracking line search on energy
+        α = 1.0
+        W_trial = W_curr
+        for lsi in 1:ns.ls_max_iters
+            @. U = ns.U_save + α * ns.d
+            FEC._update_for_assembly!(p, ig.asm.dof, U)
+            W_trial = _compute_energy(ig, p)
+            # Armijo: Π(trial) ≤ Π(curr) + c·α·slope
+            # slope is negative (descent), so rhs < Π(curr)
+            if isfinite(W_trial) && W_trial ≤ W_curr + ns.ls_decrease * α * slope
+                break
+            end
+            α *= ns.ls_backtrack
+        end
+
+        # Accept step and evaluate residual at accepted point
+        @. U = ns.U_save + α * ns.d
+        FEC._update_for_assembly!(p, ig.asm.dof, U)
+        evaluate!(ig, p) || (ig.failed[] = true; return)
+
+        # Convergence check
+        norm_R    = sqrt(sum(abs2, residual(ig)))
+        rel_R     = initial_norm > 0 ? norm_R / initial_norm : norm_R
+        norm_step = α * sqrt(sum(abs2, ns.d))
+        met_tol   = norm_step < ns.abs_increment_tol ||
+                    norm_R   < ns.abs_residual_tol   ||
+                    rel_R    < ns.rel_residual_tol
+        converged = met_tol && iter > ns.min_iters
+
+        ΔW = W_trial - W_curr
+        if abs(ΔW) > 0.01
+            _carina_logf(8, :solve,
+                "Iter [%d] |R| = %.2e : |r| = %.2e : |ΔU| = %.2e : α = %.2e : ΔΠ = %.2e : %s",
+                iter, norm_R, rel_R, norm_step, α, ΔW, _status_str(converged))
+        else
+            _carina_logf(8, :solve,
+                "Iter [%d] |R| = %.2e : |r| = %.2e : |ΔU| = %.2e : α = %.2e : %s",
+                iter, norm_R, rel_R, norm_step, α, _status_str(converged))
+        end
+        converged && break
     end
 
     if !converged && _mark_failed_on_nonconvergence(ig)

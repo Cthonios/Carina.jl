@@ -95,6 +95,31 @@ end
 end
 
 # --------------------------------------------------------------------------- #
+# Energy kernel (generic): W_int = ∫ Ψ(F) dΩ
+# --------------------------------------------------------------------------- #
+#
+# Returns JxW * Ψ at each quadrature point. FEC.assemble_scalar! sums over
+# all QPs and elements to give the total strain energy W_int.
+
+@inline function FEC.energy(
+    physics::SolidMechanics,
+    interps, x_el,
+    t, dt,
+    u_el, u_el_old,
+    state_old_q, state_new_q,
+    props_el,
+)
+    cell = FEC.map_interpolants(interps, x_el)
+    (; JxW) = cell
+    ∇u_q = FEC.interpolate_field_gradients(physics, cell, u_el)
+    ∇u_q = FEC.modify_field_gradients(FEC.ThreeDimensional(), ∇u_q)
+    W_q = CM.helmholtz_free_energy(
+        physics.constitutive_model, props_el, dt, ∇u_q, 0.0, state_old_q, state_new_q,
+    )
+    return JxW * W_q
+end
+
+# --------------------------------------------------------------------------- #
 # Material-point finite-difference tangent ∂P/∂∇u
 # --------------------------------------------------------------------------- #
 #
@@ -234,6 +259,24 @@ end
     P_v = FEC.extract_stress(FEC.ThreeDimensional(), σ_full)
     G   = FEC.discrete_gradient(FEC.ThreeDimensional(), ∇N_X)
     return JxW * G * P_v
+end
+
+@inline function FEC.energy(
+    physics::SolidMechanics{CM.LinearElastic, NP, NS},
+    interps, x_el,
+    t, dt,
+    u_el, u_el_old,
+    state_old_q, state_new_q,
+    props_el,
+) where {NP, NS}
+    cell = FEC.map_interpolants(interps, x_el)
+    (; JxW) = cell
+    ∇u_q = FEC.interpolate_field_gradients(physics, cell, u_el)
+    ∇u_q = FEC.modify_field_gradients(FEC.ThreeDimensional(), ∇u_q)
+    W_q = CM.helmholtz_free_energy(
+        physics.constitutive_model, props_el, dt, ∇u_q, 0.0, state_old_q, state_new_q,
+    )
+    return JxW * W_q
 end
 
 @inline function FEC.stiffness(

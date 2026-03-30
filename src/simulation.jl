@@ -652,12 +652,14 @@ function _read_solver_dicts(dict)
         error("Missing required \"solver: type:\". " *
               "Supported values: \"newton\", \"hessian minimizer\".")
     nl_type = lowercase(sol_dict["type"])
-    nl_type in ("newton", "hessian minimizer", "nonlinear cg", "nlcg", "conjugate gradient") ||
+    nl_type in ("newton", "hessian minimizer", "nonlinear cg", "nlcg", "conjugate gradient",
+                 "steepest descent", "gradient descent", "sd") ||
         error("Unknown \"solver: type: $(sol_dict["type"])\". " *
-              "Supported values: \"newton\", \"hessian minimizer\", \"nonlinear cg\".")
+              "Supported: \"newton\", \"nonlinear cg\", \"steepest descent\".")
 
-    if nl_type in ("nonlinear cg", "nlcg", "conjugate gradient")
-        # NLCG is matrix-free; linear solver section is optional
+    if nl_type in ("nonlinear cg", "nlcg", "conjugate gradient",
+                    "steepest descent", "gradient descent", "sd")
+        # Matrix-free solvers; linear solver section is optional
         ls_dict = get(sol_dict, "linear solver", Dict{String,Any}("type" => "none"))
     else
         haskey(sol_dict, "linear solver") ||
@@ -731,6 +733,9 @@ end
 function _parse_nonlinear_solver(sol_dict, ls::AbstractLinearSolver;
                                   template=nothing, make_precond=nothing)
     solver_type = lowercase(get(sol_dict, "type", "newton"))
+    T = template !== nothing ? eltype(template) : Float64
+    mk() = template !== nothing ?
+        (v = similar(template); fill!(v, zero(T)); v) : Float64[]
     min_iters = Int(get(sol_dict, "minimum iterations", 0))
     max_iters = Int(get(sol_dict, "maximum iterations", 20))
     abs_tol   = Float64(get(sol_dict, "absolute tolerance", 1e-10))
@@ -750,12 +755,21 @@ function _parse_nonlinear_solver(sol_dict, ls::AbstractLinearSolver;
         else
             NoPreconditioner()
         end
-        T = eltype(template)
-        mk() = (v = similar(template); fill!(v, zero(T)); v)
         return NLCGSolver(min_iters, max_iters, abs_tol, abs_tol, rel_tol,
                           ls_back, ls_dec, ls_max,
                           orth_tol, restart, precond,
                           mk(), mk(), mk(), mk())
+
+    elseif solver_type in ("steepest descent", "gradient descent", "sd")
+        pc_dict  = get(sol_dict, "preconditioner", nothing)
+        precond  = if pc_dict !== nothing && make_precond !== nothing
+            make_precond()
+        else
+            NoPreconditioner()
+        end
+        return SteepestDescentSolver(min_iters, max_iters, abs_tol, abs_tol, rel_tol,
+                                      ls_back, ls_dec, ls_max,
+                                      precond, mk(), mk())
     else
         return NewtonSolver(min_iters, max_iters, abs_tol, abs_tol, rel_tol, ls,
                             use_ls, ls_back, ls_dec, ls_max)
@@ -865,6 +879,8 @@ function _solver_description(ig)
         return "$ig_name, Newton + $ls_name"
     elseif ns isa NLCGSolver
         return "$ig_name, nonlinear CG"
+    elseif ns isa SteepestDescentSolver
+        return "$ig_name, steepest descent (energy-based)"
     else
         return "$ig_name"
     end
