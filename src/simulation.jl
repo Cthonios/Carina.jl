@@ -146,14 +146,22 @@ function create_simulation(dict::Dict{String,Any}, basedir::String="";
 
     input_mesh  = _resolve(dict, "input mesh file",  basedir)
     output_file = _resolve(dict, "output mesh file", basedir)
-    _carina_log(0, :setup, "Mesh:   $input_mesh")
+    _carina_log(0, :setup, "Input:  $input_mesh")
     _carina_log(0, :setup, "Output: $output_file")
+
+    t_setup = time()
 
     cm, density, props_inputs = _parse_material_section(dict)
     props   = create_solid_mechanics_properties(cm, props_inputs)
     physics = SolidMechanics(cm, density)
+    cm_name = replace(string(typeof(cm)), r"^.*\." => "")  # strip module prefix
+    _carina_logf(0, :setup, "Material: %s (ρ = %.1f kg/m³)", cm_name, density)
 
     mesh    = FEC.UnstructuredMesh(input_mesh)
+    n_nodes = size(mesh.nodal_coords, 2)
+    n_elems = sum(size(mesh.element_conns[k], 2) for k in keys(mesh.element_conns))
+    _carina_logf(0, :setup, "Mesh:    %d nodes, %d elements", n_nodes, n_elems)
+
     q_type, q_order = _parse_quadrature(dict)
     V       = FEC.FunctionSpace(mesh, FEC.H1Field, FEC.Lagrange;
                                 q_degree=q_order, q_type=q_type)
@@ -168,6 +176,8 @@ function create_simulation(dict::Dict{String,Any}, basedir::String="";
     output_interval = raw_oi === nothing ? dt : Float64(raw_oi)
     num_stops = round(Int, (tf - t0) / output_interval) + 1
     controller = TimeController(t0, tf, output_interval, t0, t0, num_stops, 0)
+    _carina_logf(0, :setup, "Time:    [%.4e, %.4e], Δt = %.4e, %d steps",
+                 t0, tf, dt, num_stops - 1)
 
     p_cpu = FEC.create_parameters(
         mesh, asm_cpu, physics, props;
@@ -176,6 +186,10 @@ function create_simulation(dict::Dict{String,Any}, basedir::String="";
         body_forces   = bfs,
         times         = times,
     )
+    n_dofs = length(asm_cpu.dof)
+    n_free = length(asm_cpu.dof.unknown_dofs)
+    _carina_logf(0, :setup, "DOFs:    %d total, %d free, %d constrained",
+                 n_dofs, n_free, n_dofs - n_free)
 
     output_spec = _parse_output_spec(dict)
     is_dynamic  = _is_dynamic_integrator(dict)
@@ -193,9 +207,11 @@ function create_simulation(dict::Dict{String,Any}, basedir::String="";
     end
 
     if device == :rocm
+        _carina_log(0, :setup, "Transferring to GPU (ROCm)...")
         asm = Base.invokelatest(FEC.rocm, asm_cpu)
         p   = Base.invokelatest(FEC.rocm, p_cpu)
     elseif device == :cuda
+        _carina_log(0, :setup, "Transferring to GPU (CUDA)...")
         asm = Base.invokelatest(FEC.cuda, asm_cpu)
         p   = Base.invokelatest(FEC.cuda, p_cpu)
     else
@@ -203,6 +219,7 @@ function create_simulation(dict::Dict{String,Any}, basedir::String="";
         p   = p_cpu
     end
 
+    _carina_log(0, :setup, "Building integrator and solver...")
     integrator = if device != :cpu
         Base.invokelatest(_parse_integrator, dict, asm, asm_cpu, p_cpu, controller, device)
     else
@@ -224,6 +241,8 @@ function create_simulation(dict::Dict{String,Any}, basedir::String="";
 
     # Build recovery data for L2 projection (CPU-only)
     recovery_data = _build_recovery_data(output_spec.recovery, asm_cpu, p_cpu)
+
+    _carina_logf(0, :setup, "Setup complete (%.1fs)", time() - t_setup)
 
     n_steps = controller.num_stops - 1
     sim = SingleDomainSimulation(p, p_cpu, asm_cpu, integrator, pp,
