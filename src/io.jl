@@ -247,12 +247,12 @@ _has_acceleration(::Any)               = false
 # Bring velocity/acceleration vector to CPU (no-op if already CPU).
 function _get_velocity_cpu(ig::_DynamicIntegrator, device::Symbol)
     device == :cpu && return Vector{Float64}(ig.V)
-    return Vector{Float64}(Base.invokelatest(Adapt.adapt, Array, ig.V))
+    return Vector{Float64}(Adapt.adapt(Array, ig.V))
 end
 
 function _get_acceleration_cpu(ig::_DynamicIntegrator, device::Symbol)
     device == :cpu && return Vector{Float64}(ig.A)
-    return Vector{Float64}(Base.invokelatest(Adapt.adapt, Array, ig.A))
+    return Vector{Float64}(Adapt.adapt(Array, ig.A))
 end
 
 # ---------------------------------------------------------------------------
@@ -274,9 +274,7 @@ function write_output!(sim::SingleDomainSimulation, step::Int)
     t = controller.time
 
     # --- displacement (always) ---
-    h1_cpu = device != :cpu ?
-        Base.invokelatest(Adapt.adapt, Array, params.field) :
-        Adapt.adapt(Array, params.field)
+    h1_cpu = Adapt.adapt(Array, params.field)
 
     FEC.write_times(post_processor, step, t)
     FEC.write_field(post_processor, step,
@@ -304,12 +302,8 @@ function write_output!(sim::SingleDomainSimulation, step::Int)
 
         # For GPU runs, bring field and state_new back to CPU.
         # h1_cpu already computed above.
-        state_old_cpu = device != :cpu ?
-            Base.invokelatest(Adapt.adapt, Array, params.state_old) :
-            params.state_old
-        state_new_cpu = device != :cpu ?
-            Base.invokelatest(Adapt.adapt, Array, params.state_new) :
-            params.state_new
+        state_old_cpu = Adapt.adapt(Array, params.state_old)
+        state_new_cpu = Adapt.adapt(Array, params.state_new)
 
         _write_element_fields!(post_processor, params_cpu, h1_cpu,
                                state_old_cpu, state_new_cpu, asm_cpu, output_spec, step)

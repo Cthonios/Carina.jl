@@ -13,34 +13,6 @@ import ConstitutiveModels as CM
 import YAML
 
 # ---------------------------------------------------------------------------
-# On-demand GPU backend loading (avoid paying init cost on CPU-only runs)
-# ---------------------------------------------------------------------------
-
-const _AMDGPU_ID = Base.PkgId(
-    Base.UUID("21141c5a-9bdb-4563-92ae-f87d6854732e"), "AMDGPU"
-)
-const _amdgpu_loaded = Ref(false)
-
-function _require_amdgpu!()
-    if !_amdgpu_loaded[]
-        Base.require(_AMDGPU_ID)
-        _amdgpu_loaded[] = true
-    end
-end
-
-const _CUDA_ID = Base.PkgId(
-    Base.UUID("052768ef-5323-5732-b1bb-66c8b64840ba"), "CUDA"
-)
-const _cuda_loaded = Ref(false)
-
-function _require_cuda!()
-    if !_cuda_loaded[]
-        Base.require(_CUDA_ID)
-        _cuda_loaded[] = true
-    end
-end
-
-# ---------------------------------------------------------------------------
 # Device detection
 # ---------------------------------------------------------------------------
 
@@ -49,21 +21,11 @@ end
 
 Return the best available compute device as a string: `"rocm"` if a
 functional AMD GPU is found, `"cuda"` if a functional NVIDIA GPU is found,
-or `"cpu"` otherwise.  The relevant backend package is loaded on first call.
+or `"cpu"` otherwise.
 """
 function best_device()
-    try
-        _require_amdgpu!()
-        mod = Base.loaded_modules[_AMDGPU_ID]
-        Base.invokelatest(mod.functional) && return "rocm"
-    catch
-    end
-    try
-        _require_cuda!()
-        mod = Base.loaded_modules[_CUDA_ID]
-        Base.invokelatest(mod.functional) && return "cuda"
-    catch
-    end
+    try AMDGPU.functional() && return "rocm" catch end
+    try CUDA.functional()   && return "cuda"  catch end
     return "cpu"
 end
 
@@ -88,15 +50,7 @@ function run(yaml_file::String; device::Union{String,Nothing}=nothing)
     if sim_type == "single"
         sim = create_simulation(dict, dirname(abspath(yaml_file));
                                 device_override=device)
-        # invokelatest ensures evolve! and its entire call tree are compiled at
-        # the current world age, where GPU backend methods are visible.
-        # Without this, run() is compiled before the GPU package is loaded,
-        # so direct calls see only Base fallbacks (world age error).
-        if sim.device != :cpu
-            Base.invokelatest(evolve!, sim)
-        else
-            evolve!(sim)
-        end
+        evolve!(sim)
         FEC.close(sim.post_processor)
     else
         error("Simulation type \"$sim_type\" not yet supported. Only \"single\" is implemented.")
@@ -131,14 +85,10 @@ function create_simulation(dict::Dict{String,Any}, basedir::String="";
         :cpu
     end
     if device == :rocm
-        _require_amdgpu!()
-        mod = Base.loaded_modules[_AMDGPU_ID]
-        Base.invokelatest(mod.functional) ||
+        AMDGPU.functional() ||
             error("device: rocm requested but no functional AMD GPU found.")
     elseif device == :cuda
-        _require_cuda!()
-        mod = Base.loaded_modules[_CUDA_ID]
-        Base.invokelatest(mod.functional) ||
+        CUDA.functional() ||
             error("device: cuda requested but no functional NVIDIA GPU found.")
     end
     _carina_log(0, :device, device == :rocm ? "ROCm GPU" :
@@ -208,23 +158,19 @@ function create_simulation(dict::Dict{String,Any}, basedir::String="";
 
     if device == :rocm
         _carina_log(0, :setup, "Transferring to GPU (ROCm)...")
-        asm = Base.invokelatest(FEC.rocm, asm_cpu)
-        p   = Base.invokelatest(FEC.rocm, p_cpu)
+        asm = FEC.rocm(asm_cpu)
+        p   = FEC.rocm(p_cpu)
     elseif device == :cuda
         _carina_log(0, :setup, "Transferring to GPU (CUDA)...")
-        asm = Base.invokelatest(FEC.cuda, asm_cpu)
-        p   = Base.invokelatest(FEC.cuda, p_cpu)
+        asm = FEC.cuda(asm_cpu)
+        p   = FEC.cuda(p_cpu)
     else
         asm = asm_cpu
         p   = p_cpu
     end
 
     _carina_log(0, :setup, "Building integrator and solver...")
-    integrator = if device != :cpu
-        Base.invokelatest(_parse_integrator, dict, asm, asm_cpu, p_cpu, controller, device)
-    else
-        _parse_integrator(dict, asm, asm_cpu, p_cpu, controller, device)
-    end
+    integrator = _parse_integrator(dict, asm, asm_cpu, p_cpu, controller, device)
     _carina_logf(0, :setup, "Solver:  %s", _solver_description(integrator))
 
     # Evaluate Dirichlet BC values at t=0 so _update_for_assembly! can set
@@ -353,11 +299,7 @@ function _advance_one_step!(sim)
     while true
         integrator.failed[] = false
 
-        if device != :cpu
-            Base.invokelatest(FEC.evolve!, integrator, params)
-        else
-            FEC.evolve!(integrator, params)
-        end
+        FEC.evolve!(integrator, params)
 
         if !integrator.failed[]
             _increase_step!(integrator, params)
@@ -944,11 +886,8 @@ end
 # Turn a YAML function string into a Julia (coords, t) -> value closure.
 # Supported variables in the expression: t, x, y, z (node coordinates).
 #
-# @eval creates the method at the current world, but FEC's generic
-# _update_bc_values! is JIT-compiled for the specific closure type the first
-# time it is called (i.e. at the same world or later), so no invokelatest is
-# needed.  Avoiding invokelatest is essential for GPU kernels, which cannot
-# emit calls to Julia runtime functions like jl_f_invokelatest.
+# Uses RuntimeGeneratedFunctions to create a closure that is GPU-compatible
+# (no jl_f_invokelatest calls in the compiled code).
 function _make_function(expr_str::String)
     body = Meta.parse(expr_str)
     # Multi-statement strings like "a=8000; expr" parse as Expr(:toplevel,...),
@@ -1000,15 +939,15 @@ function _apply_initial_displacement_ics!(integrator::_DynamicIntegrator, mesh, 
             unk_idx = inv_map[full_dof]
             unk_idx == 0 && continue
             coords = @view X[(node-1)*3+1 : (node-1)*3+3]
-            U_cpu[full_dof] = Base.invokelatest(func, coords, t0)
+            U_cpu[full_dof] = func(coords, t0)
         end
     end
-    Base.invokelatest(copyto!, integrator.U, U_cpu)
+    copyto!(integrator.U, U_cpu)
     # Update field so the assembly sees the initial displacement.
     # Always update CPU params first; for GPU, sync field data afterward.
     FEC._update_for_assembly!(p_cpu, asm_cpu.dof, U_cpu)
     if device != :cpu
-        Base.invokelatest(copyto!, p.field.data, p_cpu.field.data)
+        copyto!(p.field.data, p_cpu.field.data)
     end
 end
 
@@ -1051,10 +990,10 @@ function _apply_initial_velocity_ics!(integrator::_DynamicIntegrator, mesh, asm_
             unk_idx = inv_map[full_dof]
             unk_idx == 0 && continue   # skip constrained DOFs
             coords = @view X[(node-1)*3+1 : (node-1)*3+3]
-            V_cpu[full_dof] = Base.invokelatest(func, coords, t0)
+            V_cpu[full_dof] = func(coords, t0)
         end
     end
-    Base.invokelatest(copyto!, integrator.V, V_cpu)
+    copyto!(integrator.V, V_cpu)
 end
 
 # No-op for integrators that do not support initial velocity ICs.
@@ -1069,7 +1008,7 @@ function _compute_initial_acceleration!(integrator::NewmarkIntegrator, asm_cpu, 
     _carina_log(0, :acceleration, "Computing Initial Acceleration...")
     t_start = time()
 
-    U_cpu = Base.invokelatest(Vector{Float64}, integrator.U)
+    U_cpu = Vector{Float64}(integrator.U)
     n     = length(U_cpu)
 
     # Assemble residual at initial displacement U₀: R = F_int(U₀) − F_ext
@@ -1103,7 +1042,7 @@ function _compute_initial_acceleration!(integrator::CentralDifferenceIntegrator,
     _carina_log(0, :acceleration, "Computing Initial Acceleration...")
     t_start = time()
 
-    U_cpu = Base.invokelatest(Vector{Float64}, integrator.U)
+    U_cpu = Vector{Float64}(integrator.U)
     n     = length(U_cpu)
 
     # A₀ = M_lumped⁻¹ · (F_ext − F_int(U₀))
@@ -1128,7 +1067,7 @@ function _compute_initial_acceleration!(integrator::CentralDifferenceIntegrator,
         "Initial Acceleration: |A₀| = %.2e (%s)",
         sqrt(sum(abs2, A0)), format_time(elapsed))
 
-    Base.invokelatest(copyto!, integrator.A, A0)
+    copyto!(integrator.A, A0)
     return nothing
 end
 

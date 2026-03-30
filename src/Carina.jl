@@ -4,7 +4,9 @@ module Carina
 # Dependencies
 # ---------------------------------------------------------------------------
 import Adapt
+import AMDGPU
 import ConstitutiveModels as CM
+import CUDA
 import Exodus
 import FiniteElementContainers as FEC
 import Krylov
