@@ -87,18 +87,54 @@ Analytical solution: Mota, Tezaur & Phlipot, IJNME 123:5036–5071, 2022, eq. 28
 
 ## Installation
 
-```julia
-using Pkg
-Pkg.add(url="https://github.com/Cthonios/Carina.jl")
-```
-
-Or clone and activate locally:
-
 ```bash
 git clone https://github.com/Cthonios/Carina.jl
 cd Carina.jl
-julia --project=. -e 'using Pkg; Pkg.instantiate()'
+julia --project=. -e 'using Pkg; Pkg.update(); Pkg.instantiate()'
 ```
+
+Carina tracks the `main` branches of
+[ConstitutiveModels.jl](https://github.com/Cthonios/ConstitutiveModels.jl),
+[FiniteElementContainers.jl](https://github.com/Cthonios/FiniteElementContainers.jl), and
+[ReferenceFiniteElements.jl](https://github.com/Cthonios/ReferenceFiniteElements.jl)
+via the `[sources]` section in `Project.toml`.
+
+### Development setup (local clones)
+
+For co-development of Carina and its dependencies, clone the upstream
+packages and point `Project.toml` to local paths:
+
+```bash
+# Clone dependencies next to Carina
+cd ..
+git clone git@github.com:Cthonios/ConstitutiveModels.jl.git
+git clone git@github.com:Cthonios/FiniteElementContainers.jl.git
+git clone git@github.com:Cthonios/ReferenceFiniteElements.jl.git
+cd Carina.jl
+
+# Switch [sources] to local paths (edit Project.toml)
+sed -i \
+  -e 's|ConstitutiveModels = {rev.*}|ConstitutiveModels = {path = "../ConstitutiveModels.jl"}|' \
+  -e 's|FiniteElementContainers = {rev.*}|FiniteElementContainers = {path = "../FiniteElementContainers.jl"}|' \
+  -e 's|ReferenceFiniteElements = {rev.*}|ReferenceFiniteElements = {path = "../ReferenceFiniteElements.jl"}|' \
+  Project.toml
+
+julia --project=. -e 'using Pkg; Pkg.resolve()'
+```
+
+Changes to the local clones are picked up immediately (after restarting
+Julia or `using Pkg; Pkg.resolve()`).  **Do not commit `Project.toml`
+with local paths** — restore remote URLs before pushing:
+
+```bash
+sed -i \
+  -e 's|ConstitutiveModels = {path.*}|ConstitutiveModels = {rev = "main", url = "git@github.com:Cthonios/ConstitutiveModels.jl.git"}|' \
+  -e 's|FiniteElementContainers = {path.*}|FiniteElementContainers = {rev = "main", url = "git@github.com:Cthonios/FiniteElementContainers.jl.git"}|' \
+  -e 's|ReferenceFiniteElements = {path.*}|ReferenceFiniteElements = {rev = "main", url = "git@github.com:Cthonios/ReferenceFiniteElements.jl.git"}|' \
+  Project.toml
+```
+
+CI enforces that no local paths are committed.
 
 ---
 

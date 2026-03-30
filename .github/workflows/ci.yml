@@ -35,6 +35,14 @@ jobs:
 
       - uses: julia-actions/cache@v2
 
+      # Ensure [sources] uses remote URLs (not local paths from dev setup)
+      - name: Verify remote sources
+        run: |
+          if grep -q 'path = ' Project.toml; then
+            echo "ERROR: Project.toml contains local paths. Run bin/dev-remote before pushing."
+            exit 1
+          fi
+
       - name: Install dependencies
         run: |
           julia --project=. -e '
