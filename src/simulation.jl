@@ -103,7 +103,7 @@ function run(yaml_file::String; device::Union{String,Nothing}=nothing)
     end
 
     _carina_log(0, :done, "Simulation complete")
-    _carina_logf(0, :time, "Total wall time = %.1fs", time() - t_start)
+    _carina_logf(0, :time, "Total wall time = %.2fs", time() - t_start)
     _carina_log(0, :carina, "END SIMULATION")
     return sim
 end
@@ -176,7 +176,7 @@ function create_simulation(dict::Dict{String,Any}, basedir::String="";
     output_interval = raw_oi === nothing ? dt : Float64(raw_oi)
     num_stops = round(Int, (tf - t0) / output_interval) + 1
     controller = TimeController(t0, tf, output_interval, t0, t0, num_stops, 0)
-    _carina_logf(0, :setup, "Time:    [%.4e, %.4e], Δt = %.4e, %d steps",
+    _carina_logf(0, :setup, "Time:    [%.2e, %.2e], Δt = %.2e, %d steps",
                  t0, tf, dt, num_stops - 1)
 
     p_cpu = FEC.create_parameters(
@@ -225,6 +225,7 @@ function create_simulation(dict::Dict{String,Any}, basedir::String="";
     else
         _parse_integrator(dict, asm, asm_cpu, p_cpu, controller, device)
     end
+    _carina_logf(0, :setup, "Solver:  %s", _solver_description(integrator))
 
     # Evaluate Dirichlet BC values at t=0 so _update_for_assembly! can set
     # constrained DOFs correctly before IC application and initial acceleration.
@@ -242,7 +243,7 @@ function create_simulation(dict::Dict{String,Any}, basedir::String="";
     # Build recovery data for L2 projection (CPU-only)
     recovery_data = _build_recovery_data(output_spec.recovery, asm_cpu, p_cpu)
 
-    _carina_logf(0, :setup, "Setup complete (%.1fs)", time() - t_setup)
+    _carina_logf(0, :setup, "Setup complete (%.2fs)", time() - t_setup)
 
     n_steps = controller.num_stops - 1
     sim = SingleDomainSimulation(p, p_cpu, asm_cpu, integrator, pp,
@@ -251,7 +252,7 @@ function create_simulation(dict::Dict{String,Any}, basedir::String="";
     # Write initial state (step 1, t=0).
     write_output!(sim, 1)
     pct_digits = max(0, Int(ceil(log10(n_steps))) - 2)
-    pct_fmt_init = "[0/%d, %." * string(pct_digits) * "f%%] : Time = %.4e"
+    pct_fmt_init = "[0/%d, %." * string(pct_digits) * "f%%] : Time = %.2e"
     _carina_logf(0, :stop, pct_fmt_init, n_steps, 0.0, controller.initial_time)
     _carina_log(0, :output, output_file)
 
@@ -276,7 +277,8 @@ function evolve!(sim::SingleDomainSimulation)
 
     # Dynamic percentage format: 0 decimals for ≤100 steps, 1 for ≤1000, etc.
     pct_digits = max(0, Int(ceil(log10(n_steps))) - 2)
-    pct_fmt = "[%d/%d, %." * string(pct_digits) * "f%%] : Time = %.4e : |U|_max = %.3e : wall = %.2fs"
+    pct_base = "[%d/%d, %." * string(pct_digits) * "f%%] : Time = %.2e : |U|_max = %.2e"
+    output_basename = basename(post_processor.field_output_db.file_name)
 
     output_step = 2  # step 1 is the initial frame written in create_simulation
     t_batch = time()  # wall time since last output
@@ -287,7 +289,7 @@ function evolve!(sim::SingleDomainSimulation)
         t_stop = controller.time
 
         if !is_explicit
-            _carina_logf(4, :advance, "[%.4e, %.4e] : Δt = %.4e",
+            _carina_logf(4, :advance, "[%.2e, %.2e] : Δt = %.2e",
                 t_prev, t_stop, controller.control_step)
         end
 
@@ -303,9 +305,14 @@ function evolve!(sim::SingleDomainSimulation)
         output_step += 1
         u_max = maximum(abs, params.field.data)
         wall_elapsed = time() - t_batch
-        _carina_logf(0, :stop, pct_fmt,
-            controller.stop, n_steps, pct, t, u_max, wall_elapsed)
-        _carina_log(0, :output, post_processor.field_output_db.file_name)
+        if wall_elapsed > 0.01
+            _carina_logf(0, :stop, pct_base * " : wall = %.2fs",
+                controller.stop, n_steps, pct, t, u_max, wall_elapsed)
+        else
+            _carina_logf(0, :stop, pct_base,
+                controller.stop, n_steps, pct, t, u_max)
+        end
+        _carina_log(0, :output, output_basename)
         t_batch = time()
     end
 end
@@ -535,11 +542,11 @@ function _parse_integrator(dict, asm, asm_cpu, p_cpu, controller, device=:cpu)
             stable_dt = _compute_stable_dt(asm_cpu, p_cpu, CFL_val)
             if stable_dt < ig.time_step
                 _carina_logf(0, :warning,
-                    "Δt = %.3e exceeds stable Δt = %.3e — using stable step.",
+                    "Δt = %.2e exceeds stable Δt = %.2e — using stable step.",
                     ig.time_step, stable_dt)
             end
             ig.time_step = min(stable_dt, ig.time_step)
-            _carina_logf(0, :setup, "Stable Δt = %.3e (CFL = %.2f)", stable_dt, CFL_val)
+            _carina_logf(0, :setup, "Stable Δt = %.2e (CFL = %.2f)", stable_dt, CFL_val)
         end
 
         return ig
@@ -895,6 +902,36 @@ end
 
 # ---- Helpers ----
 
+function _integrator_name(::QuasiStaticIntegrator) "Quasi-static" end
+function _integrator_name(::NewmarkIntegrator)      "Newmark" end
+function _integrator_name(::CentralDifferenceIntegrator) "Central difference" end
+
+function _solver_description(ig)
+    ig_name = _integrator_name(ig)
+    ns = nonlinear_solver(ig)
+    if ns isa NewtonSolver
+        ls = ns.linear_solver
+        ls_name = if ls isa DirectLinearSolver
+            "direct"
+        elseif ls isa KrylovLinearSolver
+            "CG"
+        elseif ls isa LBFGSLinearSolver
+            "L-BFGS"
+        else
+            string(typeof(ls))
+        end
+        return "$ig_name, Newton + $ls_name"
+    elseif ns isa NLCGSolver
+        return "$ig_name, nonlinear CG"
+    else
+        return "$ig_name"
+    end
+end
+
+function _solver_description(::CentralDifferenceIntegrator)
+    return "Central difference (explicit)"
+end
+
 # Map "x" / "y" / "z" → :displ_x / :displ_y / :displ_z
 function _component_to_symbol(comp::String)
     c = lowercase(strip(comp))
@@ -1044,7 +1081,7 @@ function _compute_initial_acceleration!(integrator::NewmarkIntegrator, asm_cpu, 
     norm_rhs = sqrt(sum(abs2, rhs))
     if norm_rhs < eps(Float64)
         elapsed = time() - t_start
-        _carina_logf(0, :acceleration, "Initial Acceleration = 0 (trivial RHS, %.3fs)", elapsed)
+        _carina_logf(0, :acceleration, "Initial Acceleration = 0 (trivial RHS, %.2fs)", elapsed)
         return nothing
     end
 
@@ -1055,7 +1092,7 @@ function _compute_initial_acceleration!(integrator::NewmarkIntegrator, asm_cpu, 
 
     elapsed = time() - t_start
     _carina_logf(0, :acceleration,
-        "Initial Acceleration: |A₀| = %.3e, CG iters = %d (%.3fs)",
+        "Initial Acceleration: |A₀| = %.2e, CG iters = %d (%.2fs)",
         sqrt(sum(abs2, A0)), stats.niter, elapsed)
 
     copyto!(integrator.A, A0)
@@ -1078,7 +1115,7 @@ function _compute_initial_acceleration!(integrator::CentralDifferenceIntegrator,
     norm_rhs = sqrt(sum(abs2, rhs))
     if norm_rhs < eps(Float64)
         elapsed = time() - t_start
-        _carina_logf(0, :acceleration, "Initial Acceleration = 0 (trivial RHS, %.3fs)", elapsed)
+        _carina_logf(0, :acceleration, "Initial Acceleration = 0 (trivial RHS, %.2fs)", elapsed)
         return nothing
     end
 
@@ -1088,7 +1125,7 @@ function _compute_initial_acceleration!(integrator::CentralDifferenceIntegrator,
 
     elapsed = time() - t_start
     _carina_logf(0, :acceleration,
-        "Initial Acceleration: |A₀| = %.3e (%.3fs)",
+        "Initial Acceleration: |A₀| = %.2e (%.2fs)",
         sqrt(sum(abs2, A0)), elapsed)
 
     Base.invokelatest(copyto!, integrator.A, A0)
@@ -1117,7 +1154,7 @@ function _compute_initial_equilibrium!(integrator::QuasiStaticIntegrator, p)
     if integrator.failed[]
         error("Failed to establish initial equilibrium.")
     end
-    _carina_logf(0, :equilibrium, "Initial Equilibrium established (%.3fs)", elapsed)
+    _carina_logf(0, :equilibrium, "Initial Equilibrium established (%.2fs)", elapsed)
     # Promote converged state so time stepping starts from equilibrium.
     _finalize_step!(integrator, p)
     return nothing

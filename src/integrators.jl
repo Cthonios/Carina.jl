@@ -626,7 +626,7 @@ function _linear_solve!(ls::KrylovLinearSolver, ig::QuasiStaticIntegrator, p, op
     ΔU  = copy(Krylov.solution(ls.workspace))
     res = ls.workspace.stats.residuals
     r_cg = isempty(res) ? NaN : res[end]
-    _carina_logf(8, :solve, "    CG: %d iters : |r|_CG = %.3e : %s",
+    _carina_logf(8, :solve, "    CG: %d iters : |r|_CG = %.2e : %s",
                  ls.workspace.stats.niter, r_cg,
                  _cg_status_str(ls.workspace.stats.solved))
     return ΔU, t_kry
@@ -650,7 +650,7 @@ function _linear_solve!(ls::KrylovLinearSolver, ig::NewmarkIntegrator, p, ops)
                     ΔU_vec, cg_hist = IterativeSolvers.cg(K_eff_sparse, R;
                         abstol=0.0, reltol=ls.rtol, log=true)
                 end
-                _carina_logf(8, :solve, "    CG: %d iters : |r|_CG = %.3e : %s",
+                _carina_logf(8, :solve, "    CG: %d iters : |r|_CG = %.2e : %s",
                     length(cg_hist.data[:resnorm]),
                     cg_hist.data[:resnorm][end],
                     _cg_status_str(cg_hist.isconverged))
@@ -666,7 +666,7 @@ function _linear_solve!(ls::KrylovLinearSolver, ig::NewmarkIntegrator, p, ops)
                 copyto!(ΔU, Krylov.solution(ls.workspace))
                 res = ls.workspace.stats.residuals
                 r_cg = isempty(res) ? NaN : res[end]
-                _carina_logf(8, :solve, "    CG: %d iters : |r|_CG = %.3e : %s",
+                _carina_logf(8, :solve, "    CG: %d iters : |r|_CG = %.2e : %s",
                              ls.workspace.stats.niter, r_cg,
                              _cg_status_str(ls.workspace.stats.solved))
             end
@@ -760,12 +760,12 @@ function _backtrack_line_search(ns::NewtonSolver, ig, p, ΔU)
 
         # Armijo condition: sufficient decrease in merit
         if merit ≤ (1.0 - 2.0 * ns.ls_decrease * α) * merit_0
-            _carina_logf(8, :linesearch, "    LS: α = %.3e : m = %.3e → %.3e : [ACCEPT]",
+            _carina_logf(8, :linesearch, "    LS: α = %.2e : m = %.2e → %.3e : [ACCEPT]",
                          α, merit_0, merit)
             return α
         end
 
-        _carina_logf(8, :linesearch, "    LS: α = %.3e : m = %.3e → %.3e : [REDUCE]",
+        _carina_logf(8, :linesearch, "    LS: α = %.2e : m = %.2e → %.3e : [REDUCE]",
                      α, merit_0, merit)
         α *= ns.ls_backtrack
     end
@@ -789,7 +789,7 @@ function solve!(ns::NewtonSolver, ig, p)
     evaluate!(ig, p) || (ig.failed[] = true; return)
     setup_jacobian!(ig, p) || return
     initial_norm = sqrt(sum(abs2, residual(ig)))
-    _carina_logf(8, :solve, "Iter [0] |R| = %.3e : |r| = %.3e : %s",
+    _carina_logf(8, :solve, "Iter [0] |R| = %.2e : |r| = %.2e : %s",
                  initial_norm, 1.0, _status_str(false))
     ops = _setup_linear_ops(ig, ns.linear_solver, p)
     converged = false
@@ -814,9 +814,15 @@ function solve!(ns::NewtonSolver, ig, p)
                     norm_R   < ns.abs_residual_tol   ||
                     rel_R    < ns.rel_residual_tol
         converged = met_tol && iter > ns.min_iters
-        _carina_logf(8, :solve,
-            "Iter [%d] |R| = %.3e : |r| = %.3e : |ΔU| = %.3e : t_eval = %.2fs : t_solve = %.2fs : %s",
-            iter, norm_R, rel_R, norm_step, t_eval, t_solve, _status_str(converged))
+        if t_eval + t_solve > 0.01
+            _carina_logf(8, :solve,
+                "Iter [%d] |R| = %.2e : |r| = %.2e : |ΔU| = %.2e : t_eval = %.2fs : t_solve = %.2fs : %s",
+                iter, norm_R, rel_R, norm_step, t_eval, t_solve, _status_str(converged))
+        else
+            _carina_logf(8, :solve,
+                "Iter [%d] |R| = %.2e : |r| = %.2e : |ΔU| = %.2e : %s",
+                iter, norm_R, rel_R, norm_step, _status_str(converged))
+        end
         converged && break
         setup_jacobian!(ig, p) || return
     end
@@ -839,7 +845,7 @@ function solve!(ns::NewtonSolver{<:LBFGSLinearSolver}, ig, p)
     _lbfgs_init_M_dU!(ig, ls)
     evaluate!(ig, p) || (ig.failed[] = true; return)
     initial_norm = sqrt(sum(abs2, residual(ig)))
-    _carina_logf(8, :solve, "Iter [0] |R| = %.3e : |r| = %.3e : %s",
+    _carina_logf(8, :solve, "Iter [0] |R| = %.2e : |r| = %.2e : %s",
                  initial_norm, 1.0, _status_str(false))
     converged = false
     for iter in 1:ns.max_iters
@@ -871,10 +877,17 @@ function solve!(ns::NewtonSolver{<:LBFGSLinearSolver}, ig, p)
                     new_norm_R < ns.abs_residual_tol   ||
                     new_rel_R  < ns.rel_residual_tol
         converged = met_tol && iter > ns.min_iters
-        _carina_logf(8, :solve,
-            "Iter [%d] |R| = %.3e : |r| = %.3e : |ΔU| = %.3e : step = %.2e : LS = %d : t_dir = %.0fms : t_ls = %.0fms : %s",
-            iter, new_norm_R, new_rel_R,
-            norm_dU, step, ls_iters, t_dir*1e3, t_ls*1e3, _status_str(converged))
+        if t_dir + t_ls > 0.01
+            _carina_logf(8, :solve,
+                "Iter [%d] |R| = %.2e : |r| = %.2e : |ΔU| = %.2e : step = %.2e : LS = %d : t_dir = %.0fms : t_ls = %.0fms : %s",
+                iter, new_norm_R, new_rel_R,
+                norm_dU, step, ls_iters, t_dir*1e3, t_ls*1e3, _status_str(converged))
+        else
+            _carina_logf(8, :solve,
+                "Iter [%d] |R| = %.2e : |r| = %.2e : |ΔU| = %.2e : step = %.2e : LS = %d : %s",
+                iter, new_norm_R, new_rel_R,
+                norm_dU, step, ls_iters, _status_str(converged))
+        end
         # History update
         new_head = mod1(ls.head + 1, ls.m)
         R_cur = residual(ig)
@@ -904,7 +917,7 @@ end
 function solve!(ns::NLCGSolver, ig, p)
     evaluate!(ig, p) || (ig.failed[] = true; return)
     initial_norm = norm_R = sqrt(sum(abs2, residual(ig)))
-    _carina_logf(8, :solve, "Iter [0] |R| = %.3e : |r| = %.3e : %s",
+    _carina_logf(8, :solve, "Iter [0] |R| = %.2e : |r| = %.2e : %s",
                  initial_norm, 1.0, _status_str(false))
 
     # g = M⁻¹ R_eff (preconditioned negative gradient of energy)
@@ -946,7 +959,7 @@ function solve!(ns::NLCGSolver, ig, p)
                   rel_R    < ns.rel_residual_tol
         converged = met_tol && iter > ns.min_iters
         _carina_logf(8, :solve,
-            "Iter [%d] |R| = %.3e : |r| = %.3e : |ΔU| = %.3e : α = %.3e : %s",
+            "Iter [%d] |R| = %.2e : |r| = %.2e : |ΔU| = %.2e : α = %.2e : %s",
             iter, norm_R, rel_R, norm_step, α, _status_str(converged))
         converged && break
 
@@ -1055,7 +1068,7 @@ function _decrease_step!(ig, params)
     new_dt < ig.min_time_step &&
         error("Cannot reduce time step to $(new_dt): below minimum $(ig.min_time_step).")
     ig.time_step = new_dt
-    _carina_logf(0, :recover, "Step failed → reducing Δt to %.3e", new_dt)
+    _carina_logf(0, :recover, "Step failed → reducing Δt to %.2e", new_dt)
 end
 
 # --- CFL stable time step hook ---
