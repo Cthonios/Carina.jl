@@ -50,7 +50,7 @@ function run(yaml_file::String; device::Union{String,Nothing}=nothing)
     if sim_type == "single"
         sim = create_simulation(dict, dirname(abspath(yaml_file));
                                 device_override=device)
-        evolve!(sim)
+        Base.invokelatest(evolve!, sim)
         FEC.close(sim.post_processor)
     else
         error("Simulation type \"$sim_type\" not yet supported. Only \"single\" is implemented.")
@@ -176,7 +176,7 @@ function create_simulation(dict::Dict{String,Any}, basedir::String="";
     # Evaluate Dirichlet BC values at t=0 so _update_for_assembly! can set
     # constrained DOFs correctly before IC application and initial acceleration.
     # Only CPU parameters needed — GPU field is synced via _update_for_assembly!.
-    FEC.update_bc_values!(p_cpu)
+    Base.invokelatest(FEC.update_bc_values!, p_cpu)
 
     t0 = controller.initial_time
     _apply_initial_displacement_ics!(integrator, mesh, asm_cpu, p, p_cpu,
@@ -299,7 +299,7 @@ function _advance_one_step!(sim)
     while true
         integrator.failed[] = false
 
-        FEC.evolve!(integrator, params)
+        Base.invokelatest(FEC.evolve!, integrator, params)
 
         if !integrator.failed[]
             _increase_step!(integrator, params)
@@ -886,8 +886,10 @@ end
 # Turn a YAML function string into a Julia (coords, t) -> value closure.
 # Supported variables in the expression: t, x, y, z (node coordinates).
 #
-# Uses RuntimeGeneratedFunctions to create a closure that is GPU-compatible
-# (no jl_f_invokelatest calls in the compiled code).
+# Uses @eval to create a compiled anonymous function that is isbits
+# (GPU-compatible as a kernel argument). The function is defined at the
+# current top-level scope, so callers in the time loop must use
+# Base.invokelatest to see it.
 function _make_function(expr_str::String)
     body = Meta.parse(expr_str)
     # Multi-statement strings like "a=8000; expr" parse as Expr(:toplevel,...),
@@ -895,12 +897,10 @@ function _make_function(expr_str::String)
     if body isa Expr && body.head === :toplevel
         body = Expr(:block, body.args...)
     end
-
-    expression = :((coords, t) -> begin
+    return @eval (coords, t) -> begin
         x = coords[1]; y = coords[2]; z = coords[3]
         $body
-    end)
-    return @RuntimeGeneratedFunction(expression)
+    end
 end
 
 # ---- initial conditions ----
@@ -939,7 +939,7 @@ function _apply_initial_displacement_ics!(integrator::_DynamicIntegrator, mesh, 
             unk_idx = inv_map[full_dof]
             unk_idx == 0 && continue
             coords = @view X[(node-1)*3+1 : (node-1)*3+3]
-            U_cpu[full_dof] = func(coords, t0)
+            U_cpu[full_dof] = Base.invokelatest(func, coords, t0)
         end
     end
     copyto!(integrator.U, U_cpu)
@@ -990,7 +990,7 @@ function _apply_initial_velocity_ics!(integrator::_DynamicIntegrator, mesh, asm_
             unk_idx = inv_map[full_dof]
             unk_idx == 0 && continue   # skip constrained DOFs
             coords = @view X[(node-1)*3+1 : (node-1)*3+3]
-            V_cpu[full_dof] = func(coords, t0)
+            V_cpu[full_dof] = Base.invokelatest(func, coords, t0)
         end
     end
     copyto!(integrator.V, V_cpu)
@@ -1087,7 +1087,7 @@ function _compute_initial_equilibrium!(integrator::QuasiStaticIntegrator, p)
     # Solve R(U) = 0 at t₀ without advancing time.
     # BC values are already set at t₀ by the preceding FEC.update_bc_values!(p_cpu).
     # We call evaluate! + solve! directly (not FEC.evolve! which advances time).
-    solve!(nonlinear_solver(integrator), integrator, p)
+    Base.invokelatest(solve!, nonlinear_solver(integrator), integrator, p)
 
     elapsed = time() - t_start
     if integrator.failed[]
