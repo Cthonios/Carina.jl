@@ -24,24 +24,20 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Clone sibling dependencies (Project.toml uses relative paths)
+      - name: Clone dependencies
+        run: |
+          cd ..
+          git clone --depth 1 https://github.com/Cthonios/ConstitutiveModels.jl.git
+          git clone --depth 1 https://github.com/Cthonios/FiniteElementContainers.jl.git
+          git clone --depth 1 https://github.com/Cthonios/ReferenceFiniteElements.jl.git
+          cd Carina.jl
+
       - uses: julia-actions/setup-julia@v2
         with:
           version: ${{ matrix.julia-version }}
 
-      # Rewrite SSH URLs to HTTPS so Pkg can clone without SSH keys.
-      # The [sources] in Project.toml use git@github.com: syntax.
-      - name: Configure git for HTTPS
-        run: git config --global url."https://github.com/".insteadOf "git@github.com:"
-
       - uses: julia-actions/cache@v2
-
-      # Ensure [sources] uses remote URLs (not local paths from dev setup)
-      - name: Verify remote sources
-        run: |
-          if grep -q 'path = ' Project.toml; then
-            echo "ERROR: Project.toml contains local paths. Run bin/dev-remote before pushing."
-            exit 1
-          fi
 
       - name: Install dependencies
         run: |
