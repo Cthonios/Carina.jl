@@ -31,7 +31,6 @@ include("integrators.jl")
 include("linear_solvers.jl")
 include("nonlinear_solvers.jl")
 include("materials.jl")
-include("element_fd_stiffness.jl")     # element-level FD stiffness (Sierra/SM)
 include("io.jl")
 include("simulation.jl")
 
