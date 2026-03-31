@@ -627,10 +627,10 @@ end
 
 function _parse_body_forces(dict)
     bf_section = get(dict, "body forces", nothing)
-    bf_section === nothing && return FEC.BodyForce[]
+    bf_section === nothing && return FEC.Source[]
     entries = bf_section isa Vector ? bf_section : [bf_section]
 
-    bfs = FEC.BodyForce[]
+    bfs = FEC.Source[]
     for (i, entry) in enumerate(entries)
         _validate_keys(entry, _BF_ENTRY_KEYS, "body force entry $i")
         var_sym  = _component_to_symbol(entry["component"])
@@ -645,7 +645,7 @@ function _parse_body_forces(dict)
             end
         end
         block = Symbol(get(entry, "block", "all"))
-        push!(bfs, FEC.BodyForce(var_sym, func, block))
+        push!(bfs, FEC.Source(var_sym, func, block))
     end
     return bfs
 end

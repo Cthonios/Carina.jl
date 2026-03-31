@@ -191,7 +191,7 @@ function evaluate!(ig::QuasiStaticIntegrator, p)
     U = ig.solution; asm = ig.asm
     FEC.assemble_vector!(asm, FEC.residual, U, p)
     FEC.assemble_vector_neumann_bc!(asm, U, p)
-    FEC.assemble_vector_body_force!(asm, U, p)
+    FEC.assemble_vector_source!(asm, U, p)
     R = FEC.residual(asm)
     @. ig.R_eff = -R
     return isfinite(sqrt(sum(abs2, ig.R_eff)))
@@ -202,7 +202,7 @@ function evaluate!(ig::NewmarkIntegrator, p)
     @. dU = U - U_pred
     FEC.assemble_vector!(asm, FEC.residual, U, p)
     FEC.assemble_vector_neumann_bc!(asm, U, p)
-    FEC.assemble_vector_body_force!(asm, U, p)
+    FEC.assemble_vector_source!(asm, U, p)
     FEC.assemble_matrix_free_action!(asm, FEC.mass_action, U, dU, p)
     R_int = FEC.residual(asm)
     M_dU  = FEC.hvp(asm, dU)
@@ -214,7 +214,7 @@ function evaluate!(ig::CentralDifferenceIntegrator, p)
     asm = ig.asm; U = ig.U
     FEC.assemble_vector!(asm, FEC.residual, U, p)
     FEC.assemble_vector_neumann_bc!(asm, U, p)
-    FEC.assemble_vector_body_force!(asm, U, p)
+    FEC.assemble_vector_source!(asm, U, p)
     R_int = FEC.residual(asm)
     @. ig.R_eff = -R_int
     return isfinite(sqrt(sum(abs2, ig.R_eff)))

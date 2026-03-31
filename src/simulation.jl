@@ -134,7 +134,7 @@ function create_simulation(dict::Dict{String,Any}, basedir::String="";
         mesh, asm_cpu, physics, props;
         dirichlet_bcs = dbcs,
         neumann_bcs   = nbcs,
-        body_forces   = bfs,
+        sources       = bfs,
         times         = times,
     )
     n_dofs = length(asm_cpu.dof)
