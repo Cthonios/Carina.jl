@@ -14,6 +14,7 @@
 
 function _parse_output_spec(dict::Dict{String,Any})
     out = get(dict, "output", Dict{String,Any}())
+    !isempty(out) && _validate_keys(out, _OUTPUT_KEYS, "output")
     rec_str = lowercase(get(out, "recovery", "lumped"))
     recovery = if rec_str == "lumped"
         :lumped

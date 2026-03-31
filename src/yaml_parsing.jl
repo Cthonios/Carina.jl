@@ -11,6 +11,102 @@ using StaticArrays
 using LinearAlgebra
 
 # ---------------------------------------------------------------------------
+# YAML key validation
+# ---------------------------------------------------------------------------
+#
+# Each YAML section has a set of known keys. Unknown keys are flagged with
+# a suggestion (Levenshtein distance) to catch typos early.
+
+# Levenshtein distance for fuzzy matching
+function _levenshtein(a::AbstractString, b::AbstractString)
+    la, lb = length(a), length(b)
+    la == 0 && return lb
+    lb == 0 && return la
+    prev = collect(0:lb)
+    curr = similar(prev)
+    for i in 1:la
+        curr[1] = i
+        for j in 1:lb
+            cost = a[i] == b[j] ? 0 : 1
+            curr[j+1] = min(prev[j+1] + 1, curr[j] + 1, prev[j] + cost)
+        end
+        prev, curr = curr, prev
+    end
+    return prev[lb+1]
+end
+
+function _suggest(key::String, known::Set{String}; max_dist::Int=5)
+    best_dist = max_dist + 1
+    best_key  = ""
+    for k in known
+        d = _levenshtein(lowercase(key), lowercase(k))
+        if d < best_dist
+            best_dist = d
+            best_key = k
+        end
+    end
+    best_dist <= max_dist ? best_key : ""
+end
+
+"""
+Check that all keys in `dict` are in `known_keys`. Warn for unknown keys
+with a "did you mean?" suggestion. `section` is used in the message.
+"""
+function _validate_keys(dict::AbstractDict, known_keys::Set{String}, section::String)
+    for key in keys(dict)
+        key isa String || continue
+        if key ∉ known_keys
+            suggestion = _suggest(key, known_keys)
+            msg = "Unknown key \"$key\" in $section."
+            if !isempty(suggestion)
+                msg *= " Did you mean \"$suggestion\"?"
+            end
+            @warn msg
+        end
+    end
+end
+
+# --- Known keys per section ---
+
+const _TOPLEVEL_KEYS = Set([
+    "type", "device", "input mesh file", "output mesh file", "output interval",
+    "output", "model", "time integrator", "boundary conditions", "body forces",
+    "initial conditions", "solver", "quadrature",
+])
+
+const _TIME_INTEGRATOR_KEYS = Set([
+    "type", "initial time", "final time", "time step",
+    "minimum time step", "maximum time step", "decrease factor", "increase factor",
+    "initial equilibrium",
+    "beta", "gamma", "β", "γ", "alpha",
+    "CFL", "cfl", "stable time step interval",
+])
+
+const _SOLVER_KEYS = Set([
+    "type", "minimum iterations", "maximum iterations",
+    "absolute tolerance", "relative tolerance",
+    "use line search", "line search backtrack factor",
+    "line search decrease factor", "line search maximum iterations",
+    "linear solver", "preconditioner",
+    "orthogonality tolerance", "restart interval",
+])
+
+const _LINEAR_SOLVER_KEYS = Set([
+    "type", "maximum iterations", "tolerance", "history size",
+    "preconditioner", "assembled",
+])
+
+const _DBC_ENTRY_KEYS = Set(["sideset", "nodeset", "component", "function"])
+const _NBC_ENTRY_KEYS = Set(["sideset", "component", "function"])
+const _BF_ENTRY_KEYS  = Set(["block", "component", "function"])
+const _IC_ENTRY_KEYS  = Set(["node set", "component", "function"])
+
+const _OUTPUT_KEYS = Set([
+    "velocity", "acceleration", "stress", "deformation gradient",
+    "internal variables", "recovery",
+])
+
+# ---------------------------------------------------------------------------
 # Internal parsers
 # ---------------------------------------------------------------------------
 
@@ -69,6 +165,7 @@ end
 function _parse_times(dict)
     ti_dict = get(dict, "time integrator", nothing)
     ti_dict === nothing && error("Missing \"time integrator:\" section.")
+    _validate_keys(ti_dict, _TIME_INTEGRATOR_KEYS, "time integrator")
     t0  = Float64(get(ti_dict, "initial time", 0.0))
     tf  = Float64(ti_dict["final time"])
     dt  = Float64(ti_dict["time step"])
@@ -339,6 +436,7 @@ function _read_solver_dicts(dict)
     haskey(dict, "solver") ||
         error("Missing required \"solver:\" section.")
     sol_dict = dict["solver"]
+    _validate_keys(sol_dict, _SOLVER_KEYS, "solver")
 
     haskey(sol_dict, "type") ||
         error("Missing required \"solver: type:\". " *
@@ -366,6 +464,7 @@ function _read_solver_dicts(dict)
 end
 
 function _parse_linear_solver(ls_dict, template, device, make_precond::Function)
+    _validate_keys(ls_dict, _LINEAR_SOLVER_KEYS, "linear solver")
     ls_type = lowercase(ls_dict["type"])
     T  = eltype(template)
     n  = length(template)
@@ -477,7 +576,8 @@ function _parse_dirichlet_bcs(dict)
     entries isa Vector || error("\"Dirichlet:\" must be a list.")
 
     dbcs = FEC.DirichletBC[]
-    for entry in entries
+    for (i, entry) in enumerate(entries)
+        _validate_keys(entry, _DBC_ENTRY_KEYS, "Dirichlet BC entry $i")
         var_sym  = _component_to_symbol(entry["component"])
         func     = _make_function(entry["function"])
         # Accept either sideset or nodeset
@@ -503,7 +603,8 @@ function _parse_neumann_bcs(dict)
     entries isa Vector || error("\"Neumann:\" must be a list.")
 
     nbcs = FEC.NeumannBC[]
-    for entry in entries
+    for (i, entry) in enumerate(entries)
+        _validate_keys(entry, _NBC_ENTRY_KEYS, "Neumann BC entry $i")
         var_sym  = _component_to_symbol(entry["component"])
         comp_idx = var_sym === :displ_x ? 1 : var_sym === :displ_y ? 2 : 3
         scalar   = _make_function(entry["function"])
@@ -530,7 +631,8 @@ function _parse_body_forces(dict)
     entries = bf_section isa Vector ? bf_section : [bf_section]
 
     bfs = FEC.BodyForce[]
-    for entry in entries
+    for (i, entry) in enumerate(entries)
+        _validate_keys(entry, _BF_ENTRY_KEYS, "body force entry $i")
         var_sym  = _component_to_symbol(entry["component"])
         comp_idx = var_sym === :displ_x ? 1 : var_sym === :displ_y ? 2 : 3
         scalar   = _make_function(entry["function"])

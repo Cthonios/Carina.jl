@@ -75,6 +75,7 @@ Parse a YAML dict (already loaded) and return a fully initialised simulation.
 """
 function create_simulation(dict::Dict{String,Any}, basedir::String="";
                             device_override::Union{String,Nothing}=nothing)
+    _validate_keys(dict, _TOPLEVEL_KEYS, "top-level input")
     device_str = device_override !== nothing ? lowercase(device_override) :
                  lowercase(get(dict, "device", "cpu"))
     device = if device_str == "rocm"
