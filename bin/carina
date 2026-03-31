@@ -1,41 +1,39 @@
-#!/usr/bin/env julia
+#!/bin/bash
 # CLI entry point for Carina.jl
 #
-# Usage (from anywhere):
-#   /path/to/Carina.jl/bin/carina input.yaml
-#   /path/to/Carina.jl/bin/carina input.yaml --device rocm
-#   /path/to/Carina.jl/bin/carina input.yaml --device cuda
-#   /path/to/Carina.jl/bin/carina input.yaml --device cpu
-#
-# --device overrides the "device:" key in the YAML file.
+# Usage:
+#   bin/carina input.yaml
+#   bin/carina input.yaml --device rocm
+#   bin/carina input.yaml --threads 8
+#   bin/carina input.yaml --threads 8 --device cuda
 
-import Pkg
-Pkg.activate(joinpath(@__DIR__, ".."); io=devnull)
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 
-using Carina
+# Parse --threads flag (must be extracted before passing to Julia)
+THREADS=""
+JULIA_ARGS=()
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --threads|-t)
+            THREADS="$2"
+            shift 2
+            ;;
+        *)
+            JULIA_ARGS+=("$1")
+            shift
+            ;;
+    esac
+done
 
-function _parse_args(args)
-    yaml_file = nothing
-    device    = nothing
-    i = 1
-    while i <= length(args)
-        if args[i] == "--device" && i < length(args)
-            device = args[i + 1]
-            i += 2
-        elseif yaml_file === nothing && !startswith(args[i], "-")
-            yaml_file = args[i]
-            i += 1
-        else
-            println(stderr, "Usage: carina <input.yaml> [--device cpu|rocm|cuda]")
-            exit(1)
-        end
-    end
-    if yaml_file === nothing
-        println(stderr, "Usage: carina <input.yaml> [--device cpu|rocm|cuda]")
-        exit(1)
-    end
-    return yaml_file, device
-end
+if [[ -z "${JULIA_ARGS[*]}" ]]; then
+    echo "Usage: carina <input.yaml> [--device cpu|rocm|cuda] [--threads N]" >&2
+    exit 1
+fi
 
-yaml_file, device = _parse_args(ARGS)
-Carina.run(yaml_file; device=device)
+THREAD_FLAG=""
+if [[ -n "$THREADS" ]]; then
+    THREAD_FLAG="-t $THREADS"
+fi
+
+exec julia $THREAD_FLAG --project="$PROJECT_DIR" "$PROJECT_DIR/src/Carina.jl" "${JULIA_ARGS[@]}"
