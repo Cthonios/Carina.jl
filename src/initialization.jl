@@ -112,7 +112,7 @@ function _compute_initial_acceleration!(integrator::NewmarkIntegrator, asm_cpu, 
     # Assemble residual at initial displacement U₀: R = F_int(U₀) − F_ext
     FEC.assemble_vector!(asm_cpu, FEC.residual, U_cpu, p_cpu)
     FEC.assemble_vector_neumann_bc!(asm_cpu, U_cpu, p_cpu)
-    FEC.assemble_vector_body_force!(asm_cpu, U_cpu, p_cpu)
+    FEC.assemble_vector_source!(asm_cpu, U_cpu, p_cpu)
     rhs = -copy(FEC.residual(asm_cpu))   # F_ext − F_int(U₀)
 
     norm_rhs = sqrt(sum(abs2, rhs))
@@ -146,7 +146,7 @@ function _compute_initial_acceleration!(integrator::CentralDifferenceIntegrator,
     # A₀ = M_lumped⁻¹ · (F_ext − F_int(U₀))
     FEC.assemble_vector!(asm_cpu, FEC.residual, U_cpu, p_cpu)
     FEC.assemble_vector_neumann_bc!(asm_cpu, U_cpu, p_cpu)
-    FEC.assemble_vector_body_force!(asm_cpu, U_cpu, p_cpu)
+    FEC.assemble_vector_source!(asm_cpu, U_cpu, p_cpu)
     rhs = -copy(FEC.residual(asm_cpu))   # F_ext − F_int(U₀)
 
     norm_rhs = sqrt(sum(abs2, rhs))
