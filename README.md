@@ -110,17 +110,25 @@ Changes to the sibling repos are picked up immediately after restarting Julia.
 ## Running
 
 ```bash
-# Command-line
-julia --project=. src/Carina.jl input.yaml
-
-# Self-activating CLI wrapper
+# Self-activating CLI wrapper (recommended)
 bin/carina input.yaml
 
-# GPU (ROCm)
-julia --project=. src/Carina.jl input.yaml   # with device: rocm in YAML
+# With GPU
+bin/carina input.yaml --device rocm
+bin/carina input.yaml --device cuda
+
+# Multi-threaded (CPU)
+bin/carina input.yaml --threads 8
+
+# Combined
+bin/carina input.yaml --threads 8 --device rocm
+
+# Or directly with julia
+julia --project=. src/Carina.jl input.yaml
+julia --project=. src/Carina.jl input.yaml --device rocm
 ```
 
-Select the device in the YAML input:
+Select the device in the YAML input or via `--device`:
 
 ```yaml
 device: cpu     # default
