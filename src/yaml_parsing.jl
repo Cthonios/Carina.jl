@@ -1,0 +1,630 @@
+# YAML parsing and factory helpers for simulation construction.
+#
+# All functions that translate YAML dict entries into Julia objects
+# (integrators, solvers, BCs, materials, etc.) live here.
+
+import FiniteElementContainers as FEC
+import ConstitutiveModels as CM
+import Krylov
+import YAML
+using StaticArrays
+using LinearAlgebra
+
+# ---------------------------------------------------------------------------
+# Internal parsers
+# ---------------------------------------------------------------------------
+
+# Resolve a file path relative to the YAML's directory.
+function _resolve(dict, key, basedir)
+    val = get(dict, key, nothing)
+    val === nothing && error("Missing required YAML key: \"$key\"")
+    isabspath(val) ? val : joinpath(basedir, val)
+end
+
+# ---- quadrature ----
+
+function _parse_quadrature(dict)
+    q_section = get(dict, "quadrature", nothing)
+    if q_section === nothing
+        return RFE.GaussLegendre, 2
+    end
+    type_str = lowercase(get(q_section, "type", "gauss legendre"))
+    order    = Int(get(q_section, "order", 2))
+    if type_str in ("gauss legendre", "gl")
+        return RFE.GaussLegendre, order
+    elseif type_str in ("gauss lobatto legendre", "gll")
+        return RFE.GaussLobattoLegendre, order
+    else
+        error("Unknown \"quadrature: type: $type_str\". " *
+              "Supported: \"gauss legendre\", \"gauss lobatto legendre\".")
+    end
+end
+
+# ---- material ----
+
+function _parse_material_section(dict)
+    model_dict_top = get(dict, "model", nothing)
+    model_dict_top === nothing && error("Missing \"model:\" section in YAML.")
+
+    mat_section = get(model_dict_top, "material", nothing)
+    mat_section === nothing && error("Missing \"model: material:\" section in YAML.")
+
+    # Expect:  blocks: { block_name: model_name }  followed by model-specific keys.
+    blocks = get(mat_section, "blocks", nothing)
+    blocks === nothing && error("Missing \"material: blocks:\" mapping.")
+    # Use the first (and for single-domain Phase 1, only) block's model name.
+    model_name = first(values(blocks))
+
+    # The model-specific sub-dict (e.g.  neohookean: { elastic modulus: ... })
+    model_props = get(mat_section, model_name, nothing)
+    model_props === nothing && error(
+        "Material block \"$model_name\" listed in blocks but no property dict found."
+    )
+
+    return parse_material(model_name, model_props)
+end
+
+# ---- time ----
+
+function _parse_times(dict)
+    ti_dict = get(dict, "time integrator", nothing)
+    ti_dict === nothing && error("Missing \"time integrator:\" section.")
+    t0  = Float64(get(ti_dict, "initial time", 0.0))
+    tf  = Float64(ti_dict["final time"])
+    dt  = Float64(ti_dict["time step"])
+    # FEC.TimeStepper: used by FEC internals (BC evaluation, time queries).
+    # Δt will be overwritten each sub-step during subcycling.
+    times = FEC.TimeStepper(t0, tf, round(Int, (tf - t0) / dt))
+    return t0, tf, dt, times
+end
+
+# ---- adaptive stepping ----
+
+function _parse_adaptive_stepping(ti_dict, dt_nominal)
+    has_min = haskey(ti_dict, "minimum time step")
+    has_max = haskey(ti_dict, "maximum time step")
+    has_dec = haskey(ti_dict, "decrease factor")
+    has_inc = haskey(ti_dict, "increase factor")
+    has_any = has_min || has_max || has_dec || has_inc
+    has_all = has_min && has_max && has_dec && has_inc
+    has_any && !has_all &&
+        error("Adaptive time stepping requires all four: " *
+              "\"minimum time step\", \"maximum time step\", " *
+              "\"decrease factor\", \"increase factor\".")
+    if has_all
+        min_dt = Float64(ti_dict["minimum time step"])
+        max_dt = Float64(ti_dict["maximum time step"])
+        dec    = Float64(ti_dict["decrease factor"])
+        inc    = Float64(ti_dict["increase factor"])
+        dec >= 1.0 && error("\"decrease factor\" must be < 1.0")
+        inc <= 1.0 && error("\"increase factor\" must be > 1.0")
+        min_dt > max_dt && error("\"minimum time step\" > \"maximum time step\"")
+    else
+        min_dt = max_dt = dt_nominal
+        dec = inc = 1.0
+    end
+    return min_dt, max_dt, dec, inc
+end
+
+# ---- integrator ----
+
+function _parse_integrator(dict, asm, asm_cpu, p_cpu, controller, device=:cpu)
+    ti_dict  = get(dict, "time integrator", nothing)
+    ti_dict === nothing && error("Missing \"time integrator:\" section.")
+    type_str = lowercase(get(ti_dict, "type", "quasi static"))
+    dt       = controller.control_step
+
+    # Get a template vector from a DirectLinearSolver built on the device assembler.
+    # asm is already on the correct device (CPU, ROCm, or CUDA), so its ΔUu
+    # is in the right memory space and can be used as a template for allocations.
+    fec_ls   = FEC.DirectLinearSolver(asm)
+    template = fec_ls.ΔUu
+
+    if type_str in ("quasi static", "quasistatic", "static")
+        sol_dict, ls_dict = _read_solver_dicts(dict)
+        min_dt, max_dt, dec, inc = _parse_adaptive_stepping(ti_dict, dt)
+        init_eq = Bool(get(ti_dict, "initial equilibrium", true))
+
+        make_precond = () -> _compute_stiffness_jacobi_precond(asm_cpu, p_cpu, template)
+        ls = _parse_linear_solver(ls_dict, template, device, make_precond)
+        ns = _parse_nonlinear_solver(sol_dict, ls; template=template, make_precond=make_precond)
+        return QuasiStaticIntegrator(ns, asm, template;
+                                      time_step=dt,
+                                      min_time_step=min_dt,
+                                      max_time_step=max_dt,
+                                      decrease_factor=dec,
+                                      increase_factor=inc,
+                                      initial_equilibrium=init_eq)
+
+    elseif type_str in ("newmark", "newmark-beta", "newmark beta")
+        sol_dict, ls_dict = _read_solver_dicts(dict)
+        α_hht = Float64(get(ti_dict, "alpha", 0.0))
+        β = α_hht != 0.0 ? (1.0 - α_hht)^2 / 4.0 : Float64(get(ti_dict, "beta",  0.25))
+        γ = α_hht != 0.0 ? (1.0 - 2.0*α_hht) / 2.0 : Float64(get(ti_dict, "gamma", 0.5))
+        min_dt, max_dt, dec, inc = _parse_adaptive_stepping(ti_dict, dt)
+
+        make_precond = () -> _compute_jacobi_precond(β, dt, asm_cpu, p_cpu, template)
+        ls = _parse_linear_solver(ls_dict, template, device, make_precond)
+        ns = _parse_nonlinear_solver(sol_dict, ls; template=template, make_precond=make_precond)
+        return NewmarkIntegrator(ns, asm, β, γ, template;
+                                  α_hht=α_hht,
+                                  time_step=dt,
+                                  min_time_step=min_dt,
+                                  max_time_step=max_dt,
+                                  decrease_factor=dec,
+                                  increase_factor=inc)
+
+    elseif type_str in ("central difference", "centraldifference", "cd")
+        γ = Float64(get(ti_dict, "gamma", get(ti_dict, "γ", 0.5)))
+        min_dt, max_dt, dec, inc = _parse_adaptive_stepping(ti_dict, dt)
+        CFL_val = Float64(get(ti_dict, "CFL", get(ti_dict, "cfl", 0.0)))
+        stable_dt_interval = Int(get(ti_dict, "stable time step interval", 0))
+
+        m_lumped = _compute_lumped_mass(asm_cpu, p_cpu, template)
+
+        ig = CentralDifferenceIntegrator(γ, asm, m_lumped;
+                                          time_step=dt,
+                                          min_time_step=min_dt,
+                                          max_time_step=max_dt,
+                                          decrease_factor=dec,
+                                          increase_factor=inc,
+                                          CFL=CFL_val,
+                                          stable_dt_interval=stable_dt_interval)
+
+        # Compute initial stable time step estimate
+        if CFL_val > 0.0
+            stable_dt = _compute_stable_dt(asm_cpu, p_cpu, CFL_val)
+            if stable_dt < ig.time_step
+                _carina_logf(0, :warning,
+                    "Δt = %.2e exceeds stable Δt = %.2e — using stable step.",
+                    ig.time_step, stable_dt)
+            end
+            ig.time_step = min(stable_dt, ig.time_step)
+            _carina_logf(0, :setup, "Stable Δt = %.2e (CFL = %.2f)", stable_dt, CFL_val)
+        end
+
+        return ig
+    else
+        error("Unknown time integrator type: \"$type_str\". " *
+              "Supported: \"quasi static\", \"Newmark\", \"central difference\".")
+    end
+end
+
+# Compute the Jacobi (diagonal) preconditioner for the Newmark effective
+# stiffness K + c_M·M using the mass-only approximation d_ii ≈ c_M·M_ii.
+#
+# The diagonal is computed on CPU (asm_cpu, p_cpu) and then transferred to
+# the target device (ΔUu_template may be a GPU array).
+# Assemble diag(A·ones) on CPU via matrix-action, copy result to target device.
+# Common boilerplate for Jacobi preconditioner and lumped mass computation.
+function _assemble_diag_cpu(action, asm_cpu, p_cpu, template)
+    n    = length(template)
+    ones_v  = ones(Float64, n)
+    U_zeros = zeros(Float64, n)
+    FEC.assemble_matrix_action!(asm_cpu, action, U_zeros, ones_v, p_cpu)
+    return copy(FEC.hvp(asm_cpu, ones_v))
+end
+
+function _to_device(cpu_vec, template)
+    out = similar(template)
+    copyto!(out, cpu_vec)
+    return out
+end
+
+function _compute_jacobi_precond(β, Δt, asm_cpu, p_cpu, ΔUu_template)
+    c_M = 1.0 / (β * Δt^2)
+    n = length(ΔUu_template)
+    U_zeros = zeros(Float64, n)
+    # diag(K_eff) = diag(K) + c_M · diag(M)
+    FEC.assemble_stiffness!(asm_cpu, FEC.stiffness, U_zeros, p_cpu)
+    K = FEC.stiffness(asm_cpu)
+    k_diag = [K[i, i] for i in 1:size(K, 1)]
+    m_diag = _assemble_diag_cpu(FEC.mass, asm_cpu, p_cpu, ΔUu_template)
+    eff_diag = k_diag .+ c_M .* m_diag
+    inv_diag_cpu = 1.0 ./ max.(abs.(eff_diag), eps(Float64))
+    return JacobiPreconditioner(_to_device(inv_diag_cpu, ΔUu_template))
+end
+
+# Jacobi preconditioner for quasi-static: diag(K(U=0))⁻¹.
+# Assembles the full stiffness matrix on CPU to extract the true diagonal,
+# then transfers to the target device.
+function _compute_stiffness_jacobi_precond(asm_cpu, p_cpu, ΔUu_template)
+    n = length(ΔUu_template)
+    U_zeros = zeros(Float64, n)
+    FEC.assemble_stiffness!(asm_cpu, FEC.stiffness, U_zeros, p_cpu)
+    K = FEC.stiffness(asm_cpu)
+    k_diag = [K[i, i] for i in 1:size(K, 1)]
+    inv_diag_cpu = 1.0 ./ max.(abs.(k_diag), eps(Float64))
+    return JacobiPreconditioner(_to_device(inv_diag_cpu, ΔUu_template))
+end
+
+# Lumped mass vector (diagonal row sums of consistent mass matrix).
+function _compute_lumped_mass(asm_cpu, p_cpu, ΔUu_template)
+    m_cpu = _assemble_diag_cpu(FEC.mass, asm_cpu, p_cpu, ΔUu_template)
+    return _to_device(m_cpu, ΔUu_template)
+end
+
+# Build L2 projection recovery data (CPU-only).
+function _build_recovery_data(recovery::Symbol, asm_cpu, p_cpu)
+    recovery == :none && return NoRecovery()
+
+    if recovery == :lumped
+        # Compute geometric lumped "mass" per node: vol_i = Σ_e Σ_q N_i(ξ_q) w_q |J|
+        # This is the volume tributary to each node (no density).
+        # Assembled directly from the element loop on CPU.
+        fspace = FEC.function_space(asm_cpu.dof)
+        n_nodes = size(p_cpu.coords, 2)
+        vol = zeros(Float64, n_nodes)
+        conns = fspace.elem_conns
+
+        for (b, ref_fe) in enumerate(fspace.ref_fes)
+            nelem = conns.nelems[b]
+            coffset = conns.offsets[b]
+            for e in 1:nelem
+                conn = FEC.connectivity(ref_fe, conns.data, e, coffset)
+                x_el = FEC._element_level_fields_flat(p_cpu.coords, ref_fe, conn)
+                nnpe = RFE.num_cell_dofs(ref_fe)
+                for q in 1:RFE.num_cell_quadrature_points(ref_fe)
+                    interps = FEC._cell_interpolants(ref_fe, q)
+                    cell = FEC.map_interpolants(interps, x_el)
+                    N = RFE.cell_shape_function_value(ref_fe, q)
+                    for i in 1:nnpe
+                        vol[conn[i]] += N[i] * cell.JxW
+                    end
+                end
+            end
+        end
+
+        inv_vol = zeros(Float64, n_nodes)
+        for i in 1:n_nodes
+            if vol[i] > 0.0
+                inv_vol[i] = 1.0 / vol[i]
+            end
+        end
+        _carina_log(0, :setup, "L2 lumped recovery initialized")
+        return LumpedRecovery(inv_vol)
+
+    elseif recovery == :consistent
+        # TODO: assemble and factor scalar mass matrix
+        _carina_log(0, :warning, "Consistent L2 recovery not yet implemented, falling back to lumped")
+        return _build_recovery_data(:lumped, asm_cpu, p_cpu)
+    else
+        return NoRecovery()
+    end
+end
+
+# Stable time step estimate for explicit dynamics (GPU-native).
+# Uses FEC's quadrature assembly to compute per-element characteristic length
+# on the device, then takes minimum over all blocks.
+function _compute_stable_dt(asm, p, CFL)
+    fspace = FEC.function_space(asm.dof)
+
+    # Pre-allocate per-block storage for element char lengths (nq × nelem)
+    char_len_storage = []
+    for (b, ref_fe) in enumerate(fspace.ref_fes)
+        nquad = RFE.num_cell_quadrature_points(ref_fe)
+        nelem = FEC.num_elements(fspace, b)
+        push!(char_len_storage, zeros(Float64, nquad, nelem))
+    end
+    char_len_storage = NamedTuple{keys(fspace.ref_fes)}(char_len_storage)
+
+    # Assemble per-element char lengths on device
+    U_zeros = zeros(Float64, length(asm.dof))
+    FEC.assemble_quadrature_quantity!(
+        char_len_storage, nothing, asm.dof,
+        element_char_length,
+        U_zeros, p
+    )
+
+    # Min-reduction over all blocks
+    stable_dt = Inf
+    for (b, (block_physics, block_storage, props)) in enumerate(zip(
+        values(p.physics), values(char_len_storage), values(p.properties),
+    ))
+        ρ   = block_physics.density
+        M   = CM.p_wave_modulus(block_physics.constitutive_model, props)
+        c_p = sqrt(M / ρ)
+        h_min = minimum(block_storage)   # GPU-native reduction if on device
+        block_dt = CFL * h_min / c_p
+        stable_dt = min(stable_dt, block_dt)
+    end
+    return stable_dt
+end
+
+# ---- solver ----
+
+# Validate and return the solver and linear-solver sub-dicts.
+# Errors if the required two-level structure is absent.
+function _read_solver_dicts(dict)
+    haskey(dict, "solver") ||
+        error("Missing required \"solver:\" section.")
+    sol_dict = dict["solver"]
+
+    haskey(sol_dict, "type") ||
+        error("Missing required \"solver: type:\". " *
+              "Supported values: \"newton\", \"hessian minimizer\".")
+    nl_type = lowercase(sol_dict["type"])
+    nl_type in ("newton", "hessian minimizer", "nonlinear cg", "nlcg", "conjugate gradient",
+                 "steepest descent", "gradient descent", "sd") ||
+        error("Unknown \"solver: type: $(sol_dict["type"])\". " *
+              "Supported: \"newton\", \"nonlinear cg\", \"steepest descent\".")
+
+    if nl_type in ("nonlinear cg", "nlcg", "conjugate gradient",
+                    "steepest descent", "gradient descent", "sd")
+        # Matrix-free solvers; linear solver section is optional
+        ls_dict = get(sol_dict, "linear solver", Dict{String,Any}("type" => "none"))
+    else
+        haskey(sol_dict, "linear solver") ||
+            error("Missing required \"solver: linear solver:\" section.")
+        ls_dict = sol_dict["linear solver"]
+        haskey(ls_dict, "type") ||
+            error("Missing required \"solver: linear solver: type:\". " *
+                  "Supported values: \"direct\", \"iterative\", \"cg\", \"minres\", \"lbfgs\", \"none\".")
+    end
+
+    return sol_dict, ls_dict
+end
+
+function _parse_linear_solver(ls_dict, template, device, make_precond::Function)
+    ls_type = lowercase(ls_dict["type"])
+    T  = eltype(template)
+    n  = length(template)
+    S  = typeof(template)
+
+    if ls_type == "direct"
+        device != :cpu && error(
+            "\"solver: linear solver: type: direct\" is CPU-only.")
+        return DirectLinearSolver()
+
+    elseif ls_type in ("iterative", "krylov", "minres", "cg", "conjugate gradient")
+        # All solid mechanics stiffness matrices are SPD → always use CG.
+        itmax     = Int(get(ls_dict, "maximum iterations", 1000))
+        rtol      = Float64(get(ls_dict, "tolerance", 1e-8))
+        assembled = (device == :cpu)
+
+        precond_dict = get(ls_dict, "preconditioner", Dict{String,Any}())
+        precond_type = lowercase(get(precond_dict, "type", "none"))
+        precond = if precond_type == "jacobi"
+            make_precond()
+        elseif precond_type in ("ic", "incomplete cholesky", "ildl", "incomplete ldlt")
+            ICPreconditioner()
+        else
+            NoPreconditioner()
+        end
+
+        workspace = Krylov.CgWorkspace(n, n, S)
+        ones_v  = (v = similar(template); fill!(v, one(T)); v)
+        scratch = (v = similar(template); fill!(v, zero(T)); v)
+
+        return KrylovLinearSolver(itmax, rtol, assembled, precond,
+                                   workspace, ones_v, scratch)
+
+    elseif ls_type == "lbfgs"
+        m     = Int(get(ls_dict, "history size", 10))
+        precond = make_precond()
+        mk()  = (v = similar(template); fill!(v, zero(T)); v)
+
+        S_buf = [mk() for _ in 1:m]
+        Y_buf = [mk() for _ in 1:m]
+        ρ         = zeros(Float64, m)
+        alpha_buf = zeros(Float64, m)
+        R_old, d, q, M_d, M_dU = mk(), mk(), mk(), mk(), mk()
+
+        return LBFGSLinearSolver(m, precond, S_buf, Y_buf, ρ, alpha_buf, 0, 0,
+                                  R_old, d, q, M_d, M_dU)
+
+    elseif ls_type == "none"
+        return NoLinearSolver()
+
+    else
+        error("Unknown \"solver: linear solver: type: $ls_type\". " *
+              "Supported values: \"direct\", \"iterative\", \"cg\", \"minres\", \"lbfgs\", \"none\".")
+    end
+end
+
+function _parse_nonlinear_solver(sol_dict, ls::AbstractLinearSolver;
+                                  template=nothing, make_precond=nothing)
+    solver_type = lowercase(get(sol_dict, "type", "newton"))
+    T = template !== nothing ? eltype(template) : Float64
+    mk() = template !== nothing ?
+        (v = similar(template); fill!(v, zero(T)); v) : Float64[]
+    min_iters = Int(get(sol_dict, "minimum iterations", 0))
+    max_iters = Int(get(sol_dict, "maximum iterations", 20))
+    abs_tol   = Float64(get(sol_dict, "absolute tolerance", 1e-10))
+    rel_tol   = Float64(get(sol_dict, "relative tolerance", 1e-14))
+    # Line search parameters
+    use_ls     = Bool(get(sol_dict, "use line search", false))
+    ls_back    = Float64(get(sol_dict, "line search backtrack factor", 0.5))
+    ls_dec     = Float64(get(sol_dict, "line search decrease factor", 1e-4))
+    ls_max     = Int(get(sol_dict, "line search maximum iterations", 10))
+
+    if solver_type in ("nonlinear cg", "nlcg", "conjugate gradient")
+        orth_tol = Float64(get(sol_dict, "orthogonality tolerance", 0.5))
+        restart  = Int(get(sol_dict, "restart interval", 0))
+        pc_dict  = get(sol_dict, "preconditioner", nothing)
+        precond  = if pc_dict !== nothing && make_precond !== nothing
+            make_precond()
+        else
+            NoPreconditioner()
+        end
+        return NLCGSolver(min_iters, max_iters, abs_tol, abs_tol, rel_tol,
+                          ls_back, ls_dec, ls_max,
+                          orth_tol, restart, precond,
+                          mk(), mk(), mk(), mk())
+
+    elseif solver_type in ("steepest descent", "gradient descent", "sd")
+        pc_dict  = get(sol_dict, "preconditioner", nothing)
+        precond  = if pc_dict !== nothing && make_precond !== nothing
+            make_precond()
+        else
+            NoPreconditioner()
+        end
+        return SteepestDescentSolver(min_iters, max_iters, abs_tol, abs_tol, rel_tol,
+                                      ls_back, ls_dec, ls_max,
+                                      precond, mk(), mk())
+    else
+        return NewtonSolver(min_iters, max_iters, abs_tol, abs_tol, rel_tol, ls,
+                            use_ls, ls_back, ls_dec, ls_max)
+    end
+end
+
+# ---- Dirichlet BCs ----
+
+function _parse_dirichlet_bcs(dict)
+    bc_section = get(dict, "boundary conditions", nothing)
+    bc_section === nothing && return FEC.DirichletBC[]
+    entries = get(bc_section, "Dirichlet", FEC.DirichletBC[])
+    entries isa Vector || error("\"Dirichlet:\" must be a list.")
+
+    dbcs = FEC.DirichletBC[]
+    for entry in entries
+        var_sym  = _component_to_symbol(entry["component"])
+        func     = _make_function(entry["function"])
+        # Accept either sideset or nodeset
+        if haskey(entry, "sideset")
+            push!(dbcs, FEC.DirichletBC(var_sym, func;
+                sideset_name = Symbol(entry["sideset"])))
+        elseif haskey(entry, "nodeset")
+            push!(dbcs, FEC.DirichletBC(var_sym, func;
+                nodeset_name = Symbol(entry["nodeset"])))
+        else
+            error("Dirichlet BC entry must specify \"sideset\" or \"nodeset\".")
+        end
+    end
+    return dbcs
+end
+
+# ---- Neumann BCs ----
+
+function _parse_neumann_bcs(dict)
+    bc_section = get(dict, "boundary conditions", nothing)
+    bc_section === nothing && return FEC.NeumannBC[]
+    entries = get(bc_section, "Neumann", FEC.NeumannBC[])
+    entries isa Vector || error("\"Neumann:\" must be a list.")
+
+    nbcs = FEC.NeumannBC[]
+    for entry in entries
+        var_sym  = _component_to_symbol(entry["component"])
+        comp_idx = var_sym === :displ_x ? 1 : var_sym === :displ_y ? 2 : 3
+        scalar   = _make_function(entry["function"])
+        # FEC expects func(coords, t) → SVector{3, Float64} with one component set.
+        func = let idx = comp_idx, f = scalar
+            (coords, t) -> begin
+                v = f(coords, t)
+                SVector{3, Float64}(idx == 1 ? v : 0.0,
+                                    idx == 2 ? v : 0.0,
+                                    idx == 3 ? v : 0.0)
+            end
+        end
+        sset = Symbol(entry["sideset"])
+        push!(nbcs, FEC.NeumannBC(var_sym, func, sset))
+    end
+    return nbcs
+end
+
+# ---- Body Forces ----
+
+function _parse_body_forces(dict)
+    bf_section = get(dict, "body forces", nothing)
+    bf_section === nothing && return FEC.BodyForce[]
+    entries = bf_section isa Vector ? bf_section : [bf_section]
+
+    bfs = FEC.BodyForce[]
+    for entry in entries
+        var_sym  = _component_to_symbol(entry["component"])
+        comp_idx = var_sym === :displ_x ? 1 : var_sym === :displ_y ? 2 : 3
+        scalar   = _make_function(entry["function"])
+        func = let idx = comp_idx, f = scalar
+            (coords, t) -> begin
+                v = f(coords, t)
+                SVector{3, Float64}(idx == 1 ? v : 0.0,
+                                    idx == 2 ? v : 0.0,
+                                    idx == 3 ? v : 0.0)
+            end
+        end
+        block = Symbol(get(entry, "block", "all"))
+        push!(bfs, FEC.BodyForce(var_sym, func, block))
+    end
+    return bfs
+end
+
+# ---- Helpers ----
+
+function _integrator_name(::QuasiStaticIntegrator) "Quasi-static" end
+function _integrator_name(::NewmarkIntegrator)      "Newmark" end
+function _integrator_name(::CentralDifferenceIntegrator) "Central difference" end
+
+function _solver_description(ig)
+    ig_name = _integrator_name(ig)
+    ns = nonlinear_solver(ig)
+    if ns isa NewtonSolver
+        ls = ns.linear_solver
+        ls_name = if ls isa DirectLinearSolver
+            "direct"
+        elseif ls isa KrylovLinearSolver
+            "CG"
+        elseif ls isa LBFGSLinearSolver
+            "L-BFGS"
+        else
+            string(typeof(ls))
+        end
+        return "$ig_name, Newton + $ls_name"
+    elseif ns isa NLCGSolver
+        return "$ig_name, nonlinear CG"
+    elseif ns isa SteepestDescentSolver
+        return "$ig_name, steepest descent (energy-based)"
+    else
+        return "$ig_name"
+    end
+end
+
+function _solver_description(::CentralDifferenceIntegrator)
+    return "Central difference (explicit)"
+end
+
+# Map "x" / "y" / "z" → :displ_x / :displ_y / :displ_z
+function _component_to_symbol(comp::String)
+    c = lowercase(strip(comp))
+    c == "x" && return :displ_x
+    c == "y" && return :displ_y
+    c == "z" && return :displ_z
+    error("Unknown component \"$comp\". Expected x, y, or z.")
+end
+
+# Turn a YAML function string into a Julia (coords, t) -> value closure.
+# Supported variables in the expression: t, x, y, z (node coordinates).
+#
+# Uses @eval to create a compiled anonymous function that is isbits
+# (GPU-compatible as a kernel argument). The function is defined at the
+# current top-level scope, so callers in the time loop must use
+# Base.invokelatest to see it.
+function _make_function(expr_str::String)
+    body = Meta.parse(expr_str)
+    # Multi-statement strings like "a=8000; expr" parse as Expr(:toplevel,...),
+    # which is invalid inside a function body; convert to Expr(:block,...).
+    if body isa Expr && body.head === :toplevel
+        body = Expr(:block, body.args...)
+    end
+    return @eval (coords, t) -> begin
+        x = coords[1]; y = coords[2]; z = coords[3]
+        $body
+    end
+end
+
+# ---- initial conditions ----
+
+function _parse_displacement_ics(dict)
+    ic_dict = get(dict, "initial conditions", nothing)
+    ic_dict === nothing && return Any[]
+    disp_ics = get(ic_dict, "displacement", Any[])
+    disp_ics isa Vector || error("\"initial conditions: displacement:\" must be a list.")
+    return disp_ics
+end
+
+function _parse_velocity_ics(dict)
+    ic_dict = get(dict, "initial conditions", nothing)
+    ic_dict === nothing && return Any[]
+    vel_ics = get(ic_dict, "velocity", Any[])
+    vel_ics isa Vector || error("\"initial conditions: velocity:\" must be a list.")
+    return vel_ics
+end

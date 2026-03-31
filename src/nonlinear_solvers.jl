@@ -136,14 +136,14 @@ function solve!(ns::NewtonSolver{<:LBFGSLinearSolver}, ig, p)
                                            ls.alpha_buf, ls.head, ls.hist_fill, ls.m, ls.precond)
         _lbfgs_precompute_M_d!(ig, ls, p)
         copyto!(ls.R_old, residual(ig))
-        # Backtracking line search
+        # Backtracking line search (uses solver parameters, not hardcoded)
         step = 1.0; ls_iters = 0
-        t_ls = @elapsed for lsi in 1:10
+        t_ls = @elapsed for lsi in 1:ns.ls_max_iters
             ls_iters = lsi
             _lbfgs_trial_rhs!(ig, ls, step, p)
             norm_R_trial = sqrt(sum(abs2, residual(ig)))
             isfinite(norm_R_trial) && norm_R_trial < norm_R && break
-            step *= 0.5
+            step *= ns.ls_backtrack
         end
         # Accept step
         U = _displacement(ig)
@@ -275,63 +275,14 @@ end
 
 # ---- Steepest Descent with energy-based Armijo line search ----
 
-# Compute total potential energy: Π = W_int - f_ext · U
-# W_int comes from FEC.assemble_scalar!(asm, FEC.energy, U, p).
-# f_ext · U = -(R_assembled · U - W_int_linearized), but simpler to compute
-# f_ext directly: after residual assembly, R = F_int + F_nbc + F_bf, so
-# F_ext = -(F_nbc + F_bf). However, we can compute Π more simply:
-#   Π = W_int + R_assembled · U  (for linear external forces)
-# Actually: R = F_int - F_ext (with sign convention), so
-# F_ext · U = F_int · U - R · U.  And W_int = ∫ Ψ dΩ.  For hyperelastic,
-# F_int = ∂W_int/∂U, so F_int · dU = dW_int. Not helpful for finite steps.
-#
-# Simplest correct approach: evaluate W_int via assemble_scalar, then
-# compute external work via separate assembly of Neumann/body contributions.
-# But FEC doesn't separate them. Instead, use the fact that for the Armijo
-# check we only need Π(U+αd) - Π(U) ≤ c·α·∇Π·d, and ∇Π·d = -R_eff·d.
-# We evaluate Π at trial and reference points.
-
+# Compute strain energy W_int = ∫ Ψ(F) dΩ via FEC.assemble_scalar!.
+# Used as the merit function for the Armijo line search.
+# The directional derivative ∂Π/∂α = -R_eff · d is exact and computed
+# separately in the line search (not from energy differences).
 function _compute_energy(ig, p)
-    U = _displacement(ig)
     asm = ig.asm
-    FEC.assemble_scalar!(asm, FEC.energy, U, p)
-    # Sum strain energy over all blocks and QPs
-    W_int = sum(sum(v) for v in values(asm.scalar_quadrature_storage))
-    # External work: from Neumann BCs and body forces.
-    # After residual assembly, R_storage = F_int + F_nbc + F_bf
-    # where F_nbc and F_bf are external contributions.
-    # F_ext · U = -(F_nbc + F_bf) · U.
-    # Since R_eff = -(F_int + F_nbc + F_bf) = F_ext - F_int,
-    # we have: Π = W_int - F_ext · U = W_int - (R_eff + F_int) · U
-    # But F_int · U ≠ W_int in general (nonlinear).
-    #
-    # For correct Π, assemble R to get F_ext separately.
-    # R_eff = F_ext - F_int → F_ext = R_eff + F_int
-    # But we only have R_eff and W_int.
-    #
-    # Alternative: just use W_int + (assembled residual) · U as the merit.
-    # Since assembled R = F_int - F_ext (FEC convention) and
-    # R_eff = -R_assembled, we have R_assembled = -R_eff.
-    # Π = W_int - F_ext · U = W_int + R_assembled · U - F_int · U
-    # This requires F_int · U which we don't have separately.
-    #
-    # SIMPLIFICATION: For line search we only need RELATIVE changes in Π.
-    # The external force contributions are linear in U for gravity/Neumann:
-    #   W_ext(U + αd) = W_ext(U) + α · f_ext · d
-    # So: Π(U + αd) - Π(U) = [W_int(U+αd) - W_int(U)] - α · f_ext · d
-    # And f_ext · d = (R_eff + F_int) · d ≈ R_eff · d for small steps
-    # (F_int · d ≈ dW_int/dα at α=0, which cancels).
-    # Actually: ∂Π/∂α|₀ = ∂W_int/∂α - f_ext · d = F_int · d - f_ext · d = -R_eff · d
-    # This is exact. So for Armijo we need:
-    #   Π(α) ≤ Π(0) + c·α·(-R_eff · d)
-    # where Π(α) = W_int(U+αd) - f_ext · (U+αd).
-    # Since f_ext is constant: Π(α) - Π(0) = ΔW_int - α·f_ext·d
-    # And f_ext·d = R_eff·d + F_int·d = R_eff·d + ∂W_int/∂α|₀
-    #
-    # Too complex. Just compute W_int and use the residual dot product for
-    # the external work term. For the line search acceptance:
-    # ΔΠ ≈ ΔW_int - α·R_eff·d (first-order external work correction)
-    return W_int
+    FEC.assemble_scalar!(asm, FEC.energy, _displacement(ig), p)
+    return sum(sum(v) for v in values(asm.scalar_quadrature_storage))
 end
 
 function solve!(ns::SteepestDescentSolver, ig, p)

@@ -31,6 +31,8 @@ include("integrators.jl")
 include("linear_solvers.jl")
 include("nonlinear_solvers.jl")
 include("materials.jl")
+include("yaml_parsing.jl")
+include("initialization.jl")
 include("io.jl")
 include("simulation.jl")
 
