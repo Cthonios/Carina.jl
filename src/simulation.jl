@@ -177,7 +177,7 @@ function create_simulation(dict::Dict{String,Any}, basedir::String="";
     # Evaluate Dirichlet BC values at t=0 so _update_for_assembly! can set
     # constrained DOFs correctly before IC application and initial acceleration.
     # Only CPU parameters needed — GPU field is synced via _update_for_assembly!.
-    Base.invokelatest(FEC.update_bc_values!, p_cpu)
+    Base.invokelatest(FEC.update_bc_values!, p_cpu, asm_cpu)
 
     t0 = controller.initial_time
     _apply_initial_displacement_ics!(integrator, mesh, asm_cpu, p, p_cpu,
