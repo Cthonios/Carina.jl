@@ -26,9 +26,9 @@ using LinearAlgebra
 # QuasiStaticIntegrator{NS, Vec}
 # --------------------------------------------------------------------------- #
 
-mutable struct QuasiStaticIntegrator{NS <: AbstractNonlinearSolver, Vec}
+mutable struct QuasiStaticIntegrator{NS <: AbstractNonlinearSolver, Asm, Vec}
     nonlinear_solver ::NS
-    asm              ::Any
+    asm              ::Asm
     solution         ::Vec   # free-DOF displacement accumulator
     time_step        ::Float64
     min_time_step    ::Float64
@@ -62,9 +62,9 @@ end
 # NewmarkIntegrator{NS, Vec}
 # --------------------------------------------------------------------------- #
 
-mutable struct NewmarkIntegrator{NS <: AbstractNonlinearSolver, Vec}
+mutable struct NewmarkIntegrator{NS <: AbstractNonlinearSolver, Asm, Vec}
     nonlinear_solver ::NS
-    asm              ::Any
+    asm              ::Asm
     β                ::Float64
     γ                ::Float64
     α_hht            ::Float64
@@ -348,7 +348,7 @@ const _DynamicIntegrator = Union{NewmarkIntegrator, CentralDifferenceIntegrator}
 
 function FEC.evolve!(ig, p)
     FEC.update_time!(p)
-    FEC.update_bc_values!(p)
+    FEC.update_bc_values!(p, ig.asm)
     predict!(ig, p)
     solve!(nonlinear_solver(ig), ig, p)
     ig.failed[] && return nothing
