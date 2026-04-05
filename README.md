@@ -138,6 +138,14 @@ device: rocm    # AMD
 
 ---
 
+## Reference
+
+See [docs/reference.md](docs/reference.md) for full YAML input documentation:
+solver/preconditioner compatibility, material models, boundary conditions,
+time integrators, and output control.
+
+---
+
 ## Testing
 
 ```bash
