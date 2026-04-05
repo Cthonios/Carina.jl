@@ -171,6 +171,7 @@ function create_simulation(dict::Dict{String,Any}, basedir::String="";
     end
 
     _carina_log(0, :setup, "Building integrator and solver...")
+    _init_assembly_cache!(asm_cpu, cm isa CM.LinearElastic)
     integrator = _parse_integrator(dict, asm, asm_cpu, p_cpu, controller, device)
     _carina_logf(0, :setup, "Solver:  %s", _solver_description(integrator))
 

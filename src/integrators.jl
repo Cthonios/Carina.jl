@@ -23,6 +23,34 @@ import FiniteElementContainers as FEC
 using LinearAlgebra
 
 # --------------------------------------------------------------------------- #
+# Assembly caching — module-level state to avoid changing integrator struct
+# layouts (which would trigger GPU kernel recompilation).
+#
+# _asm_flags controls whether stiffness/mass assembly is skipped (cached).
+# _K_cache / _M_cache store sparse-matrix value arrays for the Newmark
+# assembled path (K_eff = K + c_M·M overwrites stiffness_storage in place).
+#
+# Initialized by _init_assembly_cache!() called from simulation.jl.
+# --------------------------------------------------------------------------- #
+
+const _asm_flags = AssemblyFlags(true, true, false)
+const _K_cache   = Float64[]
+const _M_cache   = Float64[]
+
+function _init_assembly_cache!(asm, is_linear::Bool)
+    _asm_flags.compute_stiffness = true
+    _asm_flags.compute_mass      = true
+    _asm_flags.is_linear         = is_linear
+    empty!(_K_cache)
+    empty!(_M_cache)
+    if hasproperty(asm, :stiffness_storage)
+        append!(_K_cache, asm.stiffness_storage)
+        append!(_M_cache, asm.mass_storage)
+    end
+    return nothing
+end
+
+# --------------------------------------------------------------------------- #
 # QuasiStaticIntegrator{NS, Vec}
 # --------------------------------------------------------------------------- #
 
@@ -225,22 +253,44 @@ end
 # Returns true on success, false on exception (may set ig.failed[]).
 
 function setup_jacobian!(ig::QuasiStaticIntegrator{<:NewtonSolver{DirectLinearSolver}}, p)
-    FEC.assemble_stiffness!(ig.asm, FEC.stiffness, ig.solution, p)
+    af = _asm_flags
+    if af.compute_stiffness
+        FEC.assemble_stiffness!(ig.asm, FEC.stiffness, ig.solution, p)
+        af.is_linear && (af.compute_stiffness = false)
+    end
     return true
 end
 
 function setup_jacobian!(ig::NewmarkIntegrator{<:NewtonSolver{DirectLinearSolver}}, p)
-    asm = ig.asm; U = ig.U; c_M = ig.c_M
-    FEC.assemble_stiffness!(asm, FEC.stiffness, U, p)
-    FEC.assemble_mass!(asm, FEC.mass, U, p)
+    asm = ig.asm; U = ig.U; c_M = ig.c_M; af = _asm_flags
+    if af.compute_stiffness
+        FEC.assemble_stiffness!(asm, FEC.stiffness, U, p)
+        if af.is_linear
+            copyto!(_K_cache, asm.stiffness_storage)
+            af.compute_stiffness = false
+        end
+    else
+        copyto!(asm.stiffness_storage, _K_cache)
+    end
+    if af.compute_mass
+        FEC.assemble_mass!(asm, FEC.mass, U, p)
+        copyto!(_M_cache, asm.mass_storage)
+        af.compute_mass = false
+    else
+        copyto!(asm.mass_storage, _M_cache)
+    end
     @. asm.stiffness_storage += c_M * asm.mass_storage
     return true
 end
 
 function setup_jacobian!(ig::QuasiStaticIntegrator{<:NewtonSolver{<:KrylovLinearSolver}}, p)
     ls = ig.nonlinear_solver.linear_solver; U = ig.solution; asm = ig.asm
+    af = _asm_flags
     if ls.assembled
-        FEC.assemble_stiffness!(asm, FEC.stiffness, U, p)
+        if af.compute_stiffness
+            FEC.assemble_stiffness!(asm, FEC.stiffness, U, p)
+            af.is_linear && (af.compute_stiffness = false)
+        end
         _update_jacobi_precond_assembled!(ls.precond, FEC.stiffness(asm))
         _update_chebyshev_precond_assembled!(ls.precond, FEC.stiffness(asm))
     else
@@ -252,10 +302,25 @@ end
 
 function setup_jacobian!(ig::NewmarkIntegrator{<:NewtonSolver{<:KrylovLinearSolver}}, p)
     ls = ig.nonlinear_solver.linear_solver; asm = ig.asm; U = ig.U; c_M = ig.c_M
+    af = _asm_flags
     if ls.assembled
         try
-            FEC.assemble_stiffness!(asm, FEC.stiffness, U, p)
-            FEC.assemble_mass!(asm, FEC.mass, U, p)
+            if af.compute_stiffness
+                FEC.assemble_stiffness!(asm, FEC.stiffness, U, p)
+                if af.is_linear
+                    copyto!(_K_cache, asm.stiffness_storage)
+                    af.compute_stiffness = false
+                end
+            else
+                copyto!(asm.stiffness_storage, _K_cache)
+            end
+            if af.compute_mass
+                FEC.assemble_mass!(asm, FEC.mass, U, p)
+                copyto!(_M_cache, asm.mass_storage)
+                af.compute_mass = false
+            else
+                copyto!(asm.mass_storage, _M_cache)
+            end
             @. asm.stiffness_storage += c_M * asm.mass_storage
             _update_jacobi_precond_assembled!(ls.precond, FEC.stiffness(asm))
             _update_chebyshev_precond_assembled!(ls.precond, FEC.stiffness(asm))
