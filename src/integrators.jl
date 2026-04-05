@@ -242,8 +242,10 @@ function setup_jacobian!(ig::QuasiStaticIntegrator{<:NewtonSolver{<:KrylovLinear
     if ls.assembled
         FEC.assemble_stiffness!(asm, FEC.stiffness, U, p)
         _update_jacobi_precond_assembled!(ls.precond, FEC.stiffness(asm))
+        _update_chebyshev_precond_assembled!(ls.precond, FEC.stiffness(asm))
     else
         _update_jacobi_precond_qs!(ls.precond, asm, U, ls.ones_v, p)
+        _update_chebyshev_precond_qs!(ls.precond, asm, U, p)
     end
     return true
 end
@@ -256,12 +258,14 @@ function setup_jacobian!(ig::NewmarkIntegrator{<:NewtonSolver{<:KrylovLinearSolv
             FEC.assemble_mass!(asm, FEC.mass, U, p)
             @. asm.stiffness_storage += c_M * asm.mass_storage
             _update_jacobi_precond_assembled!(ls.precond, FEC.stiffness(asm))
+            _update_chebyshev_precond_assembled!(ls.precond, FEC.stiffness(asm))
         catch
             ig.failed[] = true
             return false
         end
     else
         _update_jacobi_precond_eff!(ls.precond, asm, U, ls.ones_v, c_M, p, ls.scratch)
+        _update_chebyshev_precond_eff!(ls.precond, asm, U, c_M, p, ls.scratch)
     end
     return true
 end

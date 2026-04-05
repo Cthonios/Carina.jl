@@ -487,6 +487,10 @@ function _parse_linear_solver(ls_dict, template, device, make_precond::Function)
             make_precond()
         elseif precond_type in ("ic", "incomplete cholesky", "ildl", "incomplete ldlt")
             ICPreconditioner()
+        elseif precond_type in ("chebyshev", "chebyshev polynomial")
+            degree = Int(get(precond_dict, "degree", 5))
+            mk_s() = (v = similar(template); fill!(v, zero(T)); v)
+            ChebyshevPreconditioner(degree, Ref(0.0), Ref(0.0), mk_s(), mk_s(), mk_s())
         else
             NoPreconditioner()
         end

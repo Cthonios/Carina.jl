@@ -23,6 +23,7 @@ const indexed_test_files = [
     (12, "mechanics-quasistatic-cube-nlcg.jl"),
     (13, "mechanics-implicit-dynamic-cube-nlcg.jl"),
     (14, "mechanics-gpu-device.jl"),
+    (15, "mechanics-quasistatic-cube-chebyshev.jl"),
 ]
 
 # ---------------------------------------------------------------------------

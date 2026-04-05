@@ -46,6 +46,27 @@ end
 struct ICPreconditioner <: Preconditioner end
 
 # --------------------------------------------------------------------------- #
+# Chebyshev polynomial preconditioner (matrix-free, GPU-friendly)
+#
+# Approximates A⁻¹ via a degree-k Chebyshev polynomial p_k(A).
+# Application requires only matrix-vector products (no triangular solves),
+# making it ideal for the GPU matrix-free path where IC is unavailable
+# and Jacobi is too weak.
+#
+# Spectral bounds [λ_min, λ_max] are estimated via short Lanczos iteration
+# and updated each Newton step.
+# --------------------------------------------------------------------------- #
+
+struct ChebyshevPreconditioner{V} <: Preconditioner
+    degree     ::Int                    # polynomial degree (inner matvecs per apply)
+    lambda_min ::Base.RefValue{Float64} # estimated smallest eigenvalue
+    lambda_max ::Base.RefValue{Float64} # estimated largest eigenvalue
+    work1      ::V                      # scratch vector for recurrence
+    work2      ::V                      # scratch vector for recurrence
+    work3      ::V                      # scratch for squared-polynomial intermediate
+end
+
+# --------------------------------------------------------------------------- #
 # Abstract solver types
 # --------------------------------------------------------------------------- #
 
