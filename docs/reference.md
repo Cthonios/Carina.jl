@@ -160,7 +160,7 @@ Adaptive time stepping (all four keys required together, or omit all):
 
 | Key | Default | Description |
 |-----|---------|-------------|
-| `initial equilibrium` | `true` | Solve R=0 at t=0 before advancing. |
+| `initial equilibrium` | `false` | Solve R=0 at t=0 before advancing. |
 
 ### Newmark (Implicit Dynamics)
 

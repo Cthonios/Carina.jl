@@ -220,7 +220,7 @@ function _parse_integrator(dict, asm, asm_cpu, p_cpu, controller, device=:cpu)
     if type_str in ("quasi static", "quasistatic", "static")
         sol_dict, ls_dict = _read_solver_dicts(dict)
         min_dt, max_dt, dec, inc = _parse_adaptive_stepping(ti_dict, dt)
-        init_eq = Bool(get(ti_dict, "initial equilibrium", true))
+        init_eq = Bool(get(ti_dict, "initial equilibrium", false))
 
         make_precond = () -> _compute_stiffness_jacobi_precond(asm_cpu, p_cpu, template)
         ls = _parse_linear_solver(ls_dict, template, device, make_precond)

@@ -47,7 +47,7 @@ function QuasiStaticIntegrator(ns::NS, asm, template::Vec;
                                 max_time_step::Float64=0.0,
                                 decrease_factor::Float64=1.0,
                                 increase_factor::Float64=1.0,
-                                initial_equilibrium::Bool=true) where {NS, Vec}
+                                initial_equilibrium::Bool=false) where {NS, Vec}
     T  = eltype(template)
     mk() = (v = similar(template); fill!(v, zero(T)); v)
     solution = mk()
