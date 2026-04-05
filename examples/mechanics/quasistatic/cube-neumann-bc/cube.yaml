@@ -21,17 +21,17 @@ time integrator:
 
 boundary conditions:
   Dirichlet:
-    - sideset:   ssx-
+    - side set:   ssx-
       component: x
       function:  "0.0"
-    - sideset:   ssy-
+    - side set:   ssy-
       component: y
       function:  "0.0"
-    - sideset:   ssz-
+    - side set:   ssz-
       component: z
       function:  "0.0"
   Neumann:
-    - sideset:   ssz+
+    - side set:   ssz+
       component: z
       function:  "-1.0e+09 * t"
 

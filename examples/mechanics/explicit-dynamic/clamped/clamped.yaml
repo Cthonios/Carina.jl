@@ -52,22 +52,22 @@ initial conditions:
 
 boundary conditions:
   Dirichlet:
-    - nodeset: nsx-
+    - node set: nsx-
       component: x
       function: "0.0"
-    - nodeset: nsx+
+    - node set: nsx+
       component: x
       function: "0.0"
-    - nodeset: nsy-
+    - node set: nsy-
       component: y
       function: "0.0"
-    - nodeset: nsy+
+    - node set: nsy+
       component: y
       function: "0.0"
-    - nodeset: nsz-
+    - node set: nsz-
       component: z
       function: "0.0"
-    - nodeset: nsz+
+    - node set: nsz+
       component: z
       function: "0.0"
 

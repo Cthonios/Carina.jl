@@ -48,7 +48,7 @@ time integrator:
 
 boundary conditions:
   Dirichlet:
-    - sideset: face_z_minus
+    - side set: face_z_minus
       component: z
       function: "0.0"
 
@@ -378,12 +378,12 @@ Fix displacement components on surfaces or node sets.
 ```yaml
 boundary conditions:
   Dirichlet:
-    - sideset: face_name      # or: nodeset: set_name
-      component: x            # x, y, or z
-      function: "0.005 * t"   # expression in t, x, y, z
+    - side set: face_name     # or: node set: set_name
+      component: x           # x, y, or z
+      function: "0.005 * t"  # expression in t, x, y, z
 ```
 
-Either `sideset` or `nodeset` must be specified (not both).  The names must
+Either `side set` or `node set` must be specified (not both).  The names must
 match side sets or node sets defined in the Exodus mesh file.
 
 ### Neumann (Natural)
@@ -393,12 +393,12 @@ Apply traction (force per unit area) on surfaces.
 ```yaml
 boundary conditions:
   Neumann:
-    - sideset: face_name
+    - side set: face_name
       component: y
       function: "1.0e6 * t"    # Pa (force/area)
 ```
 
-Neumann BCs require a `sideset` (not nodeset).
+Neumann BCs require a `side set` (not `node set`).
 
 ### Sources (Body Forces)
 

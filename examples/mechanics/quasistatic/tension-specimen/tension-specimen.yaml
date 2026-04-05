@@ -39,16 +39,16 @@ time integrator:
 
 boundary conditions:
   Dirichlet:
-    - nodeset: sym_y
+    - node set: sym_y
       component: y
       function: "0.0"
-    - nodeset: sym_x
+    - node set: sym_x
       component: x
       function: "0.0"
-    - nodeset: sym_z
+    - node set: sym_z
       component: z
       function: "0.0"
-    - nodeset: top_y
+    - node set: top_y
       component: y
       function: "0.005 * t"
 

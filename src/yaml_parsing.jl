@@ -96,8 +96,8 @@ const _LINEAR_SOLVER_KEYS = Set([
     "preconditioner", "assembled",
 ])
 
-const _DBC_ENTRY_KEYS = Set(["sideset", "nodeset", "component", "function"])
-const _NBC_ENTRY_KEYS = Set(["sideset", "component", "function"])
+const _DBC_ENTRY_KEYS = Set(["side set", "node set", "component", "function"])
+const _NBC_ENTRY_KEYS = Set(["side set", "component", "function"])
 const _BF_ENTRY_KEYS  = Set(["block", "component", "function"])
 const _IC_ENTRY_KEYS  = Set(["node set", "component", "function"])
 
@@ -584,15 +584,15 @@ function _parse_dirichlet_bcs(dict)
         _validate_keys(entry, _DBC_ENTRY_KEYS, "Dirichlet BC entry $i")
         var_sym  = _component_to_symbol(entry["component"])
         func     = _make_function(entry["function"])
-        # Accept either sideset or nodeset
-        if haskey(entry, "sideset")
+        # Accept either "side set" or "node set"
+        if haskey(entry, "side set")
             push!(dbcs, FEC.DirichletBC(var_sym, func;
-                sideset_name = Symbol(entry["sideset"])))
-        elseif haskey(entry, "nodeset")
+                sideset_name = Symbol(entry["side set"])))
+        elseif haskey(entry, "node set")
             push!(dbcs, FEC.DirichletBC(var_sym, func;
-                nodeset_name = Symbol(entry["nodeset"])))
+                nodeset_name = Symbol(entry["node set"])))
         else
-            error("Dirichlet BC entry must specify \"sideset\" or \"nodeset\".")
+            error("Dirichlet BC entry must specify \"side set\" or \"node set\".")
         end
     end
     return dbcs
@@ -621,7 +621,7 @@ function _parse_neumann_bcs(dict)
                                     idx == 3 ? v : 0.0)
             end
         end
-        sset = Symbol(entry["sideset"])
+        sset = Symbol(entry["side set"])
         push!(nbcs, FEC.NeumannBC(var_sym, func, sset))
     end
     return nbcs

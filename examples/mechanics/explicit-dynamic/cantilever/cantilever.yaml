@@ -29,12 +29,12 @@ initial conditions:
 
 boundary conditions:
   Dirichlet:
-    - nodeset: nsx-
+    - node set: nsx-
       component: x
       function: "0.0"
-    - nodeset: nsx-
+    - node set: nsx-
       component: y
       function: "0.0"
-    - nodeset: nsx-
+    - node set: nsx-
       component: z
       function: "0.0"
