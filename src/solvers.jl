@@ -12,23 +12,27 @@
 #   AbstractNonlinearSolver → ExplicitSolver | NewtonSolver{LS} | NLCGSolver | SteepestDescentSolver
 
 # --------------------------------------------------------------------------- #
-# Assembly flags — controls caching of mass and stiffness matrices
+# Assembly flags — controls caching of mass/stiffness matrices and
+# factorizations.
 #
-# Mass matrix M is constant for constant-density materials: compute once.
+# Mass matrix M is constant (constant density): compute once.
 # Stiffness K is constant only for linear elastic materials: compute once.
+# Factorizations (LU, IC) can be cached when the system matrix is constant.
 #
 # Follows the flag pattern from Norma.jl: flags start true and are set to
-# false after first assembly, gating subsequent calls in setup_jacobian!.
+# false after first computation, gating subsequent calls.
 # --------------------------------------------------------------------------- #
 
 mutable struct AssemblyFlags
-    compute_stiffness::Bool   # false → K is cached, skip assemble_stiffness!
-    compute_mass     ::Bool   # false → M is cached, skip assemble_mass!
-    is_linear        ::Bool   # all blocks use linear elastic material
+    compute_stiffness    ::Bool   # false → K is cached, skip assemble_stiffness!
+    compute_mass         ::Bool   # false → M is cached, skip assemble_mass!
+    compute_factorization::Bool   # false → LU/IC factorization is cached
+    is_linear            ::Bool   # all blocks use linear elastic material
+    c_M_cached           ::Float64  # cached c_M value; refactorize if changed
 end
 
 AssemblyFlags(; is_linear::Bool=false) =
-    AssemblyFlags(true, true, is_linear)
+    AssemblyFlags(true, true, true, is_linear, 0.0)
 
 # --------------------------------------------------------------------------- #
 # Abstract type

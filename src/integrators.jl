@@ -29,18 +29,26 @@ using LinearAlgebra
 # _asm_flags controls whether stiffness/mass assembly is skipped (cached).
 # _K_cache / _M_cache store sparse-matrix value arrays for the Newmark
 # assembled path (K_eff = K + c_M·M overwrites stiffness_storage in place).
+# _factorization_cache holds a cached LU or IC factorization (Any-typed to
+# avoid parametric struct changes).
 #
 # Initialized by _init_assembly_cache!() called from simulation.jl.
 # --------------------------------------------------------------------------- #
 
-const _asm_flags = AssemblyFlags(true, true, false)
+const _asm_flags = AssemblyFlags()
 const _K_cache   = Float64[]
 const _M_cache   = Float64[]
+const _factorization_cache = Ref{Any}(nothing)
+const _precond_op_cache    = Ref{Any}(nothing)
 
 function _init_assembly_cache!(asm, is_linear::Bool)
-    _asm_flags.compute_stiffness = true
-    _asm_flags.compute_mass      = true
-    _asm_flags.is_linear         = is_linear
+    _asm_flags.compute_stiffness     = true
+    _asm_flags.compute_mass          = true
+    _asm_flags.compute_factorization = true
+    _asm_flags.is_linear             = is_linear
+    _asm_flags.c_M_cached            = 0.0
+    _factorization_cache[]           = nothing
+    _precond_op_cache[]              = nothing
     empty!(_K_cache)
     empty!(_M_cache)
     if hasproperty(asm, :stiffness_storage)
@@ -269,6 +277,7 @@ function setup_jacobian!(ig::NewmarkIntegrator{<:NewtonSolver{DirectLinearSolver
             copyto!(_K_cache, asm.stiffness_storage)
             af.compute_stiffness = false
         end
+        af.compute_factorization = true
     else
         copyto!(asm.stiffness_storage, _K_cache)
     end
@@ -276,8 +285,14 @@ function setup_jacobian!(ig::NewmarkIntegrator{<:NewtonSolver{DirectLinearSolver
         FEC.assemble_mass!(asm, FEC.mass, U, p)
         copyto!(_M_cache, asm.mass_storage)
         af.compute_mass = false
+        af.compute_factorization = true
     else
         copyto!(asm.mass_storage, _M_cache)
+    end
+    # c_M changes with adaptive time stepping → K_eff changes → refactorize
+    if c_M != af.c_M_cached
+        af.c_M_cached = c_M
+        af.compute_factorization = true
     end
     @. asm.stiffness_storage += c_M * asm.mass_storage
     return true
@@ -311,6 +326,7 @@ function setup_jacobian!(ig::NewmarkIntegrator{<:NewtonSolver{<:KrylovLinearSolv
                     copyto!(_K_cache, asm.stiffness_storage)
                     af.compute_stiffness = false
                 end
+                af.compute_factorization = true
             else
                 copyto!(asm.stiffness_storage, _K_cache)
             end
@@ -318,8 +334,13 @@ function setup_jacobian!(ig::NewmarkIntegrator{<:NewtonSolver{<:KrylovLinearSolv
                 FEC.assemble_mass!(asm, FEC.mass, U, p)
                 copyto!(_M_cache, asm.mass_storage)
                 af.compute_mass = false
+                af.compute_factorization = true
             else
                 copyto!(asm.mass_storage, _M_cache)
+            end
+            if c_M != af.c_M_cached
+                af.c_M_cached = c_M
+                af.compute_factorization = true
             end
             @. asm.stiffness_storage += c_M * asm.mass_storage
             _update_jacobi_precond_assembled!(ls.precond, FEC.stiffness(asm))

@@ -316,13 +316,22 @@ end
 
 function _linear_solve!(::DirectLinearSolver, ig, p, _ops)
     K  = FEC.stiffness(ig.asm)
+    af = _asm_flags
     t  = @elapsed begin
-        # NOTE: K is SPD in theory, but FEC's assembly produces a slightly
-        # asymmetric matrix (~1e-7 relative) due to the AD material tangent
-        # path.  Cholesky(Symmetric(K)) reads only one triangle, giving a
-        # ~50% solve error.  Use LU until the assembly is exactly symmetric,
-        # then switch to cholesky(Symmetric(K)) for ~2× speedup.
-        F  = lu(K)
+        if af.compute_factorization
+            # NOTE: K is SPD in theory, but FEC's assembly produces a slightly
+            # asymmetric matrix (~1e-7 relative) due to the AD material tangent
+            # path.  Cholesky(Symmetric(K)) reads only one triangle, giving a
+            # ~50% solve error.  Use LU until the assembly is exactly symmetric,
+            # then switch to cholesky(Symmetric(K)) for ~2× speedup.
+            F = lu(K)
+            if af.is_linear
+                _factorization_cache[] = F
+                af.compute_factorization = false
+            end
+        else
+            F = _factorization_cache[]
+        end
         ΔU = F \ residual(ig)
     end
     return ΔU, t
@@ -378,13 +387,22 @@ function _linear_solve!(ls::KrylovLinearSolver, ig::QuasiStaticIntegrator, p, op
     U = ig.solution; asm = ig.asm; n = length(U)
     K_op, M_op = ops
     R = residual(ig)   # K·ΔU = R_eff (positive, already negated)
+    af = _asm_flags
     t_kry = @elapsed begin
         if ls.assembled
             K_raw = FEC.stiffness(asm)
             # FEC assembly produces a slightly asymmetric K (~1e-7 relative)
             # due to the AD material tangent.  CG requires exact symmetry.
             K_sparse = Symmetric((K_raw + K_raw') / 2, :L)
-            M_op_asm = _build_precond_op(ls.precond, K_sparse, n)
+            if af.compute_factorization
+                M_op_asm = _build_precond_op(ls.precond, K_sparse, n)
+                if af.is_linear
+                    _precond_op_cache[] = M_op_asm
+                    af.compute_factorization = false
+                end
+            else
+                M_op_asm = _precond_op_cache[]
+            end
             if M_op_asm === nothing
                 Krylov.krylov_solve!(ls.workspace, K_sparse, R;
                                      atol=0.0, rtol=ls.rtol, itmax=ls.itmax, history=true)
@@ -415,6 +433,7 @@ function _linear_solve!(ls::KrylovLinearSolver, ig::NewmarkIntegrator, p, ops)
     asm = ig.asm; n = length(ig.U)
     K_eff_op, M_op_mf = ops
     R = residual(ig)
+    af = _asm_flags
     ΔU = similar(ig.U)
     t_kry = @elapsed begin
         try
@@ -423,7 +442,15 @@ function _linear_solve!(ls::KrylovLinearSolver, ig::NewmarkIntegrator, p, ops)
                 # Symmetrize: FEC assembly is ~1e-7 asymmetric (AD tangent).
                 K_eff_sparse = Symmetric((K_eff_raw + K_eff_raw') / 2, :L)
                 if ls.precond isa ICPreconditioner
-                    F_ic = lldl(K_eff_sparse)
+                    if af.compute_factorization
+                        F_ic = lldl(K_eff_sparse)
+                        if af.is_linear
+                            _factorization_cache[] = F_ic
+                            af.compute_factorization = false
+                        end
+                    else
+                        F_ic = _factorization_cache[]
+                    end
                     ΔU_vec, cg_hist = IterativeSolvers.cg(K_eff_sparse, R;
                         Pl=F_ic, abstol=0.0, reltol=ls.rtol, log=true)
                 else
