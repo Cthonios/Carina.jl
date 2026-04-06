@@ -309,11 +309,17 @@ function setup_jacobian!(ig::QuasiStaticIntegrator{<:NewtonSolver{<:KrylovLinear
         _update_jacobi_precond_assembled!(ls.precond, FEC.stiffness(asm))
         _update_chebyshev_precond_assembled!(ls.precond, FEC.stiffness(asm))
     else
-        # Matrix-free path: skip preconditioner update for linear elastic.
-        # The initial preconditioner is computed from the true diag(K) on CPU
-        # during setup; the matrix-free K·1 row-sum approximation is inaccurate
-        # (zero at interior nodes of uniform meshes) and would corrupt it.
-        if !af.is_linear
+        # Matrix-free path: for linear elastic, the Jacobi preconditioner is
+        # computed from the true diag(K) on CPU during setup — skip the
+        # matrix-free K·1 row-sum update which is inaccurate (zero at interior
+        # nodes). Chebyshev spectral bounds must be estimated on the first call
+        # (they're initialized to zero) but can then be cached.
+        if af.is_linear
+            if af.compute_factorization
+                _update_chebyshev_precond_qs!(ls.precond, asm, U, p)
+                af.compute_factorization = false
+            end
+        else
             _update_jacobi_precond_qs!(ls.precond, asm, U, ls.ones_v, p)
             _update_chebyshev_precond_qs!(ls.precond, asm, U, p)
         end
@@ -356,8 +362,14 @@ function setup_jacobian!(ig::NewmarkIntegrator{<:NewtonSolver{<:KrylovLinearSolv
             return false
         end
     else
-        # Matrix-free path: skip preconditioner update for linear elastic.
-        if !af.is_linear
+        # Matrix-free path: same logic as QS — skip Jacobi for linear elastic,
+        # estimate Chebyshev bounds on first call only.
+        if af.is_linear
+            if af.compute_factorization
+                _update_chebyshev_precond_eff!(ls.precond, asm, U, c_M, p, ls.scratch)
+                af.compute_factorization = false
+            end
+        else
             _update_jacobi_precond_eff!(ls.precond, asm, U, ls.ones_v, c_M, p, ls.scratch)
             _update_chebyshev_precond_eff!(ls.precond, asm, U, c_M, p, ls.scratch)
         end
