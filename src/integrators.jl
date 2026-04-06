@@ -309,8 +309,14 @@ function setup_jacobian!(ig::QuasiStaticIntegrator{<:NewtonSolver{<:KrylovLinear
         _update_jacobi_precond_assembled!(ls.precond, FEC.stiffness(asm))
         _update_chebyshev_precond_assembled!(ls.precond, FEC.stiffness(asm))
     else
-        _update_jacobi_precond_qs!(ls.precond, asm, U, ls.ones_v, p)
-        _update_chebyshev_precond_qs!(ls.precond, asm, U, p)
+        # Matrix-free path: skip preconditioner update for linear elastic.
+        # The initial preconditioner is computed from the true diag(K) on CPU
+        # during setup; the matrix-free K·1 row-sum approximation is inaccurate
+        # (zero at interior nodes of uniform meshes) and would corrupt it.
+        if !af.is_linear
+            _update_jacobi_precond_qs!(ls.precond, asm, U, ls.ones_v, p)
+            _update_chebyshev_precond_qs!(ls.precond, asm, U, p)
+        end
     end
     return true
 end
@@ -350,8 +356,11 @@ function setup_jacobian!(ig::NewmarkIntegrator{<:NewtonSolver{<:KrylovLinearSolv
             return false
         end
     else
-        _update_jacobi_precond_eff!(ls.precond, asm, U, ls.ones_v, c_M, p, ls.scratch)
-        _update_chebyshev_precond_eff!(ls.precond, asm, U, c_M, p, ls.scratch)
+        # Matrix-free path: skip preconditioner update for linear elastic.
+        if !af.is_linear
+            _update_jacobi_precond_eff!(ls.precond, asm, U, ls.ones_v, c_M, p, ls.scratch)
+            _update_chebyshev_precond_eff!(ls.precond, asm, U, c_M, p, ls.scratch)
+        end
     end
     return true
 end
