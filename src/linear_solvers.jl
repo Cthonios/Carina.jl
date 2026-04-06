@@ -42,7 +42,7 @@ function _update_jacobi_precond_eff!(precond::JacobiPreconditioner, asm, U, ones
     @. precond.inv_diag = 1.0 / max(abs(scratch + c_M * d_mass), eps(Float64))
     return nothing
 end
-_update_jacobi_precond_eff!(::NoPreconditioner, args...) = nothing
+_update_jacobi_precond_eff!(::Preconditioner, args...) = nothing
 
 # GPU matrix-free displacement Jacobian: y = (K + c_M·M)·v
 function _eff_stiffness_matvec!(y, v, asm, U, c_M, p, scratch)
@@ -58,7 +58,7 @@ function _update_jacobi_precond_qs!(precond::JacobiPreconditioner, asm, U, ones_
     @. precond.inv_diag = 1.0 / max(abs(d), eps(Float64))
     return nothing
 end
-_update_jacobi_precond_qs!(::NoPreconditioner, args...) = nothing
+_update_jacobi_precond_qs!(::Preconditioner, args...) = nothing
 
 # Assembled Chebyshev: bounds are estimated inside _build_precond_op (which
 # constructs the symmetrically-scaled operator S = D⁻¹/²AD⁻¹/²), so the
@@ -66,20 +66,47 @@ _update_jacobi_precond_qs!(::NoPreconditioner, args...) = nothing
 _update_chebyshev_precond_assembled!(::ChebyshevPreconditioner, _) = nothing
 _update_chebyshev_precond_assembled!(::Preconditioner, _) = nothing
 
-# QS matrix-free path: matvec from stiffness_action.
+# QS matrix-free path: Chebyshev-Jacobi — estimate bounds on scaled system
+# S = D⁻¹/²KD⁻¹/² using the true diag(K) from the diagonal kernel.
 function _update_chebyshev_precond_qs!(precond::ChebyshevPreconditioner, asm, U, p)
     n = length(U)
-    matvec! = (y, v) -> _stiffness_matvec_qs!(y, v, asm, U, p)
-    _estimate_spectral_bounds!(precond, matvec!, n)
+    # Compute diag(K) and store D⁻¹/² in work3 (not used during Lanczos).
+    FEC.assemble_diagonal!(asm, FEC.stiffness, U, p)
+    d = FEC.diagonal(asm)
+    inv_sqrt_d = precond.work3
+    @. inv_sqrt_d = 1.0 / sqrt(max(abs(d), eps(Float64)))
+    # Lanczos on scaled system S = D⁻¹/²KD⁻¹/²
+    raw_matvec! = (y, v) -> _stiffness_matvec_qs!(y, v, asm, U, p)
+    tmp = similar(inv_sqrt_d)
+    scaled_matvec! = (y, v) -> begin
+        @. tmp = inv_sqrt_d * v
+        raw_matvec!(y, tmp)
+        @. y = inv_sqrt_d * y
+    end
+    _estimate_spectral_bounds!(precond, scaled_matvec!, n)
     return nothing
 end
 _update_chebyshev_precond_qs!(::Preconditioner, args...) = nothing
 
-# Newmark matrix-free path: matvec from effective stiffness (K + c_M·M).
+# Newmark matrix-free path: Chebyshev-Jacobi on effective stiffness.
 function _update_chebyshev_precond_eff!(precond::ChebyshevPreconditioner, asm, U, c_M, p, scratch)
     n = length(U)
-    matvec! = (y, v) -> _eff_stiffness_matvec!(y, v, asm, U, c_M, p, scratch)
-    _estimate_spectral_bounds!(precond, matvec!, n)
+    # Compute diag(K_eff) = diag(K) + c_M·diag(M) and store D⁻¹/² in work3.
+    FEC.assemble_diagonal!(asm, FEC.stiffness, U, p)
+    d_k = copy(FEC.diagonal(asm))
+    FEC.assemble_diagonal!(asm, FEC.mass, U, p)
+    d_m = FEC.diagonal(asm)
+    inv_sqrt_d = precond.work3
+    @. inv_sqrt_d = 1.0 / sqrt(max(abs(d_k + c_M * d_m), eps(Float64)))
+    # Lanczos on scaled effective stiffness
+    raw_matvec! = (y, v) -> _eff_stiffness_matvec!(y, v, asm, U, c_M, p, scratch)
+    tmp = similar(inv_sqrt_d)
+    scaled_matvec! = (y, v) -> begin
+        @. tmp = inv_sqrt_d * v
+        raw_matvec!(y, tmp)
+        @. y = inv_sqrt_d * y
+    end
+    _estimate_spectral_bounds!(precond, scaled_matvec!, n)
     return nothing
 end
 _update_chebyshev_precond_eff!(::Preconditioner, args...) = nothing
@@ -227,9 +254,31 @@ function _apply_chebyshev_precond!(y, v, precond::ChebyshevPreconditioner, matve
 end
 
 # Wrap Chebyshev preconditioner as a LinearOperator for Krylov.jl.
-function _chebyshev_precond_op(precond::ChebyshevPreconditioner, n, matvec!)
-    LinearOperator(Float64, n, n, true, true,
-        (y, v) -> _apply_chebyshev_precond!(y, v, precond, matvec!))
+# When inv_sqrt_d is provided, applies Chebyshev-Jacobi:
+#   M·v = D⁻¹/² p_k(S)² D⁻¹/² v   where S = D⁻¹/²AD⁻¹/²
+# Otherwise applies raw Chebyshev: M·v = p_k(A)²·v
+function _chebyshev_precond_op(precond::ChebyshevPreconditioner, n, raw_matvec!;
+                                inv_sqrt_d=nothing)
+    if inv_sqrt_d !== nothing
+        # Chebyshev-Jacobi: polynomial on scaled system
+        isd = copy(inv_sqrt_d)  # own copy so work3 can be reused as scratch
+        tmp = similar(isd)
+        scaled_matvec! = (y, v) -> begin
+            @. tmp = isd * v
+            raw_matvec!(y, tmp)
+            @. y = isd * y
+        end
+        scaled_input = similar(isd)
+        return LinearOperator(Float64, n, n, true, true,
+            (y, v) -> begin
+                @. scaled_input = isd * v           # D⁻¹/² · v
+                _apply_chebyshev_precond!(y, scaled_input, precond, scaled_matvec!)
+                @. y = isd * y                      # D⁻¹/² · result
+            end)
+    else
+        return LinearOperator(Float64, n, n, true, true,
+            (y, v) -> _apply_chebyshev_precond!(y, v, precond, raw_matvec!))
+    end
 end
 
 # --------------------------------------------------------------------------- #
@@ -293,7 +342,8 @@ _setup_linear_ops(ig, ::NoLinearSolver,     p)  = nothing
 # matvec! is the system operator A (needed by Chebyshev; ignored by Jacobi).
 _mf_precond_op(::NoPreconditioner, n, matvec!)          = nothing
 _mf_precond_op(p::JacobiPreconditioner, n, matvec!)     = _jacobi_precond_op(p, n)
-_mf_precond_op(p::ChebyshevPreconditioner, n, matvec!)  = _chebyshev_precond_op(p, n, matvec!)
+_mf_precond_op(p::ChebyshevPreconditioner, n, matvec!)  =
+    _chebyshev_precond_op(p, n, matvec!; inv_sqrt_d=p.work3)
 
 function _setup_linear_ops(ig::QuasiStaticIntegrator, ls::KrylovLinearSolver, p)
     U = ig.solution; n = length(U)
