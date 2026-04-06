@@ -116,7 +116,13 @@ function create_simulation(dict::Dict{String,Any}, basedir::String="";
     q_type, q_order = _parse_quadrature(dict)
     V       = FEC.FunctionSpace(mesh, FEC.H1Field, FEC.Lagrange;
                                 q_degree=q_order, q_type=q_type)
-    asm_cpu = FEC.SparseMatrixAssembler(FEC.VectorFunction(V, :displ); use_condensed=true)
+    asm_cpu = FEC.SparseMatrixAssembler(FEC.VectorFunction(V, :displ); use_condensed=false)
+
+    # Dirichlet BCs must be enforced by DOF elimination, never by penalty.
+    # Penalty enforcement (use_condensed=true) pollutes the spectrum with
+    # artificial eigenvalues ~10^6 × tr(K)/n, degrading CG convergence by
+    # orders of magnitude.  This assertion guards against regression.
+    @assert !FEC._is_condensed(asm_cpu.dof) "Carina requires use_condensed=false (DOF elimination, not penalty)"
 
     dbcs = _parse_dirichlet_bcs(dict)
     nbcs = _parse_neumann_bcs(dict)

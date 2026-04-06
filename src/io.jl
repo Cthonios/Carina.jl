@@ -229,9 +229,12 @@ end
 # ---------------------------------------------------------------------------
 
 # Create an H1Field from a full-DOF CPU vector (e.g. integrator.V or .A).
-function _full_dof_to_h1field(full_cpu::AbstractVector{Float64}, dof)
+function _full_dof_to_h1field(unk_cpu::AbstractVector{Float64}, dof)
     field = FEC.create_field(dof)
-    copyto!(field.data, full_cpu)
+    # Scatter reduced (unknown-DOF) vector into full field at unknown positions.
+    for (i, fd) in enumerate(dof.unknown_dofs)
+        field.data[fd] = unk_cpu[i]
+    end
     return field
 end
 
@@ -364,10 +367,13 @@ function _write_element_fields!(pp, p_cpu, field_cpu, state_old_cpu, state_new_c
     end
     q_outputs = NamedTuple{keys(fspace.ref_fes)}(q_outputs)
 
+    # Extract unknown DOFs from the full field for the assembly call
+    # (non-condensed mode expects n_free-sized unknown vector).
+    Uu = field_cpu.data[asm_cpu.dof.unknown_dofs]
     FEC.assemble_quadrature_quantity!(
         q_outputs, nothing, asm_cpu.dof,
         quadrature_field_output,
-        field_cpu, p_cpu
+        Uu, p_cpu
     )
 
     # Write fields

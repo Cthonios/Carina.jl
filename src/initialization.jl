@@ -25,9 +25,9 @@ function _apply_initial_displacement_ics!(integrator::_DynamicIntegrator, mesh, 
         inv_map[fd] = i
     end
 
-    # Build on CPU (full DOF vector), then bulk-copy to integrator.U
-    # (which may be a non-scalar-indexable array like an FEC storage type).
-    U_cpu = zeros(Float64, length(dof))
+    # Build IC in the full DOF space, then extract unknown DOFs for the
+    # integrator (which is n_free-sized with use_condensed=false).
+    U_full = zeros(Float64, length(dof))
     for entry in disp_ics
         var_sym  = _component_to_symbol(entry["component"])
         func     = _make_function(entry["function"])
@@ -37,13 +37,15 @@ function _apply_initial_displacement_ics!(integrator::_DynamicIntegrator, mesh, 
             unk_idx = inv_map[full_dof]
             unk_idx == 0 && continue
             coords = @view X[(node-1)*3+1 : (node-1)*3+3]
-            U_cpu[full_dof] = Base.invokelatest(func, coords, t0)
+            U_full[full_dof] = Base.invokelatest(func, coords, t0)
         end
     end
-    copyto!(integrator.U, U_cpu)
+    # Extract unknown DOFs into integrator's reduced vector
+    U_unk = U_full[dof.unknown_dofs]
+    copyto!(integrator.U, U_unk)
     # Update field so the assembly sees the initial displacement.
     # Always update CPU params first; for GPU, sync field data afterward.
-    FEC._update_for_assembly!(p_cpu, asm_cpu.dof, U_cpu)
+    FEC._update_for_assembly!(p_cpu, asm_cpu.dof, U_unk)
     if device != :cpu
         copyto!(p.field.data, p_cpu.field.data)
     end
@@ -72,9 +74,9 @@ function _apply_initial_velocity_ics!(integrator::_DynamicIntegrator, mesh, asm_
         inv_map[fd] = i
     end
 
-    # Build on CPU (full DOF vector), then bulk-copy to integrator.V
-    # (which may be a non-scalar-indexable array like an FEC storage type).
-    V_cpu = zeros(Float64, length(dof))
+    # Build IC in the full DOF space, then extract unknown DOFs for the
+    # integrator (which is n_free-sized with use_condensed=false).
+    V_full = zeros(Float64, length(dof))
     for entry in vel_ics
         var_sym  = _component_to_symbol(entry["component"])
         func     = _make_function(entry["function"])
@@ -84,10 +86,10 @@ function _apply_initial_velocity_ics!(integrator::_DynamicIntegrator, mesh, asm_
             unk_idx = inv_map[full_dof]
             unk_idx == 0 && continue   # skip constrained DOFs
             coords = @view X[(node-1)*3+1 : (node-1)*3+3]
-            V_cpu[full_dof] = Base.invokelatest(func, coords, t0)
+            V_full[full_dof] = Base.invokelatest(func, coords, t0)
         end
     end
-    copyto!(integrator.V, V_cpu)
+    copyto!(integrator.V, V_full[dof.unknown_dofs])
 end
 
 # No-op for integrators that do not support initial velocity ICs.

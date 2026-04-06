@@ -406,7 +406,7 @@ function _compute_stable_dt(asm, p, CFL)
     char_len_storage = NamedTuple{keys(fspace.ref_fes)}(char_len_storage)
 
     # Assemble per-element char lengths on device
-    U_zeros = zeros(Float64, length(asm.dof))
+    U_zeros = zeros(Float64, length(asm.dof.unknown_dofs))
     FEC.assemble_quadrature_quantity!(
         char_len_storage, nothing, asm.dof,
         element_char_length,
