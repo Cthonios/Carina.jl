@@ -33,11 +33,13 @@ function _apply_eff_stiffness!(asm, U, v, c_M, p, scratch)
     @. asm.stiffness_action_storage.data = scratch + c_M * asm.stiffness_action_storage.data
 end
 
-# Matrix-free Jacobi preconditioner: diag(K + c_M·M) via (K + c_M·M)·ones.
+# Matrix-free Jacobi preconditioner: diag(K + c_M·M) via diagonal extraction.
 function _update_jacobi_precond_eff!(precond::JacobiPreconditioner, asm, U, ones_v, c_M, p, scratch)
-    _apply_eff_stiffness!(asm, U, ones_v, c_M, p, scratch)
-    d_eff = FEC.hvp(asm, ones_v)
-    @. precond.inv_diag = 1.0 / max(abs(d_eff), eps(Float64))
+    FEC.assemble_diagonal!(asm, FEC.stiffness, U, p)
+    copyto!(scratch, FEC.diagonal(asm))
+    FEC.assemble_diagonal!(asm, FEC.mass, U, p)
+    d_mass = FEC.diagonal(asm)
+    @. precond.inv_diag = 1.0 / max(abs(scratch + c_M * d_mass), eps(Float64))
     return nothing
 end
 _update_jacobi_precond_eff!(::NoPreconditioner, args...) = nothing
@@ -49,10 +51,10 @@ function _eff_stiffness_matvec!(y, v, asm, U, c_M, p, scratch)
     return y
 end
 
-# QS matrix-free Jacobi: uses stiffness_action only (no mass).
+# QS matrix-free Jacobi: true diag(K) via diagonal extraction kernel.
 function _update_jacobi_precond_qs!(precond::JacobiPreconditioner, asm, U, ones_v, p)
-    FEC.assemble_matrix_free_action!(asm, FEC.stiffness_action, U, ones_v, p)
-    d = FEC.hvp(asm, ones_v)
+    FEC.assemble_diagonal!(asm, FEC.stiffness, U, p)
+    d = FEC.diagonal(asm)
     @. precond.inv_diag = 1.0 / max(abs(d), eps(Float64))
     return nothing
 end
