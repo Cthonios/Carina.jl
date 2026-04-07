@@ -40,6 +40,10 @@ const _K_cache   = Float64[]
 const _M_cache   = Float64[]
 const _factorization_cache = Ref{Any}(nothing)
 const _precond_op_cache    = Ref{Any}(nothing)
+const _gpu_cholesky_L      = Ref{Any}(nothing)  # GPU sparse lower triangular factor
+const _cpu_asm_ref         = Ref{Any}(nothing)  # CPU assembler reference for GPU Cholesky
+const _cpu_params_ref      = Ref{Any}(nothing)  # CPU params reference for GPU Cholesky
+const _device_sym          = Ref{Symbol}(:cpu)   # :cpu, :rocm, or :cuda
 
 function _init_assembly_cache!(asm, is_linear::Bool)
     _asm_flags.compute_stiffness     = true
@@ -49,6 +53,9 @@ function _init_assembly_cache!(asm, is_linear::Bool)
     _asm_flags.c_M_cached            = 0.0
     _factorization_cache[]           = nothing
     _precond_op_cache[]              = nothing
+    _gpu_cholesky_L[]                = nothing
+    _cpu_asm_ref[]                   = nothing
+    _cpu_params_ref[]                = nothing
     empty!(_K_cache)
     empty!(_M_cache)
     if hasproperty(asm, :stiffness_storage)

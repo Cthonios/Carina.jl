@@ -6,10 +6,51 @@
 # Depends on types from solvers.jl and integrator types from integrators.jl.
 
 using LinearAlgebra
+using SparseArrays
+import Adapt
 import Krylov
 import LinearOperators: LinearOperator
 import IterativeSolvers
 import LimitedLDLFactorizations: lldl
+
+# --------------------------------------------------------------------------- #
+# GPU Cholesky: factorize K on CPU, upload L to GPU for triangular solves.
+# For linear elastic problems where K is constant, this gives direct-solver
+# performance on GPU (two sparse triangular solves per step).
+# --------------------------------------------------------------------------- #
+
+
+function _build_gpu_cholesky!(gpu_asm, p_gpu)
+    asm_cpu = _cpu_asm_ref[]
+    p_cpu   = _cpu_params_ref[]
+    (asm_cpu === nothing || p_cpu === nothing) && return
+
+    n = length(asm_cpu.dof.unknown_dofs)
+    U_cpu = zeros(n)
+    FEC.assemble_stiffness!(asm_cpu, FEC.stiffness, U_cpu, p_cpu)
+    K_raw = FEC.stiffness(asm_cpu)
+    K_sym = Symmetric((K_raw + K_raw') / 2, :L)
+
+    _carina_log(0, :setup, "Building GPU Cholesky factors...")
+    t = @elapsed begin
+        F = cholesky(K_sym)
+        L_cpu = sparse(F.L)
+        perm  = F.p
+        iperm = invperm(perm)
+        dev = _device_sym[]
+        if dev == :rocm
+            L_gpu = FEC.rocm(L_cpu)
+        elseif dev == :cuda
+            L_gpu = FEC.cuda(L_cpu)
+        else
+            L_gpu = L_cpu
+        end
+    end
+    _gpu_cholesky_L[] = (L_gpu, perm, iperm)
+    _carina_logf(0, :setup, "GPU Cholesky: L uploaded (%d nnz, %s)",
+                 nnz(L_cpu), format_time(t))
+    return nothing
+end
 
 # --------------------------------------------------------------------------- #
 # Helper: preconditioner updates
@@ -372,6 +413,22 @@ function _linear_solve!(ls::KrylovLinearSolver, ig::QuasiStaticIntegrator, p, op
     K_op, M_op = ops
     R = residual(ig)   # K·ΔU = R_eff (positive, already negated)
     af = _asm_flags
+
+    # GPU Cholesky direct path: for linear elastic on GPU, factorize K on CPU
+    # once, upload L to GPU, and solve via sparse triangular solves.
+    if af.is_linear && _gpu_cholesky_L[] !== nothing
+        t = @elapsed begin
+            (L_gpu, perm, iperm) = _gpu_cholesky_L[]
+            # P*K*P' = L*L' → x = P' * (L' \ (L \ (P*b)))
+            Pb = R[perm]                           # apply permutation
+            y  = LowerTriangular(L_gpu) \ Pb       # forward solve
+            ΔU = LowerTriangular(L_gpu)' \ y       # backward solve
+            ΔU = ΔU[iperm]                         # inverse permutation
+        end
+        _carina_logf(8, :solve, "    GPU Cholesky solve: %.2fs", t)
+        return ΔU, t
+    end
+
     # Zero workspace solution to prevent stale warm-start from previous solve.
     fill!(ls.workspace.x, zero(eltype(ls.workspace.x)))
     t_kry = @elapsed begin
@@ -410,6 +467,14 @@ function _linear_solve!(ls::KrylovLinearSolver, ig::QuasiStaticIntegrator, p, op
     _carina_logf(8, :solve, "    CG: %d iters : |r|_CG = %.2e : %s",
                  ls.workspace.stats.niter, r_cg,
                  _cg_status_str(ls.workspace.stats.solved))
+
+    # After first successful CG solve for linear elastic on GPU, build the
+    # GPU Cholesky cache: factorize K on CPU, upload L to GPU.
+    # Subsequent solves use fast GPU triangular solves instead of CG.
+    if af.is_linear && !ls.assembled && _gpu_cholesky_L[] === nothing
+        _build_gpu_cholesky!(ig.asm, p)
+    end
+
     return ΔU, t_kry
 end
 
