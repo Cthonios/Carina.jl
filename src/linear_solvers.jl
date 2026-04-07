@@ -346,7 +346,7 @@ _mf_precond_op(p::ChebyshevPreconditioner, n, matvec!)  =
     _chebyshev_precond_op(p, n, matvec!; inv_sqrt_d=p.work3)
 
 function _setup_linear_ops(ig::QuasiStaticIntegrator, ls::KrylovLinearSolver, p)
-    U = ig.solution; n = length(U)
+    U = ig.U; n = length(U)
     ls.assembled && return (nothing, nothing)
     matvec! = (y, v) -> _stiffness_matvec_qs!(y, v, ig.asm, U, p)
     K_op = LinearOperator(Float64, n, n, true, true, matvec!)
@@ -436,7 +436,7 @@ function _build_precond_op(precond::ChebyshevPreconditioner, K_sparse, n)
 end
 
 function _linear_solve!(ls::KrylovLinearSolver, ig::QuasiStaticIntegrator, p, ops)
-    U = ig.solution; asm = ig.asm; n = length(U)
+    U = ig.U; asm = ig.asm; n = length(U)
     K_op, M_op = ops
     R = residual(ig)   # K·ΔU = R_eff (positive, already negated)
     af = _asm_flags
@@ -569,7 +569,7 @@ end
 # Sets ig.R_eff at trial point U + step*d.
 
 function _lbfgs_trial_rhs!(ig::QuasiStaticIntegrator, ls, step, p)
-    U = ig.solution; asm = ig.asm
+    U = ig.U; asm = ig.asm
     @. ls.q = U + step * ls.d
     FEC.assemble_vector!(asm, FEC.residual, ls.q, p)
     FEC.assemble_vector_neumann_bc!(asm, ls.q, p)

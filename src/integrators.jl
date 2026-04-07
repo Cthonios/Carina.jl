@@ -65,7 +65,7 @@ end
 mutable struct QuasiStaticIntegrator{NS <: AbstractNonlinearSolver, Asm, Vec}
     nonlinear_solver ::NS
     asm              ::Asm
-    solution         ::Vec   # free-DOF displacement accumulator
+    U                ::Vec   # free-DOF displacement accumulator
     time_step        ::Float64
     min_time_step    ::Float64
     max_time_step    ::Float64
@@ -86,10 +86,10 @@ function QuasiStaticIntegrator(ns::NS, asm, template::Vec;
                                 initial_equilibrium::Bool=false) where {NS, Vec}
     T  = eltype(template)
     mk() = (v = similar(template); fill!(v, zero(T)); v)
-    solution = mk()
+    U        = mk()
     U_save   = mk()
     R_eff    = mk()
-    return QuasiStaticIntegrator(ns, asm, solution, time_step, min_time_step, max_time_step,
+    return QuasiStaticIntegrator(ns, asm, U, time_step, min_time_step, max_time_step,
                                   decrease_factor, increase_factor, Ref(false), U_save, R_eff,
                                   initial_equilibrium)
 end
@@ -224,7 +224,7 @@ end
 # Assembles R_eff = -(force residual), stored in ig.R_eff. Returns isfinite.
 
 function evaluate!(ig::QuasiStaticIntegrator, p)
-    U = ig.solution; asm = ig.asm
+    U = ig.U; asm = ig.asm
     FEC.assemble_vector!(asm, FEC.residual, U, p)
     FEC.assemble_vector_neumann_bc!(asm, U, p)
     FEC.assemble_vector_source!(asm, U, p)
@@ -263,7 +263,7 @@ end
 function setup_jacobian!(ig::QuasiStaticIntegrator{<:NewtonSolver{DirectLinearSolver}}, p)
     af = _asm_flags
     if af.compute_stiffness
-        FEC.assemble_stiffness!(ig.asm, FEC.stiffness, ig.solution, p)
+        FEC.assemble_stiffness!(ig.asm, FEC.stiffness, ig.U, p)
         af.is_linear && (af.compute_stiffness = false)
     end
     return true
@@ -299,7 +299,7 @@ function setup_jacobian!(ig::NewmarkIntegrator{<:NewtonSolver{DirectLinearSolver
 end
 
 function setup_jacobian!(ig::QuasiStaticIntegrator{<:NewtonSolver{<:KrylovLinearSolver}}, p)
-    ls = ig.nonlinear_solver.linear_solver; U = ig.solution; asm = ig.asm
+    ls = ig.nonlinear_solver.linear_solver; U = ig.U; asm = ig.asm
     af = _asm_flags
     if ls.assembled
         if af.compute_stiffness
@@ -384,9 +384,7 @@ end
 
 # ---- _displacement ----
 
-_displacement(ig::QuasiStaticIntegrator)        = ig.solution
-_displacement(ig::NewmarkIntegrator)            = ig.U
-_displacement(ig::CentralDifferenceIntegrator)  = ig.U
+_displacement(ig) = ig.U
 
 # ---- residual accessor ----
 
@@ -462,16 +460,16 @@ end
 # State save / restore
 # --------------------------------------------------------------------------- #
 
-# QuasiStatic: always save/restore ig.solution for adaptive stepping rollback.
+# QuasiStatic: always save/restore ig.U for adaptive stepping rollback.
 function _save_state!(ig::QuasiStaticIntegrator, p)
-    copyto!(ig.U_save, ig.solution)
+    copyto!(ig.U_save, ig.U)
 end
 function _restore_state!(ig::QuasiStaticIntegrator, p)
-    copyto!(ig.solution, ig.U_save)
+    copyto!(ig.U, ig.U_save)
     copyto!(p.field.data, p.field_old.data)
     # Reset state_new from state_old so retried Newton starts from clean state
     p.state_new.data .= p.state_old.data
-    FEC._update_for_assembly!(p, ig.asm.dof, ig.solution)
+    FEC._update_for_assembly!(p, ig.asm.dof, ig.U)
 end
 
 # Newmark and CentralDifference: save/restore U, V, A

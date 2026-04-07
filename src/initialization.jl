@@ -13,13 +13,12 @@ using LinearAlgebra
 
 # Apply initial displacement ICs to the displacement vector U and field.
 # Each entry: {node set: <name>, component: x|y|z, function: <expr>}
-function _apply_initial_displacement_ics!(integrator::_DynamicIntegrator, mesh, asm_cpu, p, p_cpu,
+function _apply_initial_displacement_ics!(integrator, mesh, asm_cpu, p, p_cpu,
                                            disp_ics, device, t0::Float64)
     isempty(disp_ics) && return
     dof = asm_cpu.dof
     X   = p_cpu.coords.data
 
-    n_unk   = length(dof.unknown_dofs)
     inv_map = zeros(Int, length(dof))
     for (i, fd) in enumerate(dof.unknown_dofs)
         inv_map[fd] = i
@@ -42,17 +41,13 @@ function _apply_initial_displacement_ics!(integrator::_DynamicIntegrator, mesh, 
     end
     # Extract unknown DOFs into integrator's reduced vector
     U_unk = U_full[dof.unknown_dofs]
-    copyto!(integrator.U, U_unk)
+    copyto!(_displacement(integrator), U_unk)
     # Update field so the assembly sees the initial displacement.
     # Always update CPU params first; for GPU, sync field data afterward.
     FEC._update_for_assembly!(p_cpu, asm_cpu.dof, U_unk)
     if device != :cpu
         copyto!(p.field.data, p_cpu.field.data)
     end
-end
-
-function _apply_initial_displacement_ics!(integrator, mesh, asm_cpu, p, p_cpu, disp_ics, device, t0)
-    isempty(disp_ics) || _carina_log(0, :warning, "Displacement ICs ignored for non-dynamic integrator.")
 end
 
 # ---------------------------------------------------------------------------
