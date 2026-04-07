@@ -66,47 +66,35 @@ _update_jacobi_precond_qs!(::Preconditioner, args...) = nothing
 _update_chebyshev_precond_assembled!(::ChebyshevPreconditioner, _) = nothing
 _update_chebyshev_precond_assembled!(::Preconditioner, _) = nothing
 
-# QS matrix-free path: Chebyshev-Jacobi — estimate bounds on scaled system
-# S = D⁻¹/²KD⁻¹/² using the true diag(K) from the diagonal kernel.
+# QS matrix-free path: estimate λ_max of D⁻¹K via power method.
+# D⁻¹/² is stored in work3 for use by _chebyshev_precond_op.
 function _update_chebyshev_precond_qs!(precond::ChebyshevPreconditioner, asm, U, p)
     n = length(U)
-    # Compute diag(K) and store D⁻¹/² in work3 (not used during Lanczos).
     FEC.assemble_diagonal!(asm, FEC.stiffness, U, p)
     d = FEC.diagonal(asm)
     inv_sqrt_d = precond.work3
     @. inv_sqrt_d = 1.0 / sqrt(max(abs(d), eps(Float64)))
-    # Lanczos on scaled system S = D⁻¹/²KD⁻¹/²
-    raw_matvec! = (y, v) -> _stiffness_matvec_qs!(y, v, asm, U, p)
-    tmp = similar(inv_sqrt_d)
-    scaled_matvec! = (y, v) -> begin
-        @. tmp = inv_sqrt_d * v
-        raw_matvec!(y, tmp)
-        @. y = inv_sqrt_d * y
-    end
-    _estimate_spectral_bounds!(precond, scaled_matvec!, n)
+    inv_diag = similar(d)
+    @. inv_diag = 1.0 / max(abs(d), eps(Float64))
+    matvec! = (y, v) -> _stiffness_matvec_qs!(y, v, asm, U, p)
+    _estimate_lambda_max!(precond, matvec!, inv_diag, n)
     return nothing
 end
 _update_chebyshev_precond_qs!(::Preconditioner, args...) = nothing
 
-# Newmark matrix-free path: Chebyshev-Jacobi on effective stiffness.
+# Newmark matrix-free path: estimate λ_max of D⁻¹K_eff.
 function _update_chebyshev_precond_eff!(precond::ChebyshevPreconditioner, asm, U, c_M, p, scratch)
     n = length(U)
-    # Compute diag(K_eff) = diag(K) + c_M·diag(M) and store D⁻¹/² in work3.
     FEC.assemble_diagonal!(asm, FEC.stiffness, U, p)
     d_k = copy(FEC.diagonal(asm))
     FEC.assemble_diagonal!(asm, FEC.mass, U, p)
     d_m = FEC.diagonal(asm)
     inv_sqrt_d = precond.work3
     @. inv_sqrt_d = 1.0 / sqrt(max(abs(d_k + c_M * d_m), eps(Float64)))
-    # Lanczos on scaled effective stiffness
-    raw_matvec! = (y, v) -> _eff_stiffness_matvec!(y, v, asm, U, c_M, p, scratch)
-    tmp = similar(inv_sqrt_d)
-    scaled_matvec! = (y, v) -> begin
-        @. tmp = inv_sqrt_d * v
-        raw_matvec!(y, tmp)
-        @. y = inv_sqrt_d * y
-    end
-    _estimate_spectral_bounds!(precond, scaled_matvec!, n)
+    inv_diag = similar(d_k)
+    @. inv_diag = 1.0 / max(abs(d_k + c_M * d_m), eps(Float64))
+    matvec! = (y, v) -> _eff_stiffness_matvec!(y, v, asm, U, c_M, p, scratch)
+    _estimate_lambda_max!(precond, matvec!, inv_diag, n)
     return nothing
 end
 _update_chebyshev_precond_eff!(::Preconditioner, args...) = nothing
@@ -126,159 +114,116 @@ function _stiffness_matvec_qs!(y, v, asm, U, p)
 end
 
 # --------------------------------------------------------------------------- #
-# Chebyshev preconditioner: spectral bound estimation (Lanczos)
+# Chebyshev preconditioner: 4th-kind with optimal weights
+#
+# Based on Ifpack2's implementation of Chebyshev polynomials of the 4th kind
+# with optimal coefficients (arxiv 2202.08830).
+#
+# Key advantages over standard Chebyshev:
+#   - Only needs λ_max (no λ_min or eigenvalue ratio)
+#   - Baked-in Jacobi scaling (D⁻¹ applied at each iteration)
+#   - SPD by construction (optimal weights guarantee positive definiteness)
+#   - k matvecs per application (not 2k like the squared polynomial)
+#
+# λ_max estimated via power method on D⁻¹A (10 iterations, cheap).
 # --------------------------------------------------------------------------- #
 
-# Estimate extremal eigenvalues of SPD operator A via short Lanczos iteration.
-# Builds tridiagonal T = tridiag(β, α, β) and returns its extremal eigenvalues.
-#
-# matvec!(y, x) must compute y = A·x in-place.
-function _estimate_spectral_bounds!(precond::ChebyshevPreconditioner, matvec!, n;
-                                     lanczos_steps::Int=20)
-    kmax = min(lanczos_steps, n)
+# Optimal weights for 4th-kind Chebyshev, degrees 1–16 (arxiv 2202.08830).
+const _CHEBYSHEV_OPT_WEIGHTS = (
+    [1.12500000000000],
+    [1.02387287570313, 1.26408905371085],
+    [1.00842544782028, 1.08867839208730, 1.33753125909618],
+    [1.00391310427285, 1.04035811188593, 1.14863498546254, 1.38268869241000],
+    [1.00212930146164, 1.02173711549260, 1.07872433192603, 1.19810065292663,
+     1.41322542791682],
+    [1.00128517255940, 1.01304293035233, 1.04678215124113, 1.11616489419675,
+     1.23829020218444, 1.43524297106744],
+    [1.00083464397912, 1.00843949430122, 1.03008707768713, 1.07408384092003,
+     1.15036186707366, 1.27116474046139, 1.45186658649364],
+    [1.00057246631197, 1.00577427662415, 1.02050187922941, 1.05019803444565,
+     1.10115572984941, 1.18086042806856, 1.29838585382576, 1.46486073151099],
+)
 
-    # Three vectors needed: v_curr, v_prev, w (matvec output).
-    v_curr = precond.work1
-    v_prev = precond.work2
-    w = similar(v_curr)
+# Estimate λ_max of D⁻¹A via power method (spectral radius).
+function _estimate_lambda_max!(precond::ChebyshevPreconditioner, matvec!, inv_diag, n;
+                                power_iters::Int=10, boost::Float64=1.1)
+    x = precond.work1
+    y = precond.work2
+    fill!(x, 1.0 / sqrt(Float64(n)))
 
-    # Deterministic starting vector: uniform 1/√n.
-    fill!(v_curr, 1.0 / sqrt(Float64(n)))
-    fill!(v_prev, 0.0)
-
-    alphas = Vector{Float64}(undef, kmax)
-    betas  = Vector{Float64}(undef, kmax)
-    beta_prev = 0.0
-    k_actual = kmax
-
-    for j in 1:kmax
-        matvec!(w, v_curr)
-        alphas[j] = dot(v_curr, w)
-        @. w = w - alphas[j] * v_curr - beta_prev * v_prev
-
-        beta_j = sqrt(dot(w, w))
-        betas[j] = beta_j
-
-        if beta_j < 1e-14
-            k_actual = j
-            break
-        end
-
-        # Rotate: v_prev ← v_curr, v_curr ← w/β_j
-        copyto!(v_prev, v_curr)
-        @. v_curr = w / beta_j
-        beta_prev = beta_j
+    for _ in 1:power_iters
+        matvec!(y, x)           # y = A·x
+        @. x = inv_diag * y     # x = D⁻¹·A·x
+        nrm = sqrt(dot(x, x))
+        nrm < 1e-14 && break
+        @. x = x / nrm
     end
 
-    # Eigenvalues of the tridiagonal matrix.
-    # β_j connects row j to j+1, so off-diagonal has k-1 entries: β_1..β_{k-1}.
-    T = SymTridiagonal(alphas[1:k_actual], betas[1:k_actual-1])
-    eigs = eigvals(T)
-
-    # Clamp to positive (A is SPD) and widen by 5% for robustness.
-    lmin = max(eigs[1],   1e-14)
-    lmax = max(eigs[end], lmin * 1.01)
-    precond.lambda_min[] = lmin * 0.95
-    precond.lambda_max[] = lmax * 1.05
+    # Final Rayleigh quotient: λ = xᵀ(D⁻¹A)x
+    matvec!(y, x)
+    @. y = inv_diag * y
+    lmax = dot(x, y)
+    precond.lambda_max[] = lmax * boost
 
     return nothing
 end
 
-# No-op dispatches for non-Chebyshev preconditioners.
-_estimate_spectral_bounds!(::NoPreconditioner, args...; kwargs...)    = nothing
-_estimate_spectral_bounds!(::JacobiPreconditioner, args...; kwargs...) = nothing
-_estimate_spectral_bounds!(::ICPreconditioner, args...; kwargs...)    = nothing
+_estimate_lambda_max!(::Preconditioner, args...; kwargs...) = nothing
 
-# --------------------------------------------------------------------------- #
-# Chebyshev preconditioner: polynomial application
-# --------------------------------------------------------------------------- #
-
-# Apply degree-k Chebyshev polynomial preconditioner: y = p_k(A)²·v (SPD).
+# Apply 4th-kind Chebyshev preconditioner with optimal weights.
 #
-# The raw polynomial p_k(A) ≈ A⁻¹ is NOT guaranteed SPD — the polynomial
-# can go negative on [λ_min, λ_max].  CG requires an SPD preconditioner,
-# so we apply the squared form p_k(A)² which is always SPD:
-#   ⟨p_k(A)²v, v⟩ = ⟨p_k(A)v, p_k(A)v⟩ = ‖p_k(A)v‖² ≥ 0.
-# Cost: 2k matvecs per application (two passes of the degree-k polynomial).
+# Computes y = M·b where M ≈ A⁻¹, using the recurrence:
+#   Z₁  = (4/3)·σ·D⁻¹·b,  X₄₁ = Z₁,  y = β₁·Z₁
+#   For i = 1..k-1:
+#     γ = (2i-1)/(2i+3), ρ = (8i+4)/(2i+3)·σ
+#     Zᵢ₊₁ = ρ·D⁻¹·(b − A·X₄ᵢ) + γ·Zᵢ
+#     X₄ᵢ₊₁ = X₄ᵢ + Zᵢ₊₁
+#     y += βᵢ₊₁·Zᵢ₊₁
+# where σ = 1/(λ_max·boost) and βᵢ are the optimal weights.
 #
-# Inner recurrence (single pass, PETSc/Trilinos formulation):
-#   x₀ = (1/θ)·b
-#   x₁ = x₀ + ρ₁·(2/δ)·(b - A·x₀)           ρ₁ = 1/σ
-#   xⱼ = xⱼ₋₁ + ρⱼ·((2/δ)·(b - A·xⱼ₋₁) + ρⱼ₋₁·(xⱼ₋₂ - xⱼ₋₁))
-#                                                ρⱼ = 1/(2σ - ρⱼ₋₁)
-# where θ = (λ_max+λ_min)/2, δ = (λ_max-λ_min)/2, σ = θ/δ.
-
-# Single-pass p_k(A)·v.  w and xp are scratch vectors.
-function _chebyshev_poly_pass!(y, v, theta, delta, sigma, k, matvec!, w, xp)
-    @. y = v / theta
-    k == 0 && return y
-
-    matvec!(w, y)
-    rho_prev = 1.0 / sigma
-    copyto!(xp, y)
-    @. y = y + rho_prev * (2.0 / delta) * (v - w)
-
-    for j in 2:k
-        matvec!(w, y)
-        rho = 1.0 / (2.0 * sigma - rho_prev)
-        @. w = rho * ((2.0 / delta) * (v - w) + rho_prev * (xp - y))
-        copyto!(xp, y)
-        @. y = y + w
-        rho_prev = rho
-    end
-    return y
-end
-
-function _apply_chebyshev_precond!(y, v, precond::ChebyshevPreconditioner, matvec!)
+# Cost: k matvecs per application.
+function _apply_chebyshev_precond!(y, b, precond::ChebyshevPreconditioner,
+                                    matvec!, inv_diag)
     k    = precond.degree
-    lmin = precond.lambda_min[]
     lmax = precond.lambda_max[]
+    σ    = 1.0 / lmax
 
-    theta = (lmax + lmin) / 2.0
-    delta = (lmax - lmin) / 2.0
-    sigma = theta / delta
+    betas = k <= length(_CHEBYSHEV_OPT_WEIGHTS) ? _CHEBYSHEV_OPT_WEIGHTS[k] : ones(k)
 
-    w  = precond.work1
-    xp = precond.work2
+    z  = precond.work1   # current update step
+    x4 = precond.work2   # raw 4th-kind iterate
+    w  = precond.work3   # scratch for matvec output
 
-    # First pass: y = p_k(A)·v
-    _chebyshev_poly_pass!(y, v, theta, delta, sigma, k, matvec!, w, xp)
+    # Iteration 0 (zero initial guess)
+    @. z  = (4.0/3.0 * σ) * inv_diag * b
+    copyto!(x4, z)
+    @. y  = betas[1] * z
 
-    # Second pass: y = p_k(A)·(p_k(A)·v) = p_k(A)²·v
-    # Copy intermediate result to pre-allocated scratch, then apply again.
-    t = precond.work3
-    copyto!(t, y)
-    _chebyshev_poly_pass!(y, t, theta, delta, sigma, k, matvec!, w, xp)
-
+    for i in 1:k-1
+        γ = (2.0*i - 1.0) / (2.0*i + 3.0)
+        ρ = (8.0*i + 4.0) / (2.0*i + 3.0) * σ
+        matvec!(w, x4)                          # w = A·x4
+        @. z  = ρ * inv_diag * (b - w) + γ * z  # new Z
+        @. x4 = x4 + z                          # advance x4
+        @. y  = y + betas[i+1] * z              # weighted accumulation
+    end
     return y
 end
 
 # Wrap Chebyshev preconditioner as a LinearOperator for Krylov.jl.
-# When inv_sqrt_d is provided, applies Chebyshev-Jacobi:
-#   M·v = D⁻¹/² p_k(S)² D⁻¹/² v   where S = D⁻¹/²AD⁻¹/²
-# Otherwise applies raw Chebyshev: M·v = p_k(A)²·v
+# The 4th-kind Chebyshev has baked-in Jacobi (D⁻¹) so no external scaling
+# is needed — just pass inv_diag from the Jacobi preconditioner.
 function _chebyshev_precond_op(precond::ChebyshevPreconditioner, n, raw_matvec!;
                                 inv_sqrt_d=nothing)
+    # inv_sqrt_d is D⁻¹/² from setup; we need D⁻¹ = (D⁻¹/²)²
     if inv_sqrt_d !== nothing
-        # Chebyshev-Jacobi: polynomial on scaled system
-        isd = copy(inv_sqrt_d)  # own copy so work3 can be reused as scratch
-        tmp = similar(isd)
-        scaled_matvec! = (y, v) -> begin
-            @. tmp = isd * v
-            raw_matvec!(y, tmp)
-            @. y = isd * y
-        end
-        scaled_input = similar(isd)
-        return LinearOperator(Float64, n, n, true, true,
-            (y, v) -> begin
-                @. scaled_input = isd * v           # D⁻¹/² · v
-                _apply_chebyshev_precond!(y, scaled_input, precond, scaled_matvec!)
-                @. y = isd * y                      # D⁻¹/² · result
-            end)
+        inv_d = copy(inv_sqrt_d)
+        @. inv_d = inv_sqrt_d * inv_sqrt_d   # D⁻¹ = (D⁻¹/²)²
     else
-        return LinearOperator(Float64, n, n, true, true,
-            (y, v) -> _apply_chebyshev_precond!(y, v, precond, raw_matvec!))
+        inv_d = ones(n)  # fallback: identity scaling
     end
+    return LinearOperator(Float64, n, n, true, true,
+        (y, v) -> _apply_chebyshev_precond!(y, v, precond, raw_matvec!, inv_d))
 end
 
 # --------------------------------------------------------------------------- #
@@ -410,29 +355,16 @@ end
 # Preconditioner: M = D⁻¹/² p_k(S)² D⁻¹/²  ≈ A⁻¹, and M is SPD.
 function _build_precond_op(precond::ChebyshevPreconditioner, K_sparse, n)
     d = diag(K_sparse)
-    inv_sqrt_d = similar(d)
-    @. inv_sqrt_d = 1.0 / sqrt(max(abs(d), eps(Float64)))
+    inv_diag = similar(d)
+    @. inv_diag = 1.0 / max(abs(d), eps(Float64))
 
-    # Matvec for S = D⁻¹/²AD⁻¹/²: y = D⁻¹/² · A · (D⁻¹/² · v)
-    tmp = similar(d)
-    matvec_S! = (y, v) -> begin
-        @. tmp = inv_sqrt_d * v
-        mul!(y, K_sparse, tmp)
-        @. y = inv_sqrt_d * y
-    end
+    # Estimate λ_max of D⁻¹A via power method
+    matvec! = (y, v) -> mul!(y, K_sparse, v)
+    _estimate_lambda_max!(precond, matvec!, inv_diag, n)
 
-    # Estimate spectral bounds of S (should be near [~0.5, ~2] for FEM).
-    _estimate_spectral_bounds!(precond, matvec_S!, n)
-
-    # M·v = D⁻¹/² · p_k(S)² · D⁻¹/² · v
-    # Pre-allocate scratch for the D⁻¹/²·v intermediate (avoid hot-path alloc).
-    scaled_input = similar(d)
+    # 4th-kind Chebyshev with baked-in Jacobi
     return LinearOperator(Float64, n, n, true, true,
-        (y, v) -> begin
-            @. scaled_input = inv_sqrt_d * v   # D⁻¹/² · v
-            _apply_chebyshev_precond!(y, scaled_input, precond, matvec_S!)
-            @. y = inv_sqrt_d * y              # D⁻¹/² · result
-        end)
+        (y, v) -> _apply_chebyshev_precond!(y, v, precond, matvec!, inv_diag))
 end
 
 function _linear_solve!(ls::KrylovLinearSolver, ig::QuasiStaticIntegrator, p, ops)
