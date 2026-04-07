@@ -90,9 +90,8 @@ function solve!(ns::NewtonSolver, ig, p)
 
         norm_R    = sqrt(sum(abs2, residual(ig)))
         rel_R     = initial_norm > 0.0 ? norm_R / initial_norm : norm_R
-        met_tol   = norm_step < ns.abs_increment_tol ||
-                    norm_R   < ns.abs_residual_tol   ||
-                    rel_R    < ns.rel_residual_tol
+        met_tol   = (norm_R < ns.abs_residual_tol || rel_R < ns.rel_residual_tol) ||
+                    (norm_step < ns.abs_increment_tol && rel_R < 1.0)
         converged = met_tol && iter > ns.min_iters
         if t_eval + t_solve > 0.01
             _carina_logf(8, :solve,
@@ -328,9 +327,8 @@ function solve!(ns::SteepestDescentSolver, ig, p)
         norm_R    = sqrt(sum(abs2, residual(ig)))
         rel_R     = initial_norm > 0 ? norm_R / initial_norm : norm_R
         norm_step = α * sqrt(sum(abs2, ns.d))
-        met_tol   = norm_step < ns.abs_increment_tol ||
-                    norm_R   < ns.abs_residual_tol   ||
-                    rel_R    < ns.rel_residual_tol
+        met_tol   = (norm_R < ns.abs_residual_tol || rel_R < ns.rel_residual_tol) ||
+                    (norm_step < ns.abs_increment_tol && rel_R < 1.0)
         converged = met_tol && iter > ns.min_iters
 
         ΔW = W_trial - W_curr

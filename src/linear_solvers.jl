@@ -372,11 +372,11 @@ function _linear_solve!(ls::KrylovLinearSolver, ig::QuasiStaticIntegrator, p, op
     K_op, M_op = ops
     R = residual(ig)   # K·ΔU = R_eff (positive, already negated)
     af = _asm_flags
+    # Zero workspace solution to prevent stale warm-start from previous solve.
+    fill!(ls.workspace.x, zero(eltype(ls.workspace.x)))
     t_kry = @elapsed begin
         if ls.assembled
             K_raw = FEC.stiffness(asm)
-            # FEC assembly produces a slightly asymmetric K (~1e-7 relative)
-            # due to the AD material tangent.  CG requires exact symmetry.
             K_sparse = Symmetric((K_raw + K_raw') / 2, :L)
             if af.compute_factorization
                 M_op_asm = _build_precond_op(ls.precond, K_sparse, n)
@@ -419,6 +419,7 @@ function _linear_solve!(ls::KrylovLinearSolver, ig::NewmarkIntegrator, p, ops)
     R = residual(ig)
     af = _asm_flags
     ΔU = similar(ig.U)
+    fill!(ls.workspace.x, zero(eltype(ls.workspace.x)))
     t_kry = @elapsed begin
         try
             if ls.assembled
