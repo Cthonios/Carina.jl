@@ -125,7 +125,7 @@ function create_simulation(dict::Dict{String,Any}, basedir::String="";
     @assert !FEC._is_condensed(asm_cpu.dof) "Carina requires use_condensed=false (DOF elimination, not penalty)"
 
     dbcs = _parse_dirichlet_bcs(dict)
-    nbcs = _parse_neumann_bcs(dict)
+    nbcs, point_load_entries = _parse_neumann_bcs(dict)
     bfs  = _parse_body_forces(dict)
 
     t0, tf, dt, times = _parse_times(dict)
@@ -152,6 +152,10 @@ function create_simulation(dict::Dict{String,Any}, basedir::String="";
     n_free = length(asm_cpu.dof.unknown_dofs)
     _carina_logf(0, :setup, "DOFs:    %d total, %d free, %d constrained",
                  n_dofs, n_free, n_dofs - n_free)
+
+    # Build point loads (Neumann BCs on node sets) — needs finalized dof
+    _init_point_loads!(_build_point_loads(point_load_entries, mesh, asm_cpu.dof),
+                       p_cpu.coords.data)
 
     output_spec = _parse_output_spec(dict)
     is_dynamic  = _is_dynamic_integrator(dict)

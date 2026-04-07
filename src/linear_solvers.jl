@@ -576,6 +576,7 @@ function _lbfgs_trial_rhs!(ig::QuasiStaticIntegrator, ls, step, p)
     FEC.assemble_vector_source!(asm, ls.q, p)
     R_int_trial = FEC.residual(asm)
     @. ig.R_eff = -R_int_trial
+    _apply_point_loads!(ig.R_eff, FEC.current_time(p.times))
 end
 
 function _lbfgs_trial_rhs!(ig::NewmarkIntegrator, ls, step, p)
@@ -586,4 +587,5 @@ function _lbfgs_trial_rhs!(ig::NewmarkIntegrator, ls, step, p)
     FEC.assemble_vector_source!(ig.asm, ls.q, p)
     R_int_trial = FEC.residual(ig.asm)
     @. ig.R_eff = -((1 + α_hht) * R_int_trial + c_M * (ls.M_dU + step * ls.M_d) - α_hht * ig.F_int_n)
+    _apply_point_loads!(ig.R_eff, FEC.current_time(p.times))
 end

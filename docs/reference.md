@@ -388,17 +388,22 @@ match side sets or node sets defined in the Exodus mesh file.
 
 ### Neumann (Natural)
 
-Apply traction (force per unit area) on surfaces.
+Apply traction (force per unit area) on surfaces, or point loads on node sets.
 
 ```yaml
 boundary conditions:
   Neumann:
-    - side set: face_name
+    - side set: face_name       # surface traction (force/area)
       component: y
-      function: "1.0e6 * t"    # Pa (force/area)
+      function: "1.0e6 * t"
+    - node set: tip_nodes       # point load (force, applied directly)
+      component: z
+      function: "-100.0 * t"
 ```
 
-Neumann BCs require a `side set` (not `node set`).
+Either `side set` or `node set` must be specified.  Side set entries are
+integrated over the surface (traction, Pa).  Node set entries apply the
+function value as a point force (N) directly at each node.
 
 ### Sources (Body Forces)
 

@@ -97,7 +97,7 @@ const _LINEAR_SOLVER_KEYS = Set([
 ])
 
 const _DBC_ENTRY_KEYS = Set(["side set", "node set", "component", "function"])
-const _NBC_ENTRY_KEYS = Set(["side set", "component", "function"])
+const _NBC_ENTRY_KEYS = Set(["side set", "node set", "component", "function"])
 const _BF_ENTRY_KEYS  = Set(["block", "component", "function"])
 const _IC_ENTRY_KEYS  = Set(["node set", "component", "function"])
 
@@ -602,29 +602,64 @@ end
 
 function _parse_neumann_bcs(dict)
     bc_section = get(dict, "boundary conditions", nothing)
-    bc_section === nothing && return FEC.NeumannBC[]
-    entries = get(bc_section, "Neumann", FEC.NeumannBC[])
+    bc_section === nothing && return FEC.NeumannBC[], Dict{String,Any}[]
+    entries = get(bc_section, "Neumann", nothing)
+    entries === nothing && return FEC.NeumannBC[], Dict{String,Any}[]
     entries isa Vector || error("\"Neumann:\" must be a list.")
 
     nbcs = FEC.NeumannBC[]
+    point_load_entries = Dict{String,Any}[]  # deferred: need mesh/dof for PointLoad creation
+
     for (i, entry) in enumerate(entries)
         _validate_keys(entry, _NBC_ENTRY_KEYS, "Neumann BC entry $i")
-        var_sym  = _component_to_symbol(entry["component"])
-        comp_idx = var_sym === :displ_x ? 1 : var_sym === :displ_y ? 2 : 3
-        scalar   = _make_function(entry["function"])
-        # FEC expects func(coords, t) → SVector{3, Float64} with one component set.
-        func = let idx = comp_idx, f = scalar
-            (coords, t) -> begin
-                v = f(coords, t)
-                SVector{3, Float64}(idx == 1 ? v : 0.0,
-                                    idx == 2 ? v : 0.0,
-                                    idx == 3 ? v : 0.0)
+
+        if haskey(entry, "side set")
+            # Surface traction: integrate over side set (FEC handles this)
+            var_sym  = _component_to_symbol(entry["component"])
+            comp_idx = var_sym === :displ_x ? 1 : var_sym === :displ_y ? 2 : 3
+            scalar   = _make_function(entry["function"])
+            func = let idx = comp_idx, f = scalar
+                (coords, t) -> begin
+                    v = f(coords, t)
+                    SVector{3, Float64}(idx == 1 ? v : 0.0,
+                                        idx == 2 ? v : 0.0,
+                                        idx == 3 ? v : 0.0)
+                end
             end
+            sset = Symbol(entry["side set"])
+            push!(nbcs, FEC.NeumannBC(var_sym, func, sset))
+
+        elseif haskey(entry, "node set")
+            # Point load: apply directly at nodes (deferred to after mesh is built)
+            push!(point_load_entries, entry)
+
+        else
+            error("Neumann BC entry $i must specify \"side set\" or \"node set\".")
         end
-        sset = Symbol(entry["side set"])
-        push!(nbcs, FEC.NeumannBC(var_sym, func, sset))
     end
-    return nbcs
+    return nbcs, point_load_entries
+end
+
+function _build_point_loads(entries, mesh, dof)
+    isempty(entries) && return PointLoad[]
+
+    inv_map = zeros(Int, length(dof))
+    for (i, fd) in enumerate(dof.unknown_dofs)
+        inv_map[fd] = i
+    end
+
+    loads = PointLoad[]
+    for entry in entries
+        var_sym  = _component_to_symbol(entry["component"])
+        func     = _make_function(entry["function"])
+        nset_sym = Symbol(entry["node set"])
+        bk = FEC.BCBookKeeping(mesh, dof, var_sym; nset_name=nset_sym)
+        for (full_dof, node) in zip(bk.dofs, bk.nodes)
+            unk_idx = inv_map[full_dof]
+            push!(loads, PointLoad(unk_idx, node, func))
+        end
+    end
+    return loads
 end
 
 # ---- Body Forces ----
