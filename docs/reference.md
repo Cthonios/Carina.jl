@@ -66,13 +66,13 @@ solver:
 | `device` | no | `cpu` (default), `cuda`, or `rocm`. |
 | `input mesh file` | yes | Path to Exodus (.g) mesh. |
 | `output mesh file` | yes | Path for Exodus (.e) output. |
-| `output interval` | no | Write output every N steps (default: 1). |
+| `output interval` | no | Time interval between output writes. Defaults to `time step` if omitted. When different from `time step`, the integrator subcycles within each output interval. |
 | `model` | yes | Physics model and material definitions. |
 | `time integrator` | yes | Time stepping scheme and parameters. |
 | `boundary conditions` | yes | Dirichlet and/or Neumann BCs. |
 | `solver` | yes | Nonlinear and linear solver configuration. |
 | `body forces` | no | Volumetric source terms. |
-| `initial conditions` | no | Displacement and/or velocity ICs. |
+| `initial conditions` | no | Displacement and/or velocity ICs (all integrators). |
 | `output` | no | Control which fields are written. |
 | `quadrature` | no | Override quadrature rule. |
 
@@ -100,7 +100,7 @@ Any two of the following define an isotropic elastic material:
 | YAML name | Aliases | Constants | Notes |
 |-----------|---------|-----------|-------|
 | `neohookean` | `neo-hookean`, `neo hookean` | E, nu | Finite deformation. Coincides with linear elastic at small strain. General-purpose default. |
-| `linear elastic` | `linearelastic` | E, nu | Small-strain only. Faster than neo-Hookean but invalid for large deformation. |
+| `linear elastic` | `linearelastic` | E, nu | Small-strain only. Faster than neo-Hookean but invalid for large deformation. K and M are cached; factorizations reused across steps. |
 | `hencky` | | E, nu | Logarithmic (Hencky) strain measure. Good for moderate strains. |
 | `saint venant kirchhoff` | `svk`, `saintvenant-kirchhoff` | E, nu | Green-Lagrange strain. Simple but unstable in compression; avoid for large strains. |
 | `seth-hill` | `seth hill`, `sethhill` | E, nu, m, n | Generalized strain family parameterized by exponents m, n. |
@@ -110,7 +110,7 @@ Any two of the following define an isotropic elastic material:
 | YAML name | Aliases | Extra constants | Notes |
 |-----------|---------|-----------------|-------|
 | `linear elasto plasticity` | | E, nu, `yield stress`, `hardening modulus` | Small-strain J2 plasticity with linear isotropic hardening. |
-| `j2 plasticity` | `finitedefj2plasticity` | E, nu, `yield stress`, `hardening modulus` | Finite-deformation J2 plasticity. Path-dependent; requires small time steps. |
+| `j2 plasticity` | `finitedefj2plasticity` | E, nu, `yield stress`, `hardening modulus` | Finite-deformation J2 plasticity. Path-dependent; requires small time steps and line search. |
 
 ### Example
 
@@ -200,11 +200,13 @@ time integrator:
   final time:   0.001
   time step:    1.0e-7
   gamma: 0.5
+  CFL:   0.2           # optional: caps dt at CFL * h_min / c_p
 ```
 
 | Key | Default | Description |
 |-----|---------|-------------|
 | `gamma` | 0.5 | Velocity update parameter. 0.5 = standard central difference. |
+| `CFL` | 0 | If > 0, compute stable dt from CFL condition and cap `time step`. |
 
 The stable time step is limited by the CFL condition.  Carina estimates
 and prints the stable dt at startup; set your `time step` at or below this
@@ -230,7 +232,7 @@ All nonlinear solvers share these keys:
 | `minimum iterations` | 0 | Force at least this many iterations. |
 | `absolute tolerance` | 1e-10 | Converged when \|R\| < tol. |
 | `relative tolerance` | 1e-14 | Converged when \|R\|/\|R_0\| < tol. |
-| `use line search` | false | Enable Armijo backtracking line search. |
+| `use line search` | false | Enable Armijo backtracking line search. Recommended for J2 plasticity. |
 | `line search backtrack factor` | 0.5 | Step reduction per backtrack. |
 | `line search decrease factor` | 1e-4 | Armijo sufficient decrease parameter. |
 | `line search maximum iterations` | 10 | Max backtracking steps. |
@@ -248,8 +250,8 @@ Specified inside the `solver:` block under `linear solver:`.
 
 | YAML `type` | Aliases | CPU | GPU | Description |
 |-------------|---------|-----|-----|-------------|
-| `direct` | | Yes | **No** | Sparse LU factorization. Most robust, no tolerance tuning. **Recommended baseline for CPU.** |
-| `iterative` | `cg`, `krylov`, `conjugate gradient`, `minres` | Yes | Yes | Conjugate Gradient (always CG regardless of alias). Requires SPD system. |
+| `direct` | | Yes | **No** | Sparse LU factorization. Most robust, no tolerance tuning. For `linear elastic`, factorization is cached and reused across steps. **Recommended baseline for CPU.** |
+| `iterative` | `cg`, `krylov`, `conjugate gradient`, `minres` | Yes | Yes | Conjugate Gradient (always CG regardless of alias). Requires SPD system. For `linear elastic` on GPU, automatically upgrades to GPU Cholesky after the first CG solve. |
 | `lbfgs` | | Yes | Yes | L-BFGS quasi-Newton. Matrix-free, no Jacobian assembly. Approximates the inverse Hessian from gradient history. |
 | `none` | | Yes | Yes | No linear solve (used with NLCG / steepest descent). |
 
@@ -275,17 +277,17 @@ Specified inside `linear solver:` under `preconditioner:`.
 
 | YAML `type` | CPU | GPU | Cost per CG iter | Description |
 |-------------|-----|-----|-------------------|-------------|
-| `jacobi` | Yes | Yes | 1 vector scale | Diagonal scaling. Cheap but weak. Always available. |
+| `jacobi` | Yes | Yes | 1 vector scale | Diagonal scaling using true diag(K). Cheap but weak. Always available. |
 | `ic` | Yes | **No** | 1 triangular solve | Incomplete LDL^T factorization. Strong for ill-conditioned systems. **Recommended for CPU iterative solves.** |
 | `incomplete cholesky` | Yes | **No** | 1 triangular solve | Alias for `ic`. |
-| `chebyshev` | Yes | Yes | 2k matvecs | Chebyshev polynomial (degree k). Matrix-free, GPU-friendly. Stronger than Jacobi but weaker than IC. Experimental. |
+| `chebyshev` | Yes | Yes | k matvecs | 4th-kind Chebyshev polynomial with optimal weights (degree k). Matrix-free, GPU-friendly. Baked-in Jacobi scaling; only needs lambda_max (estimated via power method). |
 | *(none)* | Yes | Yes | 0 | No preconditioning. |
 
 Chebyshev keys:
 
 | Key | Default | Description |
 |-----|---------|-------------|
-| `degree` | 5 | Polynomial degree. Higher = stronger but more expensive (2k matvecs per CG iteration). |
+| `degree` | 5 | Polynomial degree (1-8). Higher = stronger but more expensive (k matvecs per CG iteration). |
 
 ### Preconditioner Examples
 
@@ -298,7 +300,7 @@ preconditioner:
 preconditioner:
   type: ic
 
-# Chebyshev polynomial (CPU or GPU)
+# 4th-kind Chebyshev polynomial (CPU or GPU)
 preconditioner:
   type: chebyshev
   degree: 5
@@ -325,14 +327,23 @@ Central difference uses no nonlinear solver; it is always explicit.
 
 | | Direct | CG | CG+Jacobi | CG+IC | CG+Chebyshev | L-BFGS |
 |---|:---:|:---:|:---:|:---:|:---:|:---:|
-| **CPU** | **Best** | Weak | OK | **Good** | Experimental | Good |
-| **GPU** | **Invalid** | Weak | OK | **Invalid** | Experimental | Good |
+| **CPU** | **Best** | Weak | OK | **Good** | OK | Good |
+| **GPU** | **No** | Weak | **Good** | **No** | Good | Good |
 
 **Recommendations by device:**
 
-- **CPU, small-medium problems:** `direct`. No tuning, always converges.
+- **CPU, small-medium problems:** `direct`. No tuning, always converges. For `linear elastic`, factorization is cached — subsequent steps are fast forward/backward substitution.
 - **CPU, large problems:** `cg` + `ic`. Good convergence (typically 50-100 CG iterations on well-shaped meshes).
-- **GPU:** `lbfgs` (no linear solver needed) or `cg` + `jacobi`. `chebyshev` is available but experimental.
+- **GPU, linear elastic:** `cg` + `jacobi` (or `chebyshev`). After the first CG solve, Carina automatically builds a GPU Cholesky factorization and uses sparse triangular solves for subsequent steps (1 Newton iteration, machine-precision accuracy).
+- **GPU, nonlinear:** `cg` + `jacobi` or `cg` + `chebyshev`. `lbfgs` is also a good matrix-free option.
+
+### Linear Elastic Optimizations
+
+When all blocks use `linear elastic` material, Carina automatically:
+
+1. **Caches K and M** after first assembly (skips reassembly on subsequent steps)
+2. **Caches LU factorization** (CPU direct solver) or **IC factorization** (CPU CG+IC)
+3. **Builds GPU Cholesky** (GPU CG path): factorizes K on CPU, uploads L factor to GPU, solves via sparse triangular solves (rocSPARSE/cuSPARSE)
 
 ### NLCG / Steepest Descent: Preconditioner Combinations
 
@@ -363,9 +374,8 @@ These are valid but likely suboptimal:
 | Combination | Why |
 |-------------|-----|
 | Newton + CG (no preconditioner) | CG without preconditioning is very slow on FEM systems. Always use at least Jacobi. |
-| Newton + Chebyshev on CPU | IC is available and much stronger on CPU. Use Chebyshev only on GPU. |
 | Quasi-static + steepest descent | Very slow convergence. Use Newton or NLCG instead. |
-| Large dt + high-order plasticity | J2 plasticity is path-dependent; large steps can miss the yield surface and cause divergence or DomainErrors. |
+| Large dt + high-order plasticity | J2 plasticity is path-dependent; large steps can miss the yield surface and cause divergence. Use `use line search: true` and small time steps. |
 
 ---
 
@@ -386,6 +396,9 @@ boundary conditions:
 Either `side set` or `node set` must be specified (not both).  The names must
 match side sets or node sets defined in the Exodus mesh file.
 
+Dirichlet BCs are enforced by DOF elimination (not penalty), producing a
+truly reduced n_free x n_free system with no artificial conditioning.
+
 ### Neumann (Natural)
 
 Apply traction (force per unit area) on surfaces, or point loads on node sets.
@@ -405,6 +418,9 @@ Either `side set` or `node set` must be specified.  Side set entries are
 integrated over the surface (traction, Pa).  Node set entries apply the
 function value as a point force (N) directly at each node.
 
+Positive function values = positive force/traction in the specified component
+direction (natural sign convention).
+
 ### Sources (Body Forces)
 
 Volumetric force density applied to element blocks.
@@ -420,7 +436,8 @@ body forces:
 
 ## Initial Conditions
 
-Displacement or velocity fields at t = 0.
+Displacement or velocity fields at t = 0.  Supported for all integrators
+(quasi-static, Newmark, central difference).
 
 ```yaml
 initial conditions:
@@ -433,6 +450,8 @@ initial conditions:
       component: x
       function: "100.0 * sin(pi * y / L)"
 ```
+
+Velocity ICs are only used by dynamic integrators (Newmark, central difference).
 
 ---
 
@@ -451,10 +470,24 @@ output:
 ```
 
 The `recovery` method controls how element quadrature-point fields (stress,
-etc.) are projected to nodes for visualization:
+internal variables) are projected to nodes for visualization:
 - **lumped**: Fast diagonal mass matrix. Slight smoothing. Default.
 - **consistent**: Full L2 projection. More accurate but requires a linear solve.
-- **none**: No nodal projection; skip stress output.
+- **none**: No nodal projection; skip recovered nodal output.
+
+### Output Field Naming
+
+Element-level fields (per quadrature point):
+- Stress: `sigma_xx_1`, `sigma_xy_1`, ..., `sigma_zz_2` (component + QP index)
+- Deformation gradient: `F_xx_1`, `F_yx_1`, ..., `F_zz_2`
+- Internal variables: `eqps_1`, `eqps_2`, `Fp_xx_1`, ... (CM state variable name + QP index)
+
+Recovered nodal fields (L2-projected to nodes):
+- Stress: `sigma_xx_n`, `sigma_xy_n`, ..., `sigma_zz_n`
+- Internal variables: `eqps_n`, `Fp_xx_n`, ...
+
+The `_n` suffix denotes nodal recovery; the `_1`, `_2` suffixes denote
+quadrature point indices.
 
 ---
 
