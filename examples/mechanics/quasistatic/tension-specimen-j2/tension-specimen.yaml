@@ -15,10 +15,10 @@
 # plasticity introduces path dependence and potential localization
 # in the gauge section.
 type: single
-device: rocm
 
 input mesh file:  tension-specimen.g
 output mesh file: tension-specimen.e
+output interval:  0.01
 
 output:
   stress:             true
@@ -40,7 +40,7 @@ time integrator:
   type: quasi static
   initial time: 0.0
   final time:   1.0
-  time step:    0.01
+  time step:    0.001
   minimum time step: 0.001
   maximum time step: 0.05
   decrease factor:   0.5

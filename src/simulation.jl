@@ -133,8 +133,13 @@ function create_simulation(dict::Dict{String,Any}, basedir::String="";
     output_interval = raw_oi === nothing ? dt : Float64(raw_oi)
     num_stops = round(Int, (tf - t0) / output_interval) + 1
     controller = TimeController(t0, tf, output_interval, t0, t0, num_stops, 0)
-    _carina_logf(0, :setup, "Time:    [%.2e, %.2e], Δt = %.2e, %d steps",
-                 t0, tf, dt, num_stops - 1)
+    if output_interval ≈ dt
+        _carina_logf(0, :setup, "Time:    [%.2e, %.2e], Δt = %.2e, %d steps",
+                     t0, tf, dt, num_stops - 1)
+    else
+        _carina_logf(0, :setup, "Time:    [%.2e, %.2e], Δt = %.2e, output every %.2e (%d stops)",
+                     t0, tf, dt, output_interval, num_stops - 1)
+    end
 
     p_cpu = FEC.create_parameters(
         mesh, asm_cpu, physics, props;
@@ -244,7 +249,7 @@ function evolve!(sim::SingleDomainSimulation)
 
         if !is_explicit
             _carina_logf(4, :advance, "[%.2e, %.2e] : Δt = %.2e",
-                t_prev, t_stop, controller.control_step)
+                t_prev, t_stop, integrator.time_step)
         end
 
         # Reset FEC clock to start of this control interval

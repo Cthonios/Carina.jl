@@ -61,7 +61,7 @@ function _validate_keys(dict::AbstractDict, known_keys::Set{String}, section::St
             if !isempty(suggestion)
                 msg *= " Did you mean \"$suggestion\"?"
             end
-            @warn msg
+            _carina_log(0, :warning, msg)
         end
     end
 end
@@ -209,7 +209,7 @@ function _parse_integrator(dict, asm, asm_cpu, p_cpu, controller, device=:cpu)
     ti_dict  = get(dict, "time integrator", nothing)
     ti_dict === nothing && error("Missing \"time integrator:\" section.")
     type_str = lowercase(get(ti_dict, "type", "quasi static"))
-    dt       = controller.control_step
+    dt       = Float64(ti_dict["time step"])
 
     # Get a template vector from a DirectLinearSolver built on the device assembler.
     # asm is already on the correct device (CPU, ROCm, or CUDA), so its ΔUu

@@ -80,20 +80,25 @@ function _element_var_names(asm_cpu, physics::SolidMechanics,
                      for ref_fe in values(fspace.ref_fes))
     NS     = CM.num_state_variables(physics.constitutive_model)
 
+    # Component suffixes: lowercase, no parentheses.
+    # The QP index _$q prevents ParaView auto-grouping for element vars.
+    sym_comps = ("xx", "xy", "xz", "yy", "yz", "zz")
+    ten_comps = ("xx", "yx", "zx", "xy", "yy", "zy", "xz", "yz", "zz")
+
     names = String[]
 
     if output_spec.stress
-        for ext in ("(XX)", "(XY)", "(XZ)", "(YY)", "(YZ)", "(ZZ)")
+        for c in sym_comps
             for q in 1:nq_max
-                push!(names, "sigma_$(ext)_$q")
+                push!(names, "sigma_$(c)_$q")
             end
         end
     end
 
     if output_spec.deformation_gradient
-        for ext in ("(XX)", "(YX)", "(ZX)", "(XY)", "(YY)", "(ZY)", "(XZ)", "(YZ)", "(ZZ)")
+        for c in ten_comps
             for q in 1:nq_max
-                push!(names, "F_$(ext)_$q")
+                push!(names, "F_$(c)_$q")
             end
         end
     end
@@ -116,15 +121,27 @@ end
 
 function _recovered_nodal_var_names(physics::SolidMechanics, output_spec::OutputSpec)
     output_spec.recovery == :none && return String[]
+    # Trailing _ prevents ParaView auto-grouping (no numeric suffix to match).
+    sym_comps = ("xx", "xy", "xz", "yy", "yz", "zz")
+    ten_comps = ("xx", "yx", "zx", "xy", "yy", "zy", "xz", "yz", "zz")
+
     names = String[]
     if output_spec.stress
-        for ext in ("(XX)", "(XY)", "(XZ)", "(YY)", "(YZ)", "(ZZ)")
-            push!(names, "nodal_sigma_$(ext)")
+        for c in sym_comps
+            push!(names, "sigma_$(c)_n")
         end
     end
     if output_spec.deformation_gradient
-        for ext in ("(XX)", "(YX)", "(ZX)", "(XY)", "(YY)", "(ZY)", "(XZ)", "(YZ)", "(ZZ)")
-            push!(names, "nodal_F_$(ext)")
+        for c in ten_comps
+            push!(names, "F_$(c)_n")
+        end
+    end
+    if output_spec.internal_variables
+        NS = CM.num_state_variables(physics.constitutive_model)
+        if NS > 0
+            for name in CM.state_variable_names(physics.constitutive_model)
+                push!(names, "$(name)_n")
+            end
         end
     end
     return names
@@ -144,20 +161,24 @@ function _write_recovered_fields!(sim, step)
     (; params_cpu, asm_cpu, post_processor, output_spec, recovery_data) = sim
     recovery_data isa NoRecovery && return
 
-    if !output_spec.stress
-        return
-    end
+    need_stress = output_spec.stress
+    need_iv     = output_spec.internal_variables
+    (need_stress || need_iv) || return
 
     fspace = FEC.function_space(asm_cpu.dof)
     n_nodes = size(params_cpu.coords, 2)
-
-    # Assemble RHS for each stress component: b_i = Σ_e Σ_q N_i σ_comp w |J|
-    # We recompute stress at QPs (same as _write_element_fields!) and weight by N_i * JxW
-    stress_nodal = zeros(Float64, 6, n_nodes)  # 6 symmetric components
-
     conns = fspace.elem_conns
-    t  = FEC.current_time(params_cpu.times)
     dt = FEC.time_step(params_cpu.times)
+    exo = post_processor.field_output_db
+
+    # Determine number of state variables for internal variable recovery
+    first_physics = first(values(params_cpu.physics))
+    NS = need_iv ? CM.num_state_variables(first_physics.constitutive_model) : 0
+    iv_names = NS > 0 ? CM.state_variable_names(first_physics.constitutive_model) : String[]
+
+    # Allocate nodal accumulators
+    stress_nodal = need_stress ? zeros(Float64, 6, n_nodes) : nothing
+    iv_nodal     = NS > 0     ? zeros(Float64, NS, n_nodes) : nothing
 
     for (b, (block_physics, ref_fe, props)) in enumerate(zip(
         values(params_cpu.physics), values(fspace.ref_fes), values(params_cpu.properties),
@@ -171,7 +192,6 @@ function _write_recovered_fields!(sim, step)
             conn = FEC.connectivity(ref_fe, conns.data, e, coffset)
             x_el = FEC._element_level_fields_flat(params_cpu.coords, ref_fe, conn)
             u_el = FEC._element_level_fields_flat(params_cpu.field, ref_fe, conn)
-            u_el_old = FEC._element_level_fields_flat(params_cpu.field_old, ref_fe, conn)
             props_el = FEC._element_level_properties(props, e)
 
             for q in 1:RFE.num_cell_quadrature_points(ref_fe)
@@ -179,48 +199,71 @@ function _write_recovered_fields!(sim, step)
                 state_old_q = FEC._quadrature_level_state(state_old_b, q, e)
                 state_new_q = FEC._quadrature_level_state(state_new_b, q, e)
 
-                # Compute stress at this QP (same as quadrature_field_output)
-                cell = FEC.map_interpolants(interps, x_el)
-                ∇u_q = FEC.interpolate_field_gradients(block_physics, cell, u_el)
-                ∇u_q = FEC.modify_field_gradients(FEC.ThreeDimensional(), ∇u_q)
-                state_scratch = zero(state_new_q)
-                σ_q = symmetric(CM.cauchy_stress(
-                    block_physics.constitutive_model, props_el, dt, ∇u_q, 0.0, state_old_q, state_scratch,
-                ))
-
-                # Shape function values at this QP
                 N = RFE.cell_shape_function_value(ref_fe, q)
+                cell = FEC.map_interpolants(interps, x_el)
                 JxW = cell.JxW
-
-                # Accumulate b_i += N_i * σ_comp * JxW for each node in element
                 nnpe = RFE.num_cell_dofs(ref_fe)
-                for i in 1:nnpe
-                    node = conn[i]
-                    NiJxW = N[i] * JxW
-                    for c in 1:6
-                        stress_nodal[c, node] += NiJxW * σ_q.data[c]
+
+                if need_stress
+                    ∇u_q = FEC.interpolate_field_gradients(block_physics, cell, u_el)
+                    ∇u_q = FEC.modify_field_gradients(FEC.ThreeDimensional(), ∇u_q)
+                    state_scratch = zero(state_new_q)
+                    σ_q = symmetric(CM.cauchy_stress(
+                        block_physics.constitutive_model, props_el, dt, ∇u_q, 0.0,
+                        state_old_q, state_scratch,
+                    ))
+                    for i in 1:nnpe
+                        NiJxW = N[i] * JxW
+                        for c in 1:6
+                            stress_nodal[c, conn[i]] += NiJxW * σ_q.data[c]
+                        end
+                    end
+                end
+
+                if NS > 0
+                    for i in 1:nnpe
+                        NiJxW = N[i] * JxW
+                        for s in 1:NS
+                            iv_nodal[s, conn[i]] += NiJxW * state_new_b[s, q, e]
+                        end
                     end
                 end
             end
         end
     end
 
-    # Apply lumped mass inverse: σ_nodal = M_lumped⁻¹ · b
+    # Apply lumped mass inverse
     if recovery_data isa LumpedRecovery
         for node in 1:n_nodes
             inv_m = recovery_data.inv_m_lumped[node]
-            for c in 1:6
-                stress_nodal[c, node] *= inv_m
+            if need_stress
+                for c in 1:6
+                    stress_nodal[c, node] *= inv_m
+                end
+            end
+            if NS > 0
+                for s in 1:NS
+                    iv_nodal[s, node] *= inv_m
+                end
             end
         end
     end
 
-    # Write as nodal variables
-    exo = post_processor.field_output_db
-    comp_names = ("(XX)", "(XY)", "(XZ)", "(YY)", "(YZ)", "(ZZ)")
-    for (c, ext) in enumerate(comp_names)
-        Exodus.write_values(exo, Exodus.NodalVariable, step,
-                            "nodal_sigma_$(ext)", stress_nodal[c, :])
+    # Write stress
+    if need_stress
+        sym_comps = ("xx", "xy", "xz", "yy", "yz", "zz")
+        for (c, comp) in enumerate(sym_comps)
+            Exodus.write_values(exo, Exodus.NodalVariable, step,
+                                "sigma_$(comp)_n", stress_nodal[c, :])
+        end
+    end
+
+    # Write internal variables (e.g., eqps)
+    if NS > 0
+        for (s, name) in enumerate(iv_names)
+            Exodus.write_values(exo, Exodus.NodalVariable, step,
+                                "$(name)_n", iv_nodal[s, :])
+        end
     end
 end
 
@@ -376,31 +419,41 @@ function _write_element_fields!(pp, p_cpu, field_cpu, state_old_cpu, state_new_c
         Uu, p_cpu
     )
 
-    # Write fields
+    # Component names: lowercase, no parentheses.
+    sym_comps = ("xx", "xy", "xz", "yy", "yz", "zz")
+    ten_comps = ("xx", "yx", "zx", "xy", "yy", "zy", "xz", "yz", "zz")
+    exo = pp.field_output_db
+
     for (b, (block_name, vals)) in enumerate(zip(keys(fspace.ref_fes), values(q_outputs)))
         block_str = String(block_name)
 
         if output_spec.stress
-            FEC.write_field(pp, step, block_str, "sigma", vals.stress)
+            for (n, c) in enumerate(sym_comps)
+                for q in axes(vals.stress, 1)
+                    Exodus.write_values(exo, Exodus.ElementVariable, step, block_str,
+                        "sigma_$(c)_$q", map(x -> x.data[n], vals.stress[q, :]))
+                end
+            end
         end
 
         if output_spec.deformation_gradient
-            FEC.write_field(pp, step, block_str, "F", vals.deformation_gradient)
+            for (n, c) in enumerate(ten_comps)
+                for q in axes(vals.deformation_gradient, 1)
+                    Exodus.write_values(exo, Exodus.ElementVariable, step, block_str,
+                        "F_$(c)_$q", map(x -> x.data[n], vals.deformation_gradient[q, :]))
+                end
+            end
         end
 
         if output_spec.internal_variables
             state_new_b = FEC.block_view(state_new_cpu, b)
-            NS = size(state_new_b, 1)   # (NS, nquad, nelem)
             nquad = size(state_new_b, 2)
             block_physics = p_cpu.physics[block_name]
             iv_names = CM.state_variable_names(block_physics.constitutive_model)
             for (iv, name) in enumerate(iv_names)
                 for q in 1:nquad
-                    Exodus.write_values(
-                        pp.field_output_db, Exodus.ElementVariable,
-                        step, block_str, "$(name)_$q",
-                        Vector{Float64}(state_new_b[iv, q, :])
-                    )
+                    Exodus.write_values(exo, Exodus.ElementVariable, step, block_str,
+                        "$(name)_$q", Vector{Float64}(state_new_b[iv, q, :]))
                 end
             end
         end

@@ -52,7 +52,7 @@ function _apply_initial_displacement_ics!(integrator::_DynamicIntegrator, mesh, 
 end
 
 function _apply_initial_displacement_ics!(integrator, mesh, asm_cpu, p, p_cpu, disp_ics, device, t0)
-    isempty(disp_ics) || @warn "Displacement ICs ignored for non-dynamic integrator."
+    isempty(disp_ics) || _carina_log(0, :warning, "Displacement ICs ignored for non-dynamic integrator.")
 end
 
 # ---------------------------------------------------------------------------
@@ -94,7 +94,7 @@ end
 
 # No-op for integrators that do not support initial velocity ICs.
 function _apply_initial_velocity_ics!(integrator, mesh, asm_cpu, p_cpu, vel_ics, t0)
-    isempty(vel_ics) || @warn "Initial velocity ICs ignored for non-Newmark integrator."
+    isempty(vel_ics) || _carina_log(0, :warning, "Initial velocity ICs ignored for non-Newmark integrator.")
 end
 
 # ---------------------------------------------------------------------------

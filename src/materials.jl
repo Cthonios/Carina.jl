@@ -73,14 +73,14 @@ function parse_material(model_name::String, model_dict::Dict)
     cm = ctor()
 
     density = Float64(get(model_dict, "density", 0.0))
-    density == 0.0 && @warn "No density specified for material \"$model_name\"; using 0.0."
+    density == 0.0 && _carina_log(0, :warning, "No density specified for material \"$model_name\"; using 0.0.")
 
     # Build CM-compatible property dict (canonicalize key names)
     props_inputs = Dict{String, Any}()
     for (yaml_key, val) in model_dict
         yaml_key == "density" && continue
         cm_key = get(_ELASTIC_KEY_ALIASES, lowercase(yaml_key), nothing)
-        cm_key === nothing && @warn "Unknown material property key \"$yaml_key\"; ignoring."
+        cm_key === nothing && _carina_log(0, :warning, "Unknown material property key \"$yaml_key\"; ignoring.")
         cm_key !== nothing && (props_inputs[cm_key] = Float64(val))
     end
 
