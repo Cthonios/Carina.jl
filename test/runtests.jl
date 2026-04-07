@@ -18,6 +18,7 @@ const indexed_test_files = [
     (7, "mechanics-torsion.jl"),
     (8, "mechanics-sphere.jl"),
     (9, "mechanics-quasistatic-cube-neumann-bc.jl"),
+    (16, "mechanics-quasistatic-cube-point-load.jl"),
     (10, "mechanics-clamped-wave.jl"),
     (11, "mechanics-quasistatic-cube-gravity.jl"),
     (12, "mechanics-quasistatic-cube-nlcg.jl"),

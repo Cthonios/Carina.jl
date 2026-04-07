@@ -1,1 +1,1 @@
-../../../meshes/cube/cube.g
+../../../meshes/cube-single/cube.g

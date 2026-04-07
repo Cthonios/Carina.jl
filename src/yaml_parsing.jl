@@ -614,13 +614,15 @@ function _parse_neumann_bcs(dict)
         _validate_keys(entry, _NBC_ENTRY_KEYS, "Neumann BC entry $i")
 
         if haskey(entry, "side set")
-            # Surface traction: integrate over side set (FEC handles this)
+            # Surface traction: integrate over side set (FEC handles this).
+            # FEC's Neumann convention adds f_val to the residual R (which is
+            # F_int − F_ext), so a positive user traction must be negated.
             var_sym  = _component_to_symbol(entry["component"])
             comp_idx = var_sym === :displ_x ? 1 : var_sym === :displ_y ? 2 : 3
             scalar   = _make_function(entry["function"])
             func = let idx = comp_idx, f = scalar
                 (coords, t) -> begin
-                    v = f(coords, t)
+                    v = -f(coords, t)
                     SVector{3, Float64}(idx == 1 ? v : 0.0,
                                         idx == 2 ? v : 0.0,
                                         idx == 3 ? v : 0.0)

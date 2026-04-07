@@ -41,8 +41,8 @@ time integrator:
   initial time: 0.0
   final time:   1.0
   time step:    0.001
-  minimum time step: 0.001
-  maximum time step: 0.05
+  minimum time step: 0.00001
+  maximum time step: 0.001
   decrease factor:   0.5
   increase factor:   1.5
 
@@ -67,6 +67,7 @@ solver:
   maximum iterations: 16
   relative tolerance: 1.0e-12
   absolute tolerance: 1.0e-08
+  use line search: true
   linear solver:
     type: cg
     maximum iterations: 1000
