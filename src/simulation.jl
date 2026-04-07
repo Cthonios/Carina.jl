@@ -247,15 +247,10 @@ function evolve!(sim::SingleDomainSimulation)
         t_prev = controller.prev_time
         t_stop = controller.time
 
-        if !is_explicit
-            _carina_logf(4, :advance, "[%.2e, %.2e] : Δt = %.2e",
-                t_prev, t_stop, integrator.time_step)
-        end
-
         # Reset FEC clock to start of this control interval
         params.times.time_current = t_prev
 
-        _subcycle!(sim, t_stop)
+        _subcycle!(sim, t_stop, is_explicit)
 
         t   = controller.time
         pct = 100.0 * controller.stop / n_steps
@@ -282,13 +277,24 @@ function _advance_controller!(c::TimeController)
     c.time      = c.initial_time + c.stop * c.control_step
 end
 
-function _subcycle!(sim, target::Float64)
+function _subcycle!(sim, target::Float64, is_explicit::Bool=false)
     (; params, integrator) = sim
+    last_log_wall = -Inf  # for explicit: throttle to once per second of wall time
 
     while true
         t  = FEC.current_time(params.times)
         dt = _adjusted_step(t, integrator.time_step, target)
         params.times.Δt = dt
+
+        if is_explicit
+            wall = time()
+            if wall - last_log_wall >= 1.0
+                _carina_logf(4, :advance, "[%.2e, %.2e] : Δt = %.2e", t, t + dt, dt)
+                last_log_wall = wall
+            end
+        else
+            _carina_logf(4, :advance, "[%.2e, %.2e] : Δt = %.2e", t, t + dt, dt)
+        end
 
         _pre_step_hook!(integrator, sim)
         _advance_one_step!(sim)
