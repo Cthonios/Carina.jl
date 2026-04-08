@@ -90,8 +90,7 @@ function solve!(ns::NewtonSolver, ig, p)
 
         norm_R    = sqrt(sum(abs2, residual(ig)))
         rel_R     = initial_norm > 0.0 ? norm_R / initial_norm : norm_R
-        met_tol   = (norm_R < ns.abs_residual_tol || rel_R < ns.rel_residual_tol) ||
-                    (norm_step < ns.abs_increment_tol && rel_R < 1.0)
+        met_tol   = norm_R < ns.abs_residual_tol || rel_R < ns.rel_residual_tol
         converged = met_tol && iter > ns.min_iters
         if t_eval + t_solve > 0.01
             _carina_logf(8, :solve,
@@ -152,9 +151,7 @@ function solve!(ns::NewtonSolver{<:LBFGSLinearSolver}, ig, p)
         norm_dU    = step * sqrt(sum(abs2, ls.d))
         new_norm_R = sqrt(sum(abs2, residual(ig)))
         new_rel_R  = initial_norm > 0.0 ? new_norm_R / initial_norm : new_norm_R
-        met_tol   = norm_dU    < ns.abs_increment_tol ||
-                    new_norm_R < ns.abs_residual_tol   ||
-                    new_rel_R  < ns.rel_residual_tol
+        met_tol   = new_norm_R < ns.abs_residual_tol || new_rel_R < ns.rel_residual_tol
         converged = met_tol && iter > ns.min_iters
         if t_dir + t_ls > 0.01
             _carina_logf(8, :solve,
@@ -233,9 +230,7 @@ function solve!(ns::NLCGSolver, ig, p)
         norm_R = sqrt(sum(abs2, residual(ig)))
         rel_R  = initial_norm > 0 ? norm_R / initial_norm : norm_R
         norm_step = α * sqrt(sum(abs2, ns.d))
-        met_tol = norm_step < ns.abs_increment_tol ||
-                  norm_R   < ns.abs_residual_tol   ||
-                  rel_R    < ns.rel_residual_tol
+        met_tol = norm_R < ns.abs_residual_tol || rel_R < ns.rel_residual_tol
         converged = met_tol && iter > ns.min_iters
         _carina_logf(8, :solve,
             "Iter [%d] |R| = %.2e : |r| = %.2e : |ΔU| = %.2e : α = %.2e : %s",
@@ -327,8 +322,7 @@ function solve!(ns::SteepestDescentSolver, ig, p)
         norm_R    = sqrt(sum(abs2, residual(ig)))
         rel_R     = initial_norm > 0 ? norm_R / initial_norm : norm_R
         norm_step = α * sqrt(sum(abs2, ns.d))
-        met_tol   = (norm_R < ns.abs_residual_tol || rel_R < ns.rel_residual_tol) ||
-                    (norm_step < ns.abs_increment_tol && rel_R < 1.0)
+        met_tol   = norm_R < ns.abs_residual_tol || rel_R < ns.rel_residual_tol
         converged = met_tol && iter > ns.min_iters
 
         ΔW = W_trial - W_curr
