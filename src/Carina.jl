@@ -24,6 +24,7 @@ using Tensors
 # ---------------------------------------------------------------------------
 
 include("logging.jl")
+include("status_tests.jl")
 include("simulation_types.jl")
 include("physics.jl")
 include("solvers.jl")
@@ -39,6 +40,14 @@ include("simulation.jl")
 # ---------------------------------------------------------------------------
 # Exports
 # ---------------------------------------------------------------------------
+
+# Status tests
+export SolverStatus, Unconverged, Converged, Failed
+export SolverInfo, AbstractStatusTest, check, reset!
+export AbsResidualTest, RelResidualTest, AbsUpdateTest, RelUpdateTest
+export MaxIterationsTest, FiniteValueTest, DivergenceTest, StagnationTest
+export ModelFlagTest, ComboAndTest, ComboOrTest
+export default_nonlinear_status_test, default_linear_status_test
 
 # Physics
 export SolidMechanics
