@@ -474,8 +474,95 @@ end
 # Termination criteria parsing
 # --------------------------------------------------------------------------- #
 
+# --------------------------------------------------------------------------- #
+# Termination criteria parsing
+#
+# New syntax (preferred):
+#   termination:
+#     converge when any:          # or "converge when all:"
+#       - absolute residual: 1.0e-06
+#       - relative residual: 1.0e-10
+#     fail when any:              # or "fail when all:"
+#       - maximum iterations: 16
+#
+# Nested groups via any:/all: inside a list:
+#   converge when all:
+#     - minimum iterations: 0
+#     - any:
+#         - absolute residual: 1.0e-08
+#         - relative residual: 1.0e-12
+#
+# Legacy syntax (still supported):
+#   termination:
+#     - type: combo
+#       combo: or
+#       tests:
+#         - type: absolute residual
+#           tolerance: 1.0e-06
+#     - type: maximum iterations
+#       value: 16
+# --------------------------------------------------------------------------- #
+
+# Map from YAML test name → constructor taking a single numeric value.
+const _TERMINATION_TEST_MAP = Dict{String,Any}(
+    "absolute residual"  => v -> AbsResidualTest(Float64(v)),
+    "abs residual"       => v -> AbsResidualTest(Float64(v)),
+    "abs_residual"       => v -> AbsResidualTest(Float64(v)),
+    "relative residual"  => v -> RelResidualTest(Float64(v)),
+    "rel residual"       => v -> RelResidualTest(Float64(v)),
+    "rel_residual"       => v -> RelResidualTest(Float64(v)),
+    "absolute update"    => v -> AbsUpdateTest(Float64(v)),
+    "abs update"         => v -> AbsUpdateTest(Float64(v)),
+    "abs_update"         => v -> AbsUpdateTest(Float64(v)),
+    "relative update"    => v -> RelUpdateTest(Float64(v)),
+    "rel update"         => v -> RelUpdateTest(Float64(v)),
+    "rel_update"         => v -> RelUpdateTest(Float64(v)),
+    "maximum iterations" => v -> MaxIterationsTest(Int(v)),
+    "max iterations"     => v -> MaxIterationsTest(Int(v)),
+    "minimum iterations" => v -> MinIterationsTest(Int(v)),
+    "min iterations"     => v -> MinIterationsTest(Int(v)),
+    "finite value"       => _ -> FiniteValueTest(),
+    "nan check"          => _ -> FiniteValueTest(),
+    "divergence"         => v -> DivergenceTest(Float64(v)),
+    "stagnation"         => v -> StagnationTest(; window=Int(v)),
+)
+
 """
-Parse a single termination test entry from YAML.
+Parse a single item from a termination test list (new compact syntax).
+Each item is a single-key Dict, e.g. `{"absolute residual": 1.0e-06}`,
+or a nested group `{"any": [...]}` / `{"all": [...]}`.
+"""
+function _parse_termination_item(entry::Dict)
+    length(entry) == 1 || error(
+        "Each termination test entry must have exactly one key, got: $(keys(entry))")
+    key, val = first(entry)
+    lk = lowercase(key)
+
+    # Nested group: any: [...] or all: [...]
+    if lk == "any"
+        val isa Vector || error("\"any:\" must contain a list.")
+        return ComboOrTest(AbstractStatusTest[_parse_termination_item(e) for e in val])
+    elseif lk == "all"
+        val isa Vector || error("\"all:\" must contain a list.")
+        return ComboAndTest(AbstractStatusTest[_parse_termination_item(e) for e in val])
+    end
+
+    # Named test: look up constructor
+    haskey(_TERMINATION_TEST_MAP, lk) || error("Unknown termination test \"$key\".")
+    return _TERMINATION_TEST_MAP[lk](val)
+end
+
+"""
+Parse a `converge when any/all:` or `fail when any/all:` list into a
+composite status test.
+"""
+function _parse_when_block(items::Vector, operator::String)
+    tests = AbstractStatusTest[_parse_termination_item(e) for e in items]
+    return operator == "and" ? ComboAndTest(tests) : ComboOrTest(tests)
+end
+
+"""
+Parse a single termination test entry from YAML (legacy syntax).
 Returns an AbstractStatusTest.
 """
 function _parse_termination_test(entry::Dict)
@@ -526,21 +613,26 @@ function _parse_termination_test(entry::Dict)
     end
 end
 
+# Keys recognized as the new converge/fail syntax.
+const _WHEN_KEYS = Dict(
+    "converge when any" => ("converge", "or"),
+    "converge when all" => ("converge", "and"),
+    "fail when any"     => ("fail",     "or"),
+    "fail when all"     => ("fail",     "and"),
+)
+
 """
 Parse the termination: block from a solver dict.
-Returns an AbstractStatusTest (OR combo of all entries).
-Falls back to legacy abs_tol/rel_tol keys if no termination: block.
+Returns an AbstractStatusTest.
+
+Supports three formats:
+1. New syntax — dict with `converge when any/all:` and `fail when any/all:` keys.
+2. Legacy syntax — list of typed test entries with `combo` nesting.
+3. Flat keys — `absolute tolerance` / `relative tolerance` (oldest format).
 """
 function _parse_termination(sol_dict)
-    if haskey(sol_dict, "termination")
-        entries = sol_dict["termination"]
-        entries isa Vector || error("\"termination:\" must be a list.")
-        tests = AbstractStatusTest[_parse_termination_test(e) for e in entries]
-        # Always add FiniteValue check
-        push!(tests, FiniteValueTest())
-        return ComboOrTest(tests)
-    else
-        # Legacy: build from flat keys
+    if !haskey(sol_dict, "termination")
+        # Oldest legacy: flat keys
         abs_tol = Float64(get(sol_dict, "absolute tolerance", 1e-10))
         rel_tol = Float64(get(sol_dict, "relative tolerance", 1e-14))
         return ComboOrTest(AbstractStatusTest[
@@ -549,6 +641,33 @@ function _parse_termination(sol_dict)
             FiniteValueTest(),
         ])
     end
+
+    entries = sol_dict["termination"]
+
+    # --- New syntax: termination is a Dict with converge/fail keys ----------
+    if entries isa Dict
+        converge_tests = AbstractStatusTest[]
+        fail_tests     = AbstractStatusTest[]
+        for (key, val) in entries
+            lk = lowercase(key)
+            haskey(_WHEN_KEYS, lk) || error(
+                "Unknown termination key \"$key\". " *
+                "Expected one of: $(join(keys(_WHEN_KEYS), ", ")).")
+            role, operator = _WHEN_KEYS[lk]
+            val isa Vector || error("\"$key:\" must contain a list.")
+            target = role == "converge" ? converge_tests : fail_tests
+            push!(target, _parse_when_block(val, operator))
+        end
+        # Deterministic order: converge groups, then fail groups, then FiniteValue
+        top_tests = AbstractStatusTest[converge_tests; fail_tests; FiniteValueTest()]
+        return ComboOrTest(top_tests)
+    end
+
+    # --- Legacy syntax: termination is a list of typed entries ---------------
+    entries isa Vector || error("\"termination:\" must be a mapping or a list.")
+    tests = AbstractStatusTest[_parse_termination_test(e) for e in entries]
+    push!(tests, FiniteValueTest())
+    return ComboOrTest(tests)
 end
 
 # --------------------------------------------------------------------------- #

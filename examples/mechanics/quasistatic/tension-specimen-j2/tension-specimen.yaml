@@ -64,20 +64,13 @@ boundary conditions:
 solver:
   type: newton
   termination:
-    - type: combo
-      combo: and
-      tests:
-        - type: minimum iterations
-          value: 0
-        - type: combo
-          combo: or
-          tests:
-            - type: absolute residual
-              tolerance: 1.0e-08
-            - type: relative residual
-              tolerance: 1.0e-12
-    - type: maximum iterations
-      value: 16
+    converge when all:
+      - minimum iterations: 0
+      - any:
+          - absolute residual: 1.0e-08
+          - relative residual: 1.0e-12
+    fail when any:
+      - maximum iterations: 16
   use line search: true
   linear solver:
     type: cg

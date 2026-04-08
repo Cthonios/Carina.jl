@@ -40,14 +40,10 @@ initial conditions:
 solver:
   type: newton
   termination:
-    - type: combo
-      combo: or
-      tests:
-        - type: absolute residual
-          tolerance: 1.0e-06
-        - type: relative residual
-          tolerance: 1.0e-10
-    - type: maximum iterations
-      value: 20
+    converge when any:
+      - absolute residual: 1.0e-06
+      - relative residual: 1.0e-10
+    fail when any:
+      - maximum iterations: 20
   linear solver:
     type: direct
