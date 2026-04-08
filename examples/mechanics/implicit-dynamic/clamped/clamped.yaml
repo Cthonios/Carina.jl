@@ -75,7 +75,10 @@ solver:
   type: newton
   minimum iterations: 0
   maximum iterations: 4
-  relative tolerance: 1.0e-10
-  absolute tolerance: 1.0e-06
+  termination:
+    - type: absolute residual
+      tolerance: 1.0e-06
+    - type: relative residual
+      tolerance: 1.0e-10
   linear solver:
     type: direct

@@ -96,7 +96,8 @@ function solve!(ns::NewtonSolver, ig, p)
     _carina_logf(8, :solve, "Iter [0] |R| = %.2e : |r| = %.2e : %s",
                  initial_norm, 1.0, _status_str(false))
     ops = _setup_linear_ops(ig, ns.linear_solver, p)
-    status_test = _build_status_test(ns)
+    status_test = _nonlinear_status_test[] !== nothing ? _nonlinear_status_test[] : _build_status_test(ns)
+    reset!(status_test)
     norm_R_prev = initial_norm
     status = Unconverged
     for iter in 1:ns.max_iters
@@ -154,7 +155,8 @@ function solve!(ns::NewtonSolver{<:LBFGSLinearSolver}, ig, p)
     initial_norm = sqrt(sum(abs2, residual(ig)))
     _carina_logf(8, :solve, "Iter [0] |R| = %.2e : |r| = %.2e : %s",
                  initial_norm, 1.0, _status_str(false))
-    status_test = _build_status_test(ns)
+    status_test = _nonlinear_status_test[] !== nothing ? _nonlinear_status_test[] : _build_status_test(ns)
+    reset!(status_test)
     norm_R_prev = initial_norm
     status = Unconverged
     for iter in 1:ns.max_iters
@@ -232,7 +234,8 @@ function solve!(ns::NLCGSolver, ig, p)
     copyto!(ns.d, ns.g)
     rg = dot(residual(ig), ns.g)
 
-    status_test = _build_status_test(ns)
+    status_test = _nonlinear_status_test[] !== nothing ? _nonlinear_status_test[] : _build_status_test(ns)
+    reset!(status_test)
     norm_R_prev = initial_norm
     status = Unconverged
     for iter in 1:ns.max_iters
@@ -321,7 +324,8 @@ function solve!(ns::SteepestDescentSolver, ig, p)
     _carina_logf(8, :solve, "Iter [0] |R| = %.2e : |r| = %.2e : %s",
                  initial_norm, 1.0, _status_str(false))
 
-    status_test = _build_status_test(ns)
+    status_test = _nonlinear_status_test[] !== nothing ? _nonlinear_status_test[] : _build_status_test(ns)
+    reset!(status_test)
     norm_R_prev = initial_norm
     status = Unconverged
     for iter in 1:ns.max_iters

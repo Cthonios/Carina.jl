@@ -84,11 +84,16 @@ const _TIME_INTEGRATOR_KEYS = Set([
 
 const _SOLVER_KEYS = Set([
     "type", "minimum iterations", "maximum iterations",
-    "absolute tolerance", "relative tolerance",
+    "absolute tolerance", "relative tolerance", "termination",
     "use line search", "line search backtrack factor",
     "line search decrease factor", "line search maximum iterations",
     "linear solver", "preconditioner",
     "orthogonality tolerance", "restart interval",
+])
+
+const _TERMINATION_TEST_KEYS = Set([
+    "type", "tolerance", "combo", "tests",
+    "window", "threshold", "value",
 ])
 
 const _LINEAR_SOLVER_KEYS = Set([
@@ -225,6 +230,7 @@ function _parse_integrator(dict, asm, asm_cpu, p_cpu, controller, device=:cpu)
         make_precond = () -> _compute_stiffness_jacobi_precond(asm_cpu, p_cpu, template)
         ls = _parse_linear_solver(ls_dict, template, device, make_precond)
         ns = _parse_nonlinear_solver(sol_dict, ls; template=template, make_precond=make_precond)
+        _parse_and_store_termination!(sol_dict)
         return QuasiStaticIntegrator(ns, asm, template;
                                       time_step=dt,
                                       min_time_step=min_dt,
@@ -243,6 +249,7 @@ function _parse_integrator(dict, asm, asm_cpu, p_cpu, controller, device=:cpu)
         make_precond = () -> _compute_jacobi_precond(β, dt, asm_cpu, p_cpu, template)
         ls = _parse_linear_solver(ls_dict, template, device, make_precond)
         ns = _parse_nonlinear_solver(sol_dict, ls; template=template, make_precond=make_precond)
+        _parse_and_store_termination!(sol_dict)
         return NewmarkIntegrator(ns, asm, β, γ, template;
                                   α_hht=α_hht,
                                   time_step=dt,
@@ -463,6 +470,86 @@ function _read_solver_dicts(dict)
     return sol_dict, ls_dict
 end
 
+# --------------------------------------------------------------------------- #
+# Termination criteria parsing
+# --------------------------------------------------------------------------- #
+
+"""
+Parse a single termination test entry from YAML.
+Returns an AbstractStatusTest.
+"""
+function _parse_termination_test(entry::Dict)
+    test_type = lowercase(get(entry, "type", ""))
+
+    if test_type in ("absolute residual", "abs residual", "abs_residual")
+        tol = Float64(entry["tolerance"])
+        return AbsResidualTest(tol)
+
+    elseif test_type in ("relative residual", "rel residual", "rel_residual")
+        tol = Float64(entry["tolerance"])
+        return RelResidualTest(tol)
+
+    elseif test_type in ("absolute update", "abs update", "abs_update")
+        tol = Float64(entry["tolerance"])
+        return AbsUpdateTest(tol)
+
+    elseif test_type in ("relative update", "rel update", "rel_update")
+        tol = Float64(entry["tolerance"])
+        return RelUpdateTest(tol)
+
+    elseif test_type in ("max iterations", "maximum iterations")
+        return MaxIterationsTest(Int(entry["value"]))
+
+    elseif test_type in ("finite value", "nan check")
+        return FiniteValueTest()
+
+    elseif test_type in ("divergence",)
+        threshold = Float64(get(entry, "threshold", 1e6))
+        return DivergenceTest(threshold)
+
+    elseif test_type in ("stagnation",)
+        window = Int(get(entry, "window", 5))
+        tol    = Float64(get(entry, "tolerance", 0.95))
+        return StagnationTest(; window, tol)
+
+    elseif test_type in ("combo", "combination")
+        combo_type = lowercase(get(entry, "combo", "or"))
+        subtests = AbstractStatusTest[_parse_termination_test(t)
+                                      for t in entry["tests"]]
+        return combo_type == "and" ? ComboAndTest(subtests) : ComboOrTest(subtests)
+
+    else
+        error("Unknown termination test type \"$test_type\".")
+    end
+end
+
+"""
+Parse the termination: block from a solver dict.
+Returns an AbstractStatusTest (OR combo of all entries).
+Falls back to legacy abs_tol/rel_tol keys if no termination: block.
+"""
+function _parse_termination(sol_dict)
+    if haskey(sol_dict, "termination")
+        entries = sol_dict["termination"]
+        entries isa Vector || error("\"termination:\" must be a list.")
+        tests = AbstractStatusTest[_parse_termination_test(e) for e in entries]
+        # Always add FiniteValue check
+        push!(tests, FiniteValueTest())
+        return ComboOrTest(tests)
+    else
+        # Legacy: build from flat keys
+        abs_tol = Float64(get(sol_dict, "absolute tolerance", 1e-10))
+        rel_tol = Float64(get(sol_dict, "relative tolerance", 1e-14))
+        return ComboOrTest(AbstractStatusTest[
+            AbsResidualTest(abs_tol),
+            RelResidualTest(rel_tol),
+            FiniteValueTest(),
+        ])
+    end
+end
+
+# --------------------------------------------------------------------------- #
+
 function _parse_linear_solver(ls_dict, template, device, make_precond::Function)
     _validate_keys(ls_dict, _LINEAR_SOLVER_KEYS, "linear solver")
     ls_type = lowercase(ls_dict["type"])
@@ -569,6 +656,11 @@ function _parse_nonlinear_solver(sol_dict, ls::AbstractLinearSolver;
         return NewtonSolver(min_iters, max_iters, abs_tol, abs_tol, rel_tol, ls,
                             use_ls, ls_back, ls_dec, ls_max)
     end
+end
+
+# After parsing the nonlinear solver, parse and store termination criteria.
+function _parse_and_store_termination!(sol_dict)
+    _nonlinear_status_test[] = _parse_termination(sol_dict)
 end
 
 # ---- Dirichlet BCs ----

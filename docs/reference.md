@@ -230,12 +230,57 @@ All nonlinear solvers share these keys:
 |-----|---------|-------------|
 | `maximum iterations` | 20 | Max Newton/CG/SD iterations per time step. |
 | `minimum iterations` | 0 | Force at least this many iterations. |
-| `absolute tolerance` | 1e-10 | Converged when \|R\| < tol. |
-| `relative tolerance` | 1e-14 | Converged when \|R\|/\|R_0\| < tol. |
+| `termination` | (see below) | List of termination criteria. |
 | `use line search` | false | Enable Armijo backtracking line search. Recommended for J2 plasticity. |
 | `line search backtrack factor` | 0.5 | Step reduction per backtrack. |
 | `line search decrease factor` | 1e-4 | Armijo sufficient decrease parameter. |
 | `line search maximum iterations` | 10 | Max backtracking steps. |
+
+### Termination Criteria
+
+Convergence is controlled by a composable list of status tests under
+`termination:`.  The solver converges when ANY test in the list is
+satisfied (OR logic).  A `FiniteValueTest` (NaN/Inf check) is always
+added automatically.
+
+```yaml
+solver:
+  type: newton
+  maximum iterations: 16
+  termination:
+    - type: absolute residual
+      tolerance: 1.0e-06
+    - type: relative residual
+      tolerance: 1.0e-10
+```
+
+Available test types:
+
+| YAML `type` | Key | Description |
+|-------------|-----|-------------|
+| `absolute residual` | `tolerance` | Converged when \|R\| < tol. |
+| `relative residual` | `tolerance` | Converged when \|R\|/\|R_0\| < tol. |
+| `absolute update` | `tolerance` | Converged when \|ΔU\| < tol. |
+| `relative update` | `tolerance` | Converged when \|ΔU\|/\|U\| < tol. |
+| `stagnation` | `window`, `tolerance` | Failed when residual doesn't decrease over `window` iterations. |
+| `divergence` | `threshold` | Failed when \|R\| > threshold × \|R_0\|. |
+| `combo` | `combo` (and/or), `tests` | Combine sub-tests with AND or OR logic. |
+
+For AND logic (all criteria must be met simultaneously):
+
+```yaml
+  termination:
+    - type: combo
+      combo: and
+      tests:
+        - type: absolute residual
+          tolerance: 1.0e-06
+        - type: relative update
+          tolerance: 1.0e-12
+```
+
+Legacy syntax (`absolute tolerance`, `relative tolerance` as flat keys)
+is still supported but deprecated.
 
 NLCG additional keys:
 

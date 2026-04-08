@@ -44,6 +44,7 @@ const _gpu_cholesky_L      = Ref{Any}(nothing)  # GPU sparse lower triangular fa
 const _cpu_asm_ref         = Ref{Any}(nothing)  # CPU assembler reference for GPU Cholesky
 const _cpu_params_ref      = Ref{Any}(nothing)  # CPU params reference for GPU Cholesky
 const _device_sym          = Ref{Symbol}(:cpu)   # :cpu, :rocm, or :cuda
+const _nonlinear_status_test = Ref{Any}(nothing)  # parsed termination criteria
 
 function _init_assembly_cache!(asm, is_linear::Bool)
     _asm_flags.compute_stiffness     = true

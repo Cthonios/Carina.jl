@@ -65,8 +65,11 @@ solver:
   type: newton
   minimum iterations: 0
   maximum iterations: 16
-  relative tolerance: 1.0e-12
-  absolute tolerance: 1.0e-08
+  termination:
+    - type: absolute residual
+      tolerance: 1.0e-08
+    - type: relative residual
+      tolerance: 1.0e-12
   use line search: true
   linear solver:
     type: cg

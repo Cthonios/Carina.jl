@@ -52,8 +52,11 @@ boundary conditions:
 solver:
   type: newton
   maximum iterations: 16
-  relative tolerance: 1.0e-10
-  absolute tolerance: 1.0e-06
+  termination:
+    - type: absolute residual
+      tolerance: 1.0e-06
+    - type: relative residual
+      tolerance: 1.0e-10
   linear solver:
     type: iterative
     tolerance: 1.0e-10
