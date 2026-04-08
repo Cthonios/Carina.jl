@@ -10,6 +10,30 @@ using LinearAlgebra
 import FiniteElementContainers as FEC
 
 # --------------------------------------------------------------------------- #
+# Status test helpers
+# --------------------------------------------------------------------------- #
+
+# Build a status test tree from a nonlinear solver's parameters.
+# The tree is:  OR( AND(AbsResidual, RelResidual), MaxIterations, FiniteValue )
+function _build_status_test(ns)
+    # Convergence: either absolute or relative residual tolerance met.
+    # Max iteration and failure handling remain in the solver loop.
+    return ComboOrTest(AbstractStatusTest[
+        AbsResidualTest(ns.abs_residual_tol),
+        RelResidualTest(ns.rel_residual_tol),
+        FiniteValueTest(),
+    ])
+end
+
+# Build SolverInfo from current solver state.
+function _solver_info(iter, norm_R, norm_R_init, norm_R_prev, norm_step, norm_U)
+    SolverInfo(iter, norm_R, norm_R_init, norm_R_prev, norm_step, norm_U)
+end
+
+# Map SolverStatus to the display string and boolean for logging.
+_status_done(s::SolverStatus) = s == Converged
+
+# --------------------------------------------------------------------------- #
 # Backtracking line search
 # --------------------------------------------------------------------------- #
 #
@@ -72,26 +96,29 @@ function solve!(ns::NewtonSolver, ig, p)
     _carina_logf(8, :solve, "Iter [0] |R| = %.2e : |r| = %.2e : %s",
                  initial_norm, 1.0, _status_str(false))
     ops = _setup_linear_ops(ig, ns.linear_solver, p)
-    converged = false
+    status_test = _build_status_test(ns)
+    norm_R_prev = initial_norm
+    status = Unconverged
     for iter in 1:ns.max_iters
         ΔU, t_solve = _linear_solve!(ns.linear_solver, ig, p, ops)
         ig.failed[] && return
 
         if ns.use_line_search
             α = _backtrack_line_search(ns, ig, p, ΔU)
-            # Line search already applied the step and evaluated the residual
             norm_step = α * sqrt(sum(abs2, ΔU))
-            t_eval = 0.0  # already done inside line search
+            t_eval = 0.0
         else
             apply_increment!(ig, ΔU, p)
             t_eval = @elapsed evaluate!(ig, p)
             norm_step = sqrt(sum(abs2, ΔU))
         end
 
-        norm_R    = sqrt(sum(abs2, residual(ig)))
-        rel_R     = initial_norm > 0.0 ? norm_R / initial_norm : norm_R
-        met_tol   = norm_R < ns.abs_residual_tol || rel_R < ns.rel_residual_tol
-        converged = met_tol && iter > ns.min_iters
+        norm_R = sqrt(sum(abs2, residual(ig)))
+        rel_R  = initial_norm > 0.0 ? norm_R / initial_norm : norm_R
+        norm_U = sqrt(sum(abs2, _displacement(ig)))
+        info   = _solver_info(iter, norm_R, initial_norm, norm_R_prev, norm_step, norm_U)
+        status = check(status_test, info)
+        converged = status == Converged && iter > ns.min_iters
         if t_eval + t_solve > 0.01
             _carina_logf(8, :solve,
                 "Iter [%d] |R| = %.2e : |r| = %.2e : |ΔU| = %.2e : t_eval = %.2fs : t_solve = %.2fs : %s",
@@ -102,9 +129,11 @@ function solve!(ns::NewtonSolver, ig, p)
                 iter, norm_R, rel_R, norm_step, _status_str(converged))
         end
         converged && break
+        status == Failed && break
+        norm_R_prev = norm_R
         setup_jacobian!(ig, p) || return
     end
-    if !converged
+    if status != Converged
         if _mark_failed_on_nonconvergence(ig)
             ig.failed[] = true
         else
@@ -125,16 +154,16 @@ function solve!(ns::NewtonSolver{<:LBFGSLinearSolver}, ig, p)
     initial_norm = sqrt(sum(abs2, residual(ig)))
     _carina_logf(8, :solve, "Iter [0] |R| = %.2e : |r| = %.2e : %s",
                  initial_norm, 1.0, _status_str(false))
-    converged = false
+    status_test = _build_status_test(ns)
+    norm_R_prev = initial_norm
+    status = Unconverged
     for iter in 1:ns.max_iters
         norm_R = sqrt(sum(abs2, residual(ig)))
         rel_R  = initial_norm > 0.0 ? norm_R / initial_norm : norm_R
-        # L-BFGS descent direction
         t_dir = @elapsed _lbfgs_two_loop!(ls.d, ls.q, residual(ig), ls.S, ls.Y, ls.ρ,
                                            ls.alpha_buf, ls.head, ls.hist_fill, ls.m, ls.precond)
         _lbfgs_precompute_M_d!(ig, ls, p)
         copyto!(ls.R_old, residual(ig))
-        # Backtracking line search (uses solver parameters, not hardcoded)
         step = 1.0; ls_iters = 0
         t_ls = @elapsed for lsi in 1:ns.ls_max_iters
             ls_iters = lsi
@@ -143,7 +172,6 @@ function solve!(ns::NewtonSolver{<:LBFGSLinearSolver}, ig, p)
             isfinite(norm_R_trial) && norm_R_trial < norm_R && break
             step *= ns.ls_backtrack
         end
-        # Accept step
         U = _displacement(ig)
         @. U = U + step * ls.d
         FEC._update_for_assembly!(p, ig.asm.dof, U)
@@ -151,8 +179,10 @@ function solve!(ns::NewtonSolver{<:LBFGSLinearSolver}, ig, p)
         norm_dU    = step * sqrt(sum(abs2, ls.d))
         new_norm_R = sqrt(sum(abs2, residual(ig)))
         new_rel_R  = initial_norm > 0.0 ? new_norm_R / initial_norm : new_norm_R
-        met_tol   = new_norm_R < ns.abs_residual_tol || new_rel_R < ns.rel_residual_tol
-        converged = met_tol && iter > ns.min_iters
+        norm_U     = sqrt(sum(abs2, U))
+        info   = _solver_info(iter, new_norm_R, initial_norm, norm_R_prev, norm_dU, norm_U)
+        status = check(status_test, info)
+        converged = status == Converged && iter > ns.min_iters
         if t_dir + t_ls > 0.01
             _carina_logf(8, :solve,
                 "Iter [%d] |R| = %.2e : |r| = %.2e : |ΔU| = %.2e : step = %.2e : LS = %d : t_dir = %.0fms : t_ls = %.0fms : %s",
@@ -176,8 +206,10 @@ function solve!(ns::NewtonSolver{<:LBFGSLinearSolver}, ig, p)
             ls.hist_fill   = min(ls.hist_fill + 1, ls.m)
         end
         converged && break
+        status == Failed && break
+        norm_R_prev = new_norm_R
     end
-    ig.failed[] = !converged
+    ig.failed[] = status != Converged
 end
 
 # ---- Nonlinear CG (Preconditioned Polak-Ribière+) ----
@@ -196,13 +228,13 @@ function solve!(ns::NLCGSolver, ig, p)
     _carina_logf(8, :solve, "Iter [0] |R| = %.2e : |r| = %.2e : %s",
                  initial_norm, 1.0, _status_str(false))
 
-    # g = M⁻¹ R_eff (preconditioned negative gradient of energy)
-    # R_eff = F_ext - F_int = -∇Π, so d = g is the descent direction.
     _apply_precond!(ns.g, residual(ig), ns.precond)
     copyto!(ns.d, ns.g)
-    rg = dot(residual(ig), ns.g)   # R·g for β denominator
+    rg = dot(residual(ig), ns.g)
 
-    converged = false
+    status_test = _build_status_test(ns)
+    norm_R_prev = initial_norm
+    status = Unconverged
     for iter in 1:ns.max_iters
         # Save U for line search restore
         U = _displacement(ig)
@@ -230,12 +262,16 @@ function solve!(ns::NLCGSolver, ig, p)
         norm_R = sqrt(sum(abs2, residual(ig)))
         rel_R  = initial_norm > 0 ? norm_R / initial_norm : norm_R
         norm_step = α * sqrt(sum(abs2, ns.d))
-        met_tol = norm_R < ns.abs_residual_tol || rel_R < ns.rel_residual_tol
-        converged = met_tol && iter > ns.min_iters
+        norm_U = sqrt(sum(abs2, U))
+        info   = _solver_info(iter, norm_R, initial_norm, norm_R_prev, norm_step, norm_U)
+        status = check(status_test, info)
+        converged = status == Converged && iter > ns.min_iters
         _carina_logf(8, :solve,
             "Iter [%d] |R| = %.2e : |r| = %.2e : |ΔU| = %.2e : α = %.2e : %s",
             iter, norm_R, rel_R, norm_step, α, _status_str(converged))
         converged && break
+        status == Failed && break
+        norm_R_prev = norm_R
 
         # Update preconditioned gradient
         copyto!(ns.g_old, ns.g)
@@ -262,7 +298,7 @@ function solve!(ns::NLCGSolver, ig, p)
         @. ns.d = ns.g + β * ns.d
     end
 
-    if !converged && _mark_failed_on_nonconvergence(ig)
+    if status != Converged && _mark_failed_on_nonconvergence(ig)
         ig.failed[] = true
     end
 end
@@ -285,7 +321,9 @@ function solve!(ns::SteepestDescentSolver, ig, p)
     _carina_logf(8, :solve, "Iter [0] |R| = %.2e : |r| = %.2e : %s",
                  initial_norm, 1.0, _status_str(false))
 
-    converged = false
+    status_test = _build_status_test(ns)
+    norm_R_prev = initial_norm
+    status = Unconverged
     for iter in 1:ns.max_iters
         # Descent direction: d = M⁻¹ R_eff (preconditioned)
         _apply_precond!(ns.d, residual(ig), ns.precond)
@@ -322,8 +360,10 @@ function solve!(ns::SteepestDescentSolver, ig, p)
         norm_R    = sqrt(sum(abs2, residual(ig)))
         rel_R     = initial_norm > 0 ? norm_R / initial_norm : norm_R
         norm_step = α * sqrt(sum(abs2, ns.d))
-        met_tol   = norm_R < ns.abs_residual_tol || rel_R < ns.rel_residual_tol
-        converged = met_tol && iter > ns.min_iters
+        norm_U    = sqrt(sum(abs2, U))
+        info   = _solver_info(iter, norm_R, initial_norm, norm_R_prev, norm_step, norm_U)
+        status = check(status_test, info)
+        converged = status == Converged && iter > ns.min_iters
 
         ΔW = W_trial - W_curr
         if abs(ΔW) > 0.01
@@ -336,9 +376,11 @@ function solve!(ns::SteepestDescentSolver, ig, p)
                 iter, norm_R, rel_R, norm_step, α, _status_str(converged))
         end
         converged && break
+        status == Failed && break
+        norm_R_prev = norm_R
     end
 
-    if !converged && _mark_failed_on_nonconvergence(ig)
+    if status != Converged && _mark_failed_on_nonconvergence(ig)
         ig.failed[] = true
     end
 end
