@@ -500,6 +500,9 @@ function _parse_termination_test(entry::Dict)
     elseif test_type in ("max iterations", "maximum iterations")
         return MaxIterationsTest(Int(entry["value"]))
 
+    elseif test_type in ("min iterations", "minimum iterations")
+        return MinIterationsTest(Int(entry["value"]))
+
     elseif test_type in ("finite value", "nan check")
         return FiniteValueTest()
 
@@ -618,8 +621,11 @@ function _parse_nonlinear_solver(sol_dict, ls::AbstractLinearSolver;
     T = template !== nothing ? eltype(template) : Float64
     mk() = template !== nothing ?
         (v = similar(template); fill!(v, zero(T)); v) : Float64[]
+    # Parse termination tree and extract iteration limits from it (or fall back to flat keys)
+    term_tree = _parse_termination(sol_dict)
+    tree_max = _extract_max_iters(term_tree)
     min_iters = Int(get(sol_dict, "minimum iterations", 0))
-    max_iters = Int(get(sol_dict, "maximum iterations", 20))
+    max_iters = tree_max > 0 ? tree_max : Int(get(sol_dict, "maximum iterations", 20))
     abs_tol   = Float64(get(sol_dict, "absolute tolerance", 1e-10))
     rel_tol   = Float64(get(sol_dict, "relative tolerance", 1e-14))
     # Line search parameters
@@ -662,6 +668,19 @@ end
 function _parse_and_store_termination!(sol_dict)
     _nonlinear_status_test[] = _parse_termination(sol_dict)
 end
+
+# Extract max_iters from the termination tree (for the solver loop bound).
+function _extract_max_iters(test::MaxIterationsTest)
+    return test.max_iters
+end
+function _extract_max_iters(test::Union{ComboOrTest, ComboAndTest})
+    for sub in test.tests
+        v = _extract_max_iters(sub)
+        v > 0 && return v
+    end
+    return 0
+end
+_extract_max_iters(::AbstractStatusTest) = 0
 
 # ---- Dirichlet BCs ----
 

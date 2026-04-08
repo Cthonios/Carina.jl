@@ -38,12 +38,16 @@ boundary conditions:
 
 solver:
   type: newton
-  maximum iterations: 100
   termination:
-    - type: absolute residual
-      tolerance: 1.0e-06
-    - type: relative residual
-      tolerance: 1.0e-10
+    - type: combo
+      combo: or
+      tests:
+        - type: absolute residual
+          tolerance: 1.0e-06
+        - type: relative residual
+          tolerance: 1.0e-10
+    - type: maximum iterations
+      value: 100
   linear solver:
     type:         lbfgs
     history size: 10

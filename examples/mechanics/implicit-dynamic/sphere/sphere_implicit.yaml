@@ -39,11 +39,15 @@ initial conditions:
 
 solver:
   type: newton
-  maximum iterations: 20
   termination:
-    - type: absolute residual
-      tolerance: 1.0e-06
-    - type: relative residual
-      tolerance: 1.0e-10
+    - type: combo
+      combo: or
+      tests:
+        - type: absolute residual
+          tolerance: 1.0e-06
+        - type: relative residual
+          tolerance: 1.0e-10
+    - type: maximum iterations
+      value: 20
   linear solver:
     type: direct

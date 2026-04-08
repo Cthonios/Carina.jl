@@ -36,12 +36,16 @@ boundary conditions:
 
 solver:
   type: steepest descent
-  maximum iterations: 500
   termination:
-    - type: absolute residual
-      tolerance: 1.0e-08
-    - type: relative residual
-      tolerance: 1.0e-14
+    - type: combo
+      combo: or
+      tests:
+        - type: absolute residual
+          tolerance: 1.0e-08
+        - type: relative residual
+          tolerance: 1.0e-14
+    - type: maximum iterations
+      value: 500
   line search maximum iterations: 30
   preconditioner:
     type: jacobi

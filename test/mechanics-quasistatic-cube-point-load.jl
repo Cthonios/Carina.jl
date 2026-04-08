@@ -54,12 +54,16 @@ boundary conditions:
 
 solver:
   type: newton
-  maximum iterations: 16
   termination:
-    - type: absolute residual
-      tolerance: 1.0e-08
-    - type: relative residual
-      tolerance: 1.0e-14
+    - type: combo
+      combo: or
+      tests:
+        - type: absolute residual
+          tolerance: 1.0e-08
+        - type: relative residual
+          tolerance: 1.0e-14
+    - type: maximum iterations
+      value: 16
   linear solver:
     type: direct
 """

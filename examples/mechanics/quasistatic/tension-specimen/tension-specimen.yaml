@@ -54,13 +54,21 @@ boundary conditions:
 
 solver:
   type: newton
-  minimum iterations: 0
-  maximum iterations: 16
   termination:
-    - type: absolute residual
-      tolerance: 1.0e-08
-    - type: relative residual
-      tolerance: 1.0e-12
+    - type: combo
+      combo: and
+      tests:
+        - type: minimum iterations
+          value: 0
+        - type: combo
+          combo: or
+          tests:
+            - type: absolute residual
+              tolerance: 1.0e-08
+            - type: relative residual
+              tolerance: 1.0e-12
+    - type: maximum iterations
+      value: 16
   linear solver:
     type: cg
     maximum iterations: 1000

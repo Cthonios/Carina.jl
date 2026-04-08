@@ -38,12 +38,16 @@ boundary conditions:
 
 solver:
   type: nonlinear cg
-  maximum iterations: 200
   termination:
-    - type: absolute residual
-      tolerance: 1.0e-06
-    - type: relative residual
-      tolerance: 1.0e-10
+    - type: combo
+      combo: or
+      tests:
+        - type: absolute residual
+          tolerance: 1.0e-06
+        - type: relative residual
+          tolerance: 1.0e-10
+    - type: maximum iterations
+      value: 200
   use line search: true
   line search maximum iterations: 30
   preconditioner:

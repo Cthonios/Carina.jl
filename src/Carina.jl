@@ -45,7 +45,7 @@ include("simulation.jl")
 export SolverStatus, Unconverged, Converged, Failed
 export SolverInfo, AbstractStatusTest, check, reset!
 export AbsResidualTest, RelResidualTest, AbsUpdateTest, RelUpdateTest
-export MaxIterationsTest, FiniteValueTest, DivergenceTest, StagnationTest
+export MaxIterationsTest, MinIterationsTest, FiniteValueTest, DivergenceTest, StagnationTest
 export ModelFlagTest, ComboAndTest, ComboOrTest
 export default_nonlinear_status_test, default_linear_status_test
 

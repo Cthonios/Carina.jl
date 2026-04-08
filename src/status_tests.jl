@@ -96,6 +96,14 @@ end
 check(t::MaxIterationsTest, info::SolverInfo) =
     info.iteration >= t.max_iters ? Failed : Unconverged
 
+"""Unconverged until iteration count reaches min, then Converged.
+Used in AND combos to prevent premature convergence."""
+struct MinIterationsTest <: AbstractStatusTest
+    min_iters::Int
+end
+check(t::MinIterationsTest, info::SolverInfo) =
+    info.iteration >= t.min_iters ? Converged : Unconverged
+
 """Failed when ||R|| contains NaN or Inf."""
 struct FiniteValueTest <: AbstractStatusTest end
 check(::FiniteValueTest, info::SolverInfo) =
