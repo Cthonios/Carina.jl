@@ -71,7 +71,7 @@ function _carina_log(level::Int, keyword::Symbol, msg::AbstractString)
 
     io = CARINA_LOG_FILE[]
     if io !== nothing
-        println(io, prefix, msg)
+        println(io, prefix, replace(msg, r"\e\[[0-9;]*m" => ""))
         flush(io)
     end
 end
