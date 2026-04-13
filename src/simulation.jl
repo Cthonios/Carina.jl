@@ -325,7 +325,17 @@ function _advance_one_step!(sim)
     while true
         integrator.failed[] = false
 
-        Base.invokelatest(FEC.evolve!, integrator, params)
+        # Defense-in-depth: evaluate! catches math errors from constitutive
+        # models and returns false (→ flag path).  This outer catch handles
+        # the same errors if they escape from any other point in evolve!.
+        try
+            Base.invokelatest(FEC.evolve!, integrator, params)
+        catch e
+            e isa _MATH_ERRORS || rethrow()
+            _carina_logf(4, :solve, "Caught %s during evolve! — treating as step failure",
+                         typeof(e))
+            integrator.failed[] = true
+        end
 
         if !integrator.failed[]
             _increase_step!(integrator, params)

@@ -46,6 +46,11 @@ const _cpu_params_ref      = Ref{Any}(nothing)  # CPU params reference for GPU C
 const _device_sym          = Ref{Symbol}(:cpu)   # :cpu, :rocm, or :cuda
 const _nonlinear_status_test = Ref{Any}(nothing)  # parsed termination criteria
 
+# Math errors from constitutive models (e.g. J2 plasticity raising a negative
+# number to a fractional power) that should be treated as evaluation failures
+# rather than hard crashes.
+const _MATH_ERRORS = Union{DomainError, InexactError, OverflowError}
+
 function _init_assembly_cache!(asm, is_linear::Bool)
     _asm_flags.compute_stiffness     = true
     _asm_flags.compute_mass          = true
@@ -259,9 +264,15 @@ end
 
 function evaluate!(ig::QuasiStaticIntegrator, p)
     U = ig.U; asm = ig.asm
-    FEC.assemble_vector!(asm, FEC.residual, U, p)
-    FEC.assemble_vector_neumann_bc!(asm, U, p)
-    FEC.assemble_vector_source!(asm, U, p)
+    try
+        FEC.assemble_vector!(asm, FEC.residual, U, p)
+        FEC.assemble_vector_neumann_bc!(asm, U, p)
+        FEC.assemble_vector_source!(asm, U, p)
+    catch e
+        e isa _MATH_ERRORS || rethrow()
+        _carina_logf(4, :solve, "evaluate!: caught %s during assembly", typeof(e))
+        return false
+    end
     R = FEC.residual(asm)
     @. ig.R_eff = -R
     _apply_point_loads!(ig.R_eff, FEC.current_time(p.times))
@@ -271,10 +282,16 @@ end
 function evaluate!(ig::NewmarkIntegrator, p)
     (; asm, U, U_pred, dU, R_eff, c_M, α_hht, F_int_n) = ig
     @. dU = U - U_pred
-    FEC.assemble_vector!(asm, FEC.residual, U, p)
-    FEC.assemble_vector_neumann_bc!(asm, U, p)
-    FEC.assemble_vector_source!(asm, U, p)
-    FEC.assemble_matrix_free_action!(asm, FEC.mass_action, U, dU, p)
+    try
+        FEC.assemble_vector!(asm, FEC.residual, U, p)
+        FEC.assemble_vector_neumann_bc!(asm, U, p)
+        FEC.assemble_vector_source!(asm, U, p)
+        FEC.assemble_matrix_free_action!(asm, FEC.mass_action, U, dU, p)
+    catch e
+        e isa _MATH_ERRORS || rethrow()
+        _carina_logf(4, :solve, "evaluate!: caught %s during assembly", typeof(e))
+        return false
+    end
     R_int = FEC.residual(asm)
     M_dU  = FEC.hvp(asm, dU)
     @. R_eff = -((1 + α_hht) * R_int + c_M * M_dU - α_hht * F_int_n)
@@ -284,9 +301,15 @@ end
 
 function evaluate!(ig::CentralDifferenceIntegrator, p)
     asm = ig.asm; U = ig.U
-    FEC.assemble_vector!(asm, FEC.residual, U, p)
-    FEC.assemble_vector_neumann_bc!(asm, U, p)
-    FEC.assemble_vector_source!(asm, U, p)
+    try
+        FEC.assemble_vector!(asm, FEC.residual, U, p)
+        FEC.assemble_vector_neumann_bc!(asm, U, p)
+        FEC.assemble_vector_source!(asm, U, p)
+    catch e
+        e isa _MATH_ERRORS || rethrow()
+        _carina_logf(4, :solve, "evaluate!: caught %s during assembly", typeof(e))
+        return false
+    end
     R_int = FEC.residual(asm)
     @. ig.R_eff = -R_int
     _apply_point_loads!(ig.R_eff, FEC.current_time(p.times))
@@ -388,7 +411,9 @@ function setup_jacobian!(ig::NewmarkIntegrator{<:NewtonSolver{<:KrylovLinearSolv
             @. asm.stiffness_storage += c_M * asm.mass_storage
             _update_jacobi_precond_assembled!(ls.precond, FEC.stiffness(asm))
             _update_chebyshev_precond_assembled!(ls.precond, FEC.stiffness(asm))
-        catch
+        catch e
+            e isa _MATH_ERRORS || rethrow()
+            _carina_logf(4, :solve, "setup_jacobian!: caught %s", typeof(e))
             ig.failed[] = true
             return false
         end

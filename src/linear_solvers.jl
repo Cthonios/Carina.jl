@@ -527,7 +527,9 @@ function _linear_solve!(ls::KrylovLinearSolver, ig::NewmarkIntegrator, p, ops)
                              ls.workspace.stats.niter, r_cg,
                              _cg_status_str(ls.workspace.stats.solved))
             end
-        catch
+        catch e
+            e isa _MATH_ERRORS || rethrow()
+            _carina_logf(4, :solve, "CG solve: caught %s", typeof(e))
             ig.failed[] = true
         end
     end
