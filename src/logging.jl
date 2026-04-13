@@ -5,16 +5,10 @@
 #       [KEYWORD]  message       (level 4, one indent = time step)
 #           [KEYWORD]  message   (level 8, two indents = Newton iteration)
 #
-# Color notes vs Norma.jl:
-#   :carina  — magenta (matches :norma in Norma)
-#   :device  — light_blue (new: makes GPU vs CPU immediately visible)
-#   :advance — green (same as Norma)
-#   :solve   — cyan (same as Norma)
-#   :stop    — blue (same as Norma)
-#   :output  — cyan (same as Norma)
-#   :done    — light_green (brighter than Norma's :green for clear end-of-run signal)
-#   :time    — light_cyan (same as Norma)
-#   :warn    — yellow (same as Norma's :warning; shortened keyword)
+# Colors mirror Norma.jl's NORMA_COLORS so the two tools share a palette.
+# Carina-specific additions:
+#   :carina  — magenta (analogous to Norma's :norma)
+#   :device  — light_blue (makes GPU vs CPU immediately visible at startup)
 
 import Printf
 
@@ -25,16 +19,20 @@ import Printf
      stdout isa Base.TTY)
 
 const _COLORS = Dict{Symbol, Symbol}(
-    :carina  => :magenta,
-    :setup   => :magenta,
-    :device  => :light_blue,
-    :advance => :green,
-    :solve   => :cyan,
-    :stop    => :blue,
-    :output  => :cyan,
-    :done    => :light_green,
-    :time    => :light_cyan,
-    :warn    => :yellow,
+    :acceleration => :blue,
+    :advance      => :green,
+    :carina       => :magenta,
+    :device       => :light_blue,
+    :done         => :green,
+    :equilibrium  => :blue,
+    :linesearch   => :cyan,
+    :output       => :cyan,
+    :recover      => :yellow,
+    :setup        => :magenta,
+    :solve        => :cyan,
+    :stop         => :blue,
+    :time         => :light_cyan,
+    :warning      => :yellow,
 )
 
 function _carina_log(level::Int, keyword::Symbol, msg::AbstractString)
