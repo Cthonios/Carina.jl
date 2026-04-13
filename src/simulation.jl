@@ -29,6 +29,15 @@ function best_device()
     return "cpu"
 end
 
+function _log_block_material(block_name::AbstractString, cm_name::AbstractString,
+                              density::Float64, props_inputs::Dict)
+    parts = String["density = " * Printf.@sprintf("%.3e", density)]
+    for key in sort!(collect(keys(props_inputs)))
+        push!(parts, key * " = " * Printf.@sprintf("%.3e", Float64(props_inputs[key])))
+    end
+    _carina_log(0, :setup, "Block \"$block_name\": $cm_name : " * join(parts, ", "))
+end
+
 # ---------------------------------------------------------------------------
 # Top-level entry point
 # ---------------------------------------------------------------------------
@@ -107,11 +116,11 @@ function create_simulation(dict::Dict{String,Any}, basedir::String="";
 
     t_setup = time()
 
-    cm, density, props_inputs = _parse_material_section(dict)
+    block_name, cm, density, props_inputs = _parse_material_section(dict)
     props   = create_solid_mechanics_properties(cm, props_inputs)
     physics = SolidMechanics(cm, density)
     cm_name = replace(string(typeof(cm)), r"^.*\." => "")  # strip module prefix
-    _carina_logf(0, :setup, "Material: %s (ρ = %.1f kg/m³)", cm_name, density)
+    _log_block_material(block_name, cm_name, density, props_inputs)
 
     mesh    = FEC.UnstructuredMesh(input_mesh)
     n_nodes = size(mesh.nodal_coords, 2)

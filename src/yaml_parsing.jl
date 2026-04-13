@@ -154,7 +154,7 @@ function _parse_material_section(dict)
     blocks = get(mat_section, "blocks", nothing)
     blocks === nothing && error("Missing \"material: blocks:\" mapping.")
     # Use the first (and for single-domain Phase 1, only) block's model name.
-    model_name = first(values(blocks))
+    block_name, model_name = first(pairs(blocks))
 
     # The model-specific sub-dict (e.g.  neohookean: { elastic modulus: ... })
     model_props = get(mat_section, model_name, nothing)
@@ -162,7 +162,8 @@ function _parse_material_section(dict)
         "Material block \"$model_name\" listed in blocks but no property dict found."
     )
 
-    return parse_material(model_name, model_props)
+    cm, density, props_inputs = parse_material(model_name, model_props)
+    return String(block_name), cm, density, props_inputs
 end
 
 # ---- time ----
