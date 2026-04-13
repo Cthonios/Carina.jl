@@ -41,25 +41,30 @@ Load `yaml_file`, create a simulation, run it, and close the output file.
 `"cpu"`, `"rocm"`, `"cuda"`.
 """
 function run(yaml_file::String; device::Union{String,Nothing}=nothing)
-    t_start = time()
-    _carina_log(0, :carina, "BEGIN SIMULATION")
-    _carina_log(0, :setup,  "Reading from $yaml_file")
+    open_log_file(yaml_file)
+    try
+        t_start = time()
+        _carina_log(0, :carina, "BEGIN SIMULATION")
+        _carina_log(0, :setup,  "Reading from $yaml_file")
 
-    dict = YAML.load_file(yaml_file; dicttype=Dict{String,Any})
-    sim_type = lowercase(get(dict, "type", "single"))
-    if sim_type == "single"
-        sim = create_simulation(dict, dirname(abspath(yaml_file));
-                                device_override=device)
-        Base.invokelatest(evolve!, sim)
-        FEC.close(sim.post_processor)
-    else
-        error("Simulation type \"$sim_type\" not yet supported. Only \"single\" is implemented.")
+        dict = YAML.load_file(yaml_file; dicttype=Dict{String,Any})
+        sim_type = lowercase(get(dict, "type", "single"))
+        if sim_type == "single"
+            sim = create_simulation(dict, dirname(abspath(yaml_file));
+                                    device_override=device)
+            Base.invokelatest(evolve!, sim)
+            FEC.close(sim.post_processor)
+        else
+            error("Simulation type \"$sim_type\" not yet supported. Only \"single\" is implemented.")
+        end
+
+        _carina_log(0, :done, "Simulation complete")
+        _carina_log(0, :time, "Total wall time = $(format_time(time() - t_start))")
+        _carina_log(0, :carina, "END SIMULATION")
+        return sim
+    finally
+        close_log_file()
     end
-
-    _carina_log(0, :done, "Simulation complete")
-    _carina_log(0, :time, "Total wall time = $(format_time(time() - t_start))")
-    _carina_log(0, :carina, "END SIMULATION")
-    return sim
 end
 
 # ---------------------------------------------------------------------------

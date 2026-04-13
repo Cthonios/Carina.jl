@@ -4,6 +4,9 @@ using Test
 include("../src/Carina.jl")
 include("helpers.jl")
 
+# Suppress per-input .log files during the test suite.
+Carina.CARINA_WRITE_LOG_FILE[] = false
+
 # ---------------------------------------------------------------------------
 # Test registry — add new tests here in order.
 # ---------------------------------------------------------------------------

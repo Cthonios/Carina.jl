@@ -35,6 +35,25 @@ const _COLORS = Dict{Symbol, Symbol}(
     :warning      => :yellow,
 )
 
+const CARINA_WRITE_LOG_FILE = Ref(true)
+const CARINA_LOG_FILE = Ref{Union{IOStream,Nothing}}(nothing)
+
+function open_log_file(input_file::AbstractString)
+    CARINA_WRITE_LOG_FILE[] || return nothing
+    CARINA_LOG_FILE[] === nothing || return nothing  # outermost run() owns the file
+    path = first(splitext(input_file)) * ".log"
+    CARINA_LOG_FILE[] = open(path, "w")
+    return nothing
+end
+
+function close_log_file()
+    io = CARINA_LOG_FILE[]
+    io === nothing && return nothing
+    close(io)
+    CARINA_LOG_FILE[] = nothing
+    return nothing
+end
+
 function _carina_log(level::Int, keyword::Symbol, msg::AbstractString)
     indent    = " "^level
     kw_str    = uppercase(string(keyword))
@@ -49,6 +68,12 @@ function _carina_log(level::Int, keyword::Symbol, msg::AbstractString)
         print(prefix)
     end
     println(msg)
+
+    io = CARINA_LOG_FILE[]
+    if io !== nothing
+        println(io, prefix, msg)
+        flush(io)
+    end
 end
 
 function _carina_logf(level::Int, keyword::Symbol, fmt::AbstractString, args...)
