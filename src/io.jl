@@ -52,12 +52,12 @@ end
 
 # Returns [displ_func, velo_func?, acce_func?] depending on OutputSpec.
 function _build_nodal_vars(V, output_spec::OutputSpec, is_dynamic::Bool)
-    vars = [FEC.VectorFunction(V, :displ)]
+    vars = [FEC.VectorFunction(V, "displ")]
     if is_dynamic && output_spec.velocity
-        push!(vars, FEC.VectorFunction(V, :velo))
+        push!(vars, FEC.VectorFunction(V, "velo"))
     end
     if is_dynamic && output_spec.acceleration
-        push!(vars, FEC.VectorFunction(V, :acce))
+        push!(vars, FEC.VectorFunction(V, "acce"))
     end
     return vars
 end

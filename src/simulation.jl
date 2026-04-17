@@ -128,9 +128,9 @@ function create_simulation(dict::Dict{String,Any}, basedir::String="";
     _carina_logf(0, :setup, "Mesh:    %d nodes, %d elements", n_nodes, n_elems)
 
     q_type, q_order = _parse_quadrature(dict)
-    V       = FEC.FunctionSpace(mesh, FEC.H1Field, FEC.Lagrange;
-                                q_degree=q_order, q_type=q_type)
-    asm_cpu = FEC.SparseMatrixAssembler(FEC.VectorFunction(V, :displ); use_condensed=false)
+    V       = FEC.FunctionSpace(mesh, FEC.H1Field, FEC.Lagrange, q_type;
+                                q_degree=q_order)
+    asm_cpu = FEC.SparseMatrixAssembler(FEC.VectorFunction(V, "displ"); use_condensed=false)
 
     # Dirichlet BCs must be enforced by DOF elimination, never by penalty.
     # Penalty enforcement (use_condensed=true) pollutes the spectrum with

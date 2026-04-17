@@ -813,15 +813,15 @@ function _parse_dirichlet_bcs(dict)
     dbcs = FEC.DirichletBC[]
     for (i, entry) in enumerate(entries)
         _validate_keys(entry, _DBC_ENTRY_KEYS, "Dirichlet BC entry $i")
-        var_sym  = _component_to_symbol(entry["component"])
+        var_sym  = _component_to_string(entry["component"])
         func     = _make_function(entry["function"])
         # Accept either "side set" or "node set"
         if haskey(entry, "side set")
             push!(dbcs, FEC.DirichletBC(var_sym, func;
-                sideset_name = Symbol(entry["side set"])))
+                sideset_name = entry["side set"]))
         elseif haskey(entry, "node set")
             push!(dbcs, FEC.DirichletBC(var_sym, func;
-                nodeset_name = Symbol(entry["node set"])))
+                nodeset_name = entry["node set"]))
         else
             error("Dirichlet BC entry must specify \"side set\" or \"node set\".")
         end
@@ -848,7 +848,7 @@ function _parse_neumann_bcs(dict)
             # Surface traction: integrate over side set (FEC handles this).
             # FEC's Neumann convention adds f_val to the residual R (which is
             # F_int − F_ext), so a positive user traction must be negated.
-            var_sym  = _component_to_symbol(entry["component"])
+            var_sym  = _component_to_string(entry["component"])
             comp_idx = var_sym === :displ_x ? 1 : var_sym === :displ_y ? 2 : 3
             scalar   = _make_function(entry["function"])
             func = let idx = comp_idx, f = scalar
@@ -859,7 +859,7 @@ function _parse_neumann_bcs(dict)
                                         idx == 3 ? v : 0.0)
                 end
             end
-            sset = Symbol(entry["side set"])
+            sset = entry["side set"]
             push!(nbcs, FEC.NeumannBC(var_sym, func, sset))
 
         elseif haskey(entry, "node set")
@@ -883,9 +883,9 @@ function _build_point_loads(entries, mesh, dof)
 
     loads = PointLoad[]
     for entry in entries
-        var_sym  = _component_to_symbol(entry["component"])
+        var_sym  = _component_to_string(entry["component"])
         func     = _make_function(entry["function"])
-        nset_sym = Symbol(entry["node set"])
+        nset_sym = entry["node set"]
         bk = FEC.BCBookKeeping(mesh, dof, var_sym; nset_name=nset_sym)
         for (full_dof, node) in zip(bk.dofs, bk.nodes)
             unk_idx = inv_map[full_dof]
@@ -905,7 +905,7 @@ function _parse_body_forces(dict)
     bfs = FEC.Source[]
     for (i, entry) in enumerate(entries)
         _validate_keys(entry, _BF_ENTRY_KEYS, "body force entry $i")
-        var_sym  = _component_to_symbol(entry["component"])
+        var_sym  = _component_to_string(entry["component"])
         comp_idx = var_sym === :displ_x ? 1 : var_sym === :displ_y ? 2 : 3
         scalar   = _make_function(entry["function"])
         func = let idx = comp_idx, f = scalar
@@ -916,7 +916,7 @@ function _parse_body_forces(dict)
                                     idx == 3 ? v : 0.0)
             end
         end
-        block = Symbol(get(entry, "block", "all"))
+        block = get(entry, "block", "all")
         push!(bfs, FEC.Source(var_sym, func, block))
     end
     return bfs
@@ -957,11 +957,11 @@ function _solver_description(::CentralDifferenceIntegrator)
 end
 
 # Map "x" / "y" / "z" → :displ_x / :displ_y / :displ_z
-function _component_to_symbol(comp::String)
+function _component_to_string(comp::String)
     c = lowercase(strip(comp))
-    c == "x" && return :displ_x
-    c == "y" && return :displ_y
-    c == "z" && return :displ_z
+    c == "x" && return "displ_x"
+    c == "y" && return "displ_y"
+    c == "z" && return "displ_z"
     error("Unknown component \"$comp\". Expected x, y, or z.")
 end
 
