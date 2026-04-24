@@ -211,7 +211,7 @@ material Hencky log-strain is
   \eps := \tfrac{1}{2} \log \C \in \Syms,
 \end{equation}
 evaluated numerically by an inverse scaling-and-squaring Pad\'e
-approximation applied to $\C$. Its orthogonal
+approximant applied to $\C$. Its orthogonal
 volumetric--deviatoric decomposition is
 \begin{equation}
   \label{eq:voldev-strain}
@@ -267,11 +267,13 @@ in~\S\ref{sec:plasticity}.
 \subsection{Five-Field Hu-Washizu Functional}
 \label{sec:hw-functional}
 
-Introduce independent fields $\thbar$, $\ebar$, $\pbar$, $\sbar$ and
-constrain them weakly to equal their pointwise counterparts
-$\theta$, $\edev$, $p$, $\sdev$ by Lagrange
-multipliers that are themselves the work-conjugate fields. The
-Hu-Washizu functional is
+Introduce independent strain fields $\thbar$ and $\ebar$, and
+enforce their equality with the pointwise kinematic fields
+$\theta(~\varphi)$ and $\edev(~\varphi)$ weakly through Lagrange
+multipliers $\pbar$ and $\sbar$. At a stationary point the
+multipliers coincide with the work-conjugate stress fields: the
+hydrostatic pressure and the deviatoric Kirchhoff stress,
+respectively. The Hu-Washizu functional is
 \begin{equation}
   \label{eq:hw}
   \begin{split}
