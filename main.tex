@@ -715,13 +715,19 @@ into~\eqref{eq:discrete-residuals}$_1$ collapses the five-field
 system to a single discrete statement in $~\varphi$ alone:
 \begin{equation}
   \label{eq:reduced-statement}
-  ~R_a(~\varphi) :=
-  \int_B \left( \pbar(~\varphi) ~I + \sbar(~\varphi) \right) : \frac{\partial \eps(~X)}{\partial ~\varphi_a} \diff V
-  -
-  \int_B R ~B \, N_a \diff V
-  -
-  \int_{\partial_T B} ~T \, N_a \diff S
-  = \mathbf{0},
+  \begin{split}
+    ~R_a(~\varphi) & :=
+    \int_B \pbar(~\varphi) \, \frac{\partial \theta}{\partial ~\varphi_a} \diff V
+    +
+    \int_B \sbar(~\varphi) : \frac{\partial \edev}{\partial ~\varphi_a} \diff V
+    \\
+    & \quad
+    -
+    \int_B R ~B \, N_a \diff V
+    -
+    \int_{\partial_T B} ~T \, N_a \diff S
+    = \mathbf{0},
+  \end{split}
 \end{equation}
 in which $\pbar(~\varphi)$ and $\sbar(~\varphi)$ are understood as
 the evaluations of the projections~\eqref{eq:projections} applied at
