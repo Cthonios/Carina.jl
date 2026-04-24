@@ -1255,6 +1255,19 @@ handling the volumetric and deviatoric parts with different
 quadrature-point routines rather than a single monolithic evaluation
 of $\mathbb{L}(\C)$.
 
+An eigenvalue-free alternative is the Pad\'e--Fr\'echet algorithm
+of~\citet{AlMohy.Higham.Relton:2013}, which extends the inverse
+scaling-and-squaring Pad\'e framework already invoked
+in~\eqref{eq:hencky} for $\log\C$ to produce the Fr\'echet
+derivative $L_{\log}(\C, ~E)$ in the same sweep, propagating the
+direction $~E$ through the Sylvester equations of the square-root
+chain and through the Pad\'e kernel. Applied to each of the six
+symmetric basis directions on $\Syms$, the algorithm assembles the
+full fourth-order $\mathbb{L}(\C)$ without any eigendecomposition,
+removing the coalescence branch entirely and unifying the numerical
+treatment of $\log\C$ and $\partial \log\C / \partial \C$ under a
+single kernel.
+
 \subsection{Computational Summary}
 \label{app:summary}
 
