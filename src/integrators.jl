@@ -64,7 +64,8 @@ function _init_assembly_cache!(asm, is_linear::Bool)
     _cpu_params_ref[]                = nothing
     empty!(_K_cache)
     empty!(_M_cache)
-    if hasproperty(asm, :stiffness_storage)
+    # Matrix-free assemblers (central difference) leave these buffers empty.
+    if hasproperty(asm, :stiffness_storage) && !isempty(asm.stiffness_storage)
         append!(_K_cache, asm.stiffness_storage)
         append!(_M_cache, asm.mass_storage)
     end

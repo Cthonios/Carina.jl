@@ -168,6 +168,16 @@ end
 
 # ---- time ----
 
+# True if the integrator declared in `dict` never assembles a global matrix
+# (currently only central difference).  Used to opt into FEC's matrix-free
+# assembler mode at construction time, before the integrator object exists.
+function _integrator_is_matrix_free(dict)
+    ti_dict = get(dict, "time integrator", nothing)
+    ti_dict === nothing && return false
+    type_str = lowercase(get(ti_dict, "type", ""))
+    return type_str in ("central difference", "centraldifference", "cd")
+end
+
 function _parse_times(dict)
     ti_dict = get(dict, "time integrator", nothing)
     ti_dict === nothing && error("Missing \"time integrator:\" section.")

@@ -130,7 +130,17 @@ function create_simulation(dict::Dict{String,Any}, basedir::String="";
     q_type, q_order = _parse_quadrature(dict)
     V       = FEC.FunctionSpace(mesh, FEC.H1Field, FEC.Lagrange, q_type;
                                 q_degree=q_order)
-    asm_cpu = FEC.SparseMatrixAssembler(FEC.VectorFunction(V, "displ"); use_condensed=false)
+    # Opt the explicit central-difference path into FEC's matrix-free assembler
+    # mode.  Skips ~7 GB of sparse-matrix preallocation (sparsity pattern + the
+    # mass/stiffness value buffers) on a 530 k-DOF mesh, which is unused on a
+    # central-difference run.  Implicit paths (Newmark/QuasiStatic) still need
+    # the assembled stiffness for the Jacobi preconditioner so they stay in
+    # the matrix-bearing default; they still benefit from the FEC change that
+    # dropped the dead damping/hessian buffers.
+    matrix_free = _integrator_is_matrix_free(dict)
+    asm_cpu = FEC.SparseMatrixAssembler(FEC.VectorFunction(V, "displ");
+                                         use_condensed=false,
+                                         matrix_free=matrix_free)
 
     # Dirichlet BCs must be enforced by DOF elimination, never by penalty.
     # Penalty enforcement (use_condensed=true) pollutes the spectrum with
