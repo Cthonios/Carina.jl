@@ -122,13 +122,14 @@ function create_simulation(dict::Dict{String,Any}, basedir::String="";
     cm_name = replace(string(typeof(cm)), r"^.*\." => "")  # strip module prefix
     _log_block_material(block_name, cm_name, density, props_inputs)
 
-    mesh    = FEC.UnstructuredMesh(input_mesh)
+    mesh    = @carina_phase "Reading mesh" FEC.UnstructuredMesh(input_mesh)
     n_nodes = size(mesh.nodal_coords, 2)
     n_elems = sum(size(mesh.element_conns[k], 2) for k in keys(mesh.element_conns))
     _carina_logf(0, :setup, "Mesh:    %d nodes, %d elements", n_nodes, n_elems)
 
     q_type, q_order = _parse_quadrature(dict)
-    V       = FEC.FunctionSpace(mesh, FEC.H1Field, FEC.Lagrange, q_type;
+    V       = @carina_timed "Function space" FEC.FunctionSpace(
+                                mesh, FEC.H1Field, FEC.Lagrange, q_type;
                                 q_degree=q_order)
     # Opt the explicit central-difference path into FEC's matrix-free assembler
     # mode.  Skips ~7 GB of sparse-matrix preallocation (sparsity pattern + the
@@ -138,7 +139,8 @@ function create_simulation(dict::Dict{String,Any}, basedir::String="";
     # the matrix-bearing default; they still benefit from the FEC change that
     # dropped the dead damping/hessian buffers.
     matrix_free = _integrator_is_matrix_free(dict)
-    asm_cpu = FEC.SparseMatrixAssembler(FEC.VectorFunction(V, "displ");
+    asm_cpu = @carina_phase "Building assembler" FEC.SparseMatrixAssembler(
+                                         FEC.VectorFunction(V, "displ");
                                          use_condensed=false,
                                          matrix_free=matrix_free)
 
@@ -165,7 +167,7 @@ function create_simulation(dict::Dict{String,Any}, basedir::String="";
                      t0, tf, dt, output_interval, num_stops - 1)
     end
 
-    p_cpu = FEC.create_parameters(
+    p_cpu = @carina_phase "Building parameters" FEC.create_parameters(
         mesh, asm_cpu, physics, props;
         dirichlet_bcs = dbcs,
         neumann_bcs   = nbcs,
@@ -187,7 +189,8 @@ function create_simulation(dict::Dict{String,Any}, basedir::String="";
     # Build VectorFunction list for PostProcessor (all nodal vars in one call).
     nodal_vars = _build_nodal_vars(V, output_spec, is_dynamic)
     rec_names  = _recovered_nodal_var_names(physics, output_spec)
-    pp = FEC.PostProcessor(mesh, output_file, nodal_vars...;
+    pp = @carina_timed "Post-processor + output DB" FEC.PostProcessor(
+                           mesh, output_file, nodal_vars...;
                            extra_nodal_names = rec_names)
 
     # Register element variable names (stress, F, IVs at QPs) before first write.
@@ -209,12 +212,12 @@ function create_simulation(dict::Dict{String,Any}, basedir::String="";
         p   = p_cpu
     end
 
-    _carina_log(0, :setup, "Building integrator and solver...")
-    _init_assembly_cache!(asm_cpu, cm isa CM.LinearElastic)
+    @carina_timed "Assembly cache" _init_assembly_cache!(asm_cpu, cm isa CM.LinearElastic)
     _cpu_asm_ref[]    = asm_cpu
     _cpu_params_ref[] = p_cpu
     _device_sym[]     = device
-    integrator = _parse_integrator(dict, asm, asm_cpu, p_cpu, controller, device)
+    integrator = @carina_phase "Building integrator and solver" _parse_integrator(
+                               dict, asm, asm_cpu, p_cpu, controller, device)
     _carina_logf(0, :setup, "Solver:  %s", _solver_description(integrator))
 
     # Evaluate Dirichlet BC values at t=0 so _update_for_assembly! can set
@@ -223,15 +226,18 @@ function create_simulation(dict::Dict{String,Any}, basedir::String="";
     Base.invokelatest(FEC.update_bc_values!, p_cpu, asm_cpu)
 
     t0 = controller.initial_time
-    _apply_initial_displacement_ics!(integrator, mesh, asm_cpu, p, p_cpu,
-                                      _parse_displacement_ics(dict), device, t0)
-    _apply_initial_velocity_ics!(integrator, mesh, asm_cpu, p_cpu,
-                                  _parse_velocity_ics(dict), t0)
-    _compute_initial_acceleration!(integrator, asm_cpu, p_cpu)
-    _compute_initial_equilibrium!(integrator, p)
+    @carina_timed "Initial conditions" begin
+        _apply_initial_displacement_ics!(integrator, mesh, asm_cpu, p, p_cpu,
+                                          _parse_displacement_ics(dict), device, t0)
+        _apply_initial_velocity_ics!(integrator, mesh, asm_cpu, p_cpu,
+                                      _parse_velocity_ics(dict), t0)
+        _compute_initial_acceleration!(integrator, asm_cpu, p_cpu)
+    end
+    @carina_timed "Initial equilibrium" _compute_initial_equilibrium!(integrator, p)
 
     # Build recovery data for L2 projection (CPU-only)
-    recovery_data = _build_recovery_data(output_spec.recovery, asm_cpu, p_cpu)
+    recovery_data = @carina_timed "Recovery data" _build_recovery_data(
+                                  output_spec.recovery, asm_cpu, p_cpu)
 
     _carina_log(0, :setup, "Setup complete ($(format_time(time() - t_setup)))")
 
@@ -240,7 +246,7 @@ function create_simulation(dict::Dict{String,Any}, basedir::String="";
                                   controller, device, output_spec, recovery_data)
 
     # Write initial state (step 1, t=0).
-    write_output!(sim, 1)
+    @carina_phase "Writing initial state" write_output!(sim, 1)
     pct_digits = max(0, Int(ceil(log10(n_steps))) - 2)
     pct_fmt_init = "[0/%d, %." * string(pct_digits) * "f%%] : Time = %.2e"
     _carina_logf(0, :stop, pct_fmt_init, n_steps, 0.0, controller.initial_time)

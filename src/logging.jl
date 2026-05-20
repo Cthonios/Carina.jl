@@ -103,6 +103,59 @@ function format_time(seconds::Float64)
     return join(parts, " ")
 end
 
+# ---------------------------------------------------------------------------
+# Phase progress + timing instrumentation
+# ---------------------------------------------------------------------------
+# Setup proceeds through several FEC calls that produce no console output, so a
+# slow phase looks like a hang.  `@carina_phase` announces each phase before
+# running it; `@carina_timed` is a quieter variant for fine-grained sub-phases.
+# Both also log wall time afterwards when CARINA_TIMING is set.
+
+_carina_timing_on() = get(ENV, "CARINA_TIMING", "") in ("1", "true", "yes", "on")
+
+"""
+    @carina_phase "Doing the thing" expr
+
+Announce a setup phase (`[SETUP] Doing the thing...`) before evaluating `expr`,
+so a long silent phase never looks like a hang.  When `CARINA_TIMING` is set,
+also log the phase wall time afterwards.  Returns the value of `expr`.
+"""
+macro carina_phase(label, expr)
+    quote
+        _carina_log(0, :setup, string($(esc(label)), "..."))
+        if _carina_timing_on()
+            local _t0 = time()
+            local _result = $(esc(expr))
+            _carina_logf(0, :time, "  %-26s %s",
+                         $(esc(label)), format_time(time() - _t0))
+            _result
+        else
+            $(esc(expr))
+        end
+    end
+end
+
+"""
+    @carina_timed "label" expr
+
+Evaluate `expr` and return its value.  When `CARINA_TIMING` is set, log the
+wall time under `label`; otherwise a zero-overhead pass-through that prints
+nothing — used for fine-grained sub-phase diagnostics.
+"""
+macro carina_timed(label, expr)
+    quote
+        if _carina_timing_on()
+            local _t0 = time()
+            local _result = $(esc(expr))
+            _carina_logf(0, :time, "  %-26s %s",
+                         $(esc(label)), format_time(time() - _t0))
+            _result
+        else
+            $(esc(expr))
+        end
+    end
+end
+
 function _status_str(converged::Bool)
     if _use_color()
         converged ? "\e[32m[DONE]\e[39m" : "\e[33m[WAIT]\e[39m"

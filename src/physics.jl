@@ -341,26 +341,20 @@ end
     cell = FEC.map_interpolants(interps, x_el)
     (; N, JxW) = cell
 
-    # Build element mass matrix in interleaved DOF ordering:
-    #   M_el[3*(n-1)+d, 3*(m-1)+d'] = δ(d,d') * N[n] * N[m]
-    # i.e. kron(N*N', I_3).  The FEC assembly infrastructure expects
-    # rows/cols in the same interleaved order as discrete_gradient, so
-    # "N_vec * N_vec'" with a block-ordered N_vec would be wrong.
+    # Element mass matrix in interleaved DOF ordering:
+    #   M_el[3*(n-1)+d, 3*(m-1)+d'] = δ(d,d') * N[n] * N[m]   (= kron(N*N', I₃))
+    # The FEC assembly infrastructure expects rows/cols in the same interleaved
+    # order as discrete_gradient.  Built directly as an SMatrix via a
+    # column-major generator: the previous element-wise `setindex` on an
+    # immutable SVector was O(NDOF⁴) — each `setindex` rebuilds the whole array
+    # — and on its own dominated whole-simulation setup time.
+    ET      = eltype(N)
     N_nodes = size(N, 1)
     NDOF    = 3 * N_nodes
-    tup = zeros(SVector{NDOF * NDOF, eltype(N)})
-    for n in 1:N_nodes
-        for m in 1:N_nodes
-            Nnm = N[n] * N[m]
-            for d in 1:3
-                r = 3 * (n - 1) + d
-                c = 3 * (m - 1) + d
-                linear_idx = r + NDOF * (c - 1)   # column-major flat index
-                tup = setindex(tup, Nnm, linear_idx)
-            end
-        end
-    end
-    M_el = SMatrix{NDOF, NDOF, eltype(N), NDOF * NDOF}(tup.data)
+    NN      = N * N'                        # NN[n,m] = N[n] * N[m]
+    M_el = SMatrix{NDOF, NDOF, ET}(
+        (((r - 1) % 3 == (c - 1) % 3) ? NN[(r - 1) ÷ 3 + 1, (c - 1) ÷ 3 + 1] : zero(ET))
+        for r in 1:NDOF, c in 1:NDOF)
     return JxW * physics.density * M_el
 end
 

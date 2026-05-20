@@ -230,7 +230,7 @@ function _parse_integrator(dict, asm, asm_cpu, p_cpu, controller, device=:cpu)
     # Get a template vector from a DirectLinearSolver built on the device assembler.
     # asm is already on the correct device (CPU, ROCm, or CUDA), so its ΔUu
     # is in the right memory space and can be used as a template for allocations.
-    fec_ls   = FEC.DirectLinearSolver(asm)
+    fec_ls   = @carina_timed "  DirectLinearSolver (template)" FEC.DirectLinearSolver(asm)
     template = fec_ls.ΔUu
 
     if type_str in ("quasi static", "quasistatic", "static")
@@ -258,10 +258,12 @@ function _parse_integrator(dict, asm, asm_cpu, p_cpu, controller, device=:cpu)
         min_dt, max_dt, dec, inc = _parse_adaptive_stepping(ti_dict, dt)
 
         make_precond = () -> _compute_jacobi_precond(β, dt, asm_cpu, p_cpu, template)
-        ls = _parse_linear_solver(ls_dict, template, device, make_precond)
-        ns = _parse_nonlinear_solver(sol_dict, ls; template=template, make_precond=make_precond)
+        ls = @carina_timed "  Linear solver (builds precond #1)" _parse_linear_solver(
+                 ls_dict, template, device, make_precond)
+        ns = @carina_timed "  Nonlinear solver (builds precond #2)" _parse_nonlinear_solver(
+                 sol_dict, ls; template=template, make_precond=make_precond)
         _parse_and_store_termination!(sol_dict)
-        return NewmarkIntegrator(ns, asm, β, γ, template;
+        return @carina_timed "  NewmarkIntegrator ctor" NewmarkIntegrator(ns, asm, β, γ, template;
                                   α_hht=α_hht,
                                   time_step=dt,
                                   min_time_step=min_dt,
@@ -331,10 +333,10 @@ function _compute_jacobi_precond(β, Δt, asm_cpu, p_cpu, ΔUu_template)
     n = length(ΔUu_template)
     U_zeros = zeros(Float64, n)
     # diag(K_eff) = diag(K) + c_M · diag(M)
-    FEC.assemble_stiffness!(asm_cpu, FEC.stiffness, U_zeros, p_cpu)
+    @carina_timed "    assemble_stiffness!" FEC.assemble_stiffness!(asm_cpu, FEC.stiffness, U_zeros, p_cpu)
     K = FEC.stiffness(asm_cpu)
-    k_diag = [K[i, i] for i in 1:size(K, 1)]
-    m_diag = _assemble_diag_cpu(FEC.mass, asm_cpu, p_cpu, ΔUu_template)
+    k_diag = @carina_timed "    extract diag(K)" [K[i, i] for i in 1:size(K, 1)]
+    m_diag = @carina_timed "    mass diag action" _assemble_diag_cpu(FEC.mass, asm_cpu, p_cpu, ΔUu_template)
     eff_diag = k_diag .+ c_M .* m_diag
     inv_diag_cpu = 1.0 ./ max.(abs.(eff_diag), eps(Float64))
     return JacobiPreconditioner(_to_device(inv_diag_cpu, ΔUu_template))
@@ -346,9 +348,9 @@ end
 function _compute_stiffness_jacobi_precond(asm_cpu, p_cpu, ΔUu_template)
     n = length(ΔUu_template)
     U_zeros = zeros(Float64, n)
-    FEC.assemble_stiffness!(asm_cpu, FEC.stiffness, U_zeros, p_cpu)
+    @carina_timed "    assemble_stiffness!" FEC.assemble_stiffness!(asm_cpu, FEC.stiffness, U_zeros, p_cpu)
     K = FEC.stiffness(asm_cpu)
-    k_diag = [K[i, i] for i in 1:size(K, 1)]
+    k_diag = @carina_timed "    extract diag(K)" [K[i, i] for i in 1:size(K, 1)]
     inv_diag_cpu = 1.0 ./ max.(abs.(k_diag), eps(Float64))
     return JacobiPreconditioner(_to_device(inv_diag_cpu, ΔUu_template))
 end
