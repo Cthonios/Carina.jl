@@ -9,6 +9,7 @@ import ConstitutiveModels as CM
 import CUDA
 import Exodus
 import FiniteElementContainers as FEC
+import KernelAbstractions as KA
 import Krylov
 import LinearOperators
 import ReferenceFiniteElements as RFE
@@ -98,5 +99,6 @@ if abspath(PROGRAM_FILE) == @__FILE__
         return yaml_file, device
     end
     yaml_file, device = _parse_cli(ARGS)
-    Carina.run(yaml_file; device=device)
+    backend = device === nothing ? nothing : Carina._resolve_backend(device)
+    Carina.run(yaml_file; backend=backend)
 end

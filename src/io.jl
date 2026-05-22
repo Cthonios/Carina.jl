@@ -292,13 +292,13 @@ _has_acceleration(::_DynamicIntegrator) = true
 _has_acceleration(::Any)               = false
 
 # Bring velocity/acceleration vector to CPU (no-op if already CPU).
-function _get_velocity_cpu(ig::_DynamicIntegrator, device::Symbol)
-    device == :cpu && return Vector{Float64}(ig.V)
+function _get_velocity_cpu(ig::_DynamicIntegrator, backend)
+    backend isa KA.CPU && return Vector{Float64}(ig.V)
     return Vector{Float64}(Adapt.adapt(Array, ig.V))
 end
 
-function _get_acceleration_cpu(ig::_DynamicIntegrator, device::Symbol)
-    device == :cpu && return Vector{Float64}(ig.A)
+function _get_acceleration_cpu(ig::_DynamicIntegrator, backend)
+    backend isa KA.CPU && return Vector{Float64}(ig.A)
     return Vector{Float64}(Adapt.adapt(Array, ig.A))
 end
 
@@ -316,7 +316,7 @@ enabled in `sim.output_spec`.
 """
 function write_output!(sim::SingleDomainSimulation, step::Int)
     (; params, params_cpu, asm_cpu, integrator,
-       post_processor, controller, output_spec, device) = sim
+       post_processor, controller, output_spec, backend) = sim
 
     t = controller.time
 
@@ -329,7 +329,7 @@ function write_output!(sim::SingleDomainSimulation, step::Int)
 
     # --- velocity ---
     if output_spec.velocity && _has_velocity(integrator)
-        V_cpu = _get_velocity_cpu(integrator, device)
+        V_cpu = _get_velocity_cpu(integrator, backend)
         v_h1  = _full_dof_to_h1field(V_cpu, asm_cpu.dof)
         FEC.write_field(post_processor, step,
                         ("velo_x", "velo_y", "velo_z"), v_h1)
@@ -337,7 +337,7 @@ function write_output!(sim::SingleDomainSimulation, step::Int)
 
     # --- acceleration ---
     if output_spec.acceleration && _has_acceleration(integrator)
-        A_cpu = _get_acceleration_cpu(integrator, device)
+        A_cpu = _get_acceleration_cpu(integrator, backend)
         a_h1  = _full_dof_to_h1field(A_cpu, asm_cpu.dof)
         FEC.write_field(post_processor, step,
                         ("acce_x", "acce_y", "acce_z"), a_h1)

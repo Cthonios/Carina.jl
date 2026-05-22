@@ -80,14 +80,14 @@ end
 
 Holds all objects needed to run one domain.
 """
-struct SingleDomainSimulation{Params, ParamsCPU, Asm, Integrator, PP, RD <: AbstractRecoveryData}
+struct SingleDomainSimulation{Params, ParamsCPU, Asm, Integrator, PP, Bkd, RD <: AbstractRecoveryData}
     params          ::Params       # device params (GPU or CPU)
     params_cpu      ::ParamsCPU    # always-CPU params (coords, physics, props)
     asm_cpu         ::Asm          # always-CPU assembler (DOF manager, ref_fes)
     integrator      ::Integrator
     post_processor  ::PP
     controller      ::TimeController
-    device          ::Symbol       # :cpu, :rocm, or :cuda
+    backend         ::Bkd          # KernelAbstractions backend (KA.CPU / CUDABackend / ROCBackend)
     output_spec     ::OutputSpec
     recovery_data   ::RD           # L2 projection data (NoRecovery, LumpedRecovery, or ConsistentRecovery)
 end

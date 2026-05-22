@@ -37,14 +37,7 @@ function _build_gpu_cholesky!(gpu_asm, p_gpu)
         L_cpu = sparse(F.L)
         perm  = F.p
         iperm = invperm(perm)
-        dev = _device_sym[]
-        if dev == :rocm
-            L_gpu = FEC.rocm(L_cpu)
-        elseif dev == :cuda
-            L_gpu = FEC.cuda(L_cpu)
-        else
-            L_gpu = L_cpu
-        end
+        L_gpu = FEC.to_backend(_backend_ref[], L_cpu)
     end
     _gpu_cholesky_L[] = (L_gpu, perm, iperm)
     _carina_logf(0, :setup, "GPU Cholesky: L uploaded (%d nnz, %s)",

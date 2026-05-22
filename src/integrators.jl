@@ -43,7 +43,7 @@ const _precond_op_cache    = Ref{Any}(nothing)
 const _gpu_cholesky_L      = Ref{Any}(nothing)  # GPU sparse lower triangular factor
 const _cpu_asm_ref         = Ref{Any}(nothing)  # CPU assembler reference for GPU Cholesky
 const _cpu_params_ref      = Ref{Any}(nothing)  # CPU params reference for GPU Cholesky
-const _device_sym          = Ref{Symbol}(:cpu)   # :cpu, :rocm, or :cuda
+const _backend_ref         = Ref{KA.Backend}(KA.CPU())  # active KernelAbstractions backend
 const _nonlinear_status_test = Ref{Any}(nothing)  # parsed termination criteria
 
 # Math errors from constitutive models (e.g. J2 plasticity raising a negative

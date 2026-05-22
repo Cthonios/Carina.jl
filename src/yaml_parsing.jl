@@ -221,7 +221,7 @@ end
 
 # ---- integrator ----
 
-function _parse_integrator(dict, asm, asm_cpu, p_cpu, controller, device=:cpu)
+function _parse_integrator(dict, asm, asm_cpu, p_cpu, controller, backend=KA.CPU())
     ti_dict  = get(dict, "time integrator", nothing)
     ti_dict === nothing && error("Missing \"time integrator:\" section.")
     type_str = lowercase(get(ti_dict, "type", "quasi static"))
@@ -239,7 +239,7 @@ function _parse_integrator(dict, asm, asm_cpu, p_cpu, controller, device=:cpu)
         init_eq = Bool(get(ti_dict, "initial equilibrium", false))
 
         make_precond = () -> _compute_stiffness_jacobi_precond(asm_cpu, p_cpu, template)
-        ls = _parse_linear_solver(ls_dict, template, device, make_precond)
+        ls = _parse_linear_solver(ls_dict, template, backend, make_precond)
         ns = _parse_nonlinear_solver(sol_dict, ls; template=template, make_precond=make_precond)
         _parse_and_store_termination!(sol_dict)
         return QuasiStaticIntegrator(ns, asm, template;
@@ -259,7 +259,7 @@ function _parse_integrator(dict, asm, asm_cpu, p_cpu, controller, device=:cpu)
 
         make_precond = () -> _compute_jacobi_precond(β, dt, asm_cpu, p_cpu, template)
         ls = @carina_timed "  Linear solver (builds precond #1)" _parse_linear_solver(
-                 ls_dict, template, device, make_precond)
+                 ls_dict, template, backend, make_precond)
         ns = @carina_timed "  Nonlinear solver (builds precond #2)" _parse_nonlinear_solver(
                  sol_dict, ls; template=template, make_precond=make_precond)
         _parse_and_store_termination!(sol_dict)
@@ -685,7 +685,7 @@ end
 
 # --------------------------------------------------------------------------- #
 
-function _parse_linear_solver(ls_dict, template, device, make_precond::Function)
+function _parse_linear_solver(ls_dict, template, backend, make_precond::Function)
     _validate_keys(ls_dict, _LINEAR_SOLVER_KEYS, "linear solver")
     ls_type = lowercase(ls_dict["type"])
     T  = eltype(template)
@@ -693,7 +693,7 @@ function _parse_linear_solver(ls_dict, template, device, make_precond::Function)
     S  = typeof(template)
 
     if ls_type == "direct"
-        device != :cpu && error(
+        !(backend isa KA.CPU) && error(
             "\"solver: linear solver: type: direct\" is CPU-only.")
         return DirectLinearSolver()
 
@@ -701,7 +701,7 @@ function _parse_linear_solver(ls_dict, template, device, make_precond::Function)
         # All solid mechanics stiffness matrices are SPD → always use CG.
         itmax     = Int(get(ls_dict, "maximum iterations", 1000))
         rtol      = Float64(get(ls_dict, "tolerance", 1e-8))
-        assembled = (device == :cpu)
+        assembled = backend isa KA.CPU
 
         precond_dict = get(ls_dict, "preconditioner", Dict{String,Any}())
         precond_type = lowercase(get(precond_dict, "type", "none"))

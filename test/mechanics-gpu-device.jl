@@ -11,14 +11,14 @@
     end
 
     # Run the explicit sphere for 1 step on the best available device.
-    # If a GPU is present, verify that sim.device is :rocm or :cuda
+    # If a GPU is present, verify that sim.backend is a GPU backend
     # and that the result matches CPU to machine precision.
     #
     # Uses the explicit solver (no linear solver needed) so the same
     # YAML works on both CPU and GPU.
 
-    device = Carina.best_device()
-    has_gpu = device != "cpu"
+    backend = Carina.best_device()
+    has_gpu = !(backend isa Carina.KA.CPU)
 
     example_dir = joinpath(@__DIR__, "..", "examples", "mechanics",
                            "explicit-dynamic", "sphere")
@@ -28,22 +28,22 @@
     mktempdir() do dir
         cp_example(joinpath(example_dir, "sphere.g"),             joinpath(dir, "sphere.g"))
         cp_example(joinpath(example_dir, "sphere_explicit.yaml"), joinpath(dir, "sphere_explicit.yaml"))
-        sim = Carina.run(joinpath(dir, "sphere_explicit.yaml"); device="cpu")
-        @test sim.device == :cpu
+        sim = Carina.run(joinpath(dir, "sphere_explicit.yaml"); backend=Carina.KA.CPU())
+        @test sim.backend isa Carina.KA.CPU
         cpu_mag = maximum_magnitude(sim)
     end
 
     # ---- GPU run (if available) ----
     if has_gpu
-        @testset "GPU runs on $device" begin
+        @testset "GPU runs on $backend" begin
             mktempdir() do dir
                 cp_example(joinpath(example_dir, "sphere.g"),             joinpath(dir, "sphere.g"))
                 cp_example(joinpath(example_dir, "sphere_explicit.yaml"), joinpath(dir, "sphere_explicit.yaml"))
-                sim = Carina.run(joinpath(dir, "sphere_explicit.yaml"); device=device)
+                sim = Carina.run(joinpath(dir, "sphere_explicit.yaml"); backend=backend)
 
-                # Confirm the simulation actually ran on GPU
-                @test sim.device in (:rocm, :cuda)
-                @test sim.device != :cpu
+                # Confirm the simulation actually ran on the GPU backend
+                @test !(sim.backend isa Carina.KA.CPU)
+                @test sim.backend === backend
 
                 # Results should match CPU
                 gpu_mag = maximum_magnitude(sim)

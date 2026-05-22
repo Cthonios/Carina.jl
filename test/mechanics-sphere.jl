@@ -33,7 +33,7 @@
         mktempdir() do dir
             cp_example(joinpath(explicit_dir, "sphere.g"),             joinpath(dir, "sphere.g"))
             cp_example(joinpath(explicit_dir, "sphere_explicit.yaml"), joinpath(dir, "sphere_explicit.yaml"))
-            sim = Carina.run(joinpath(dir, "sphere_explicit.yaml"); device="cpu")
+            sim = Carina.run(joinpath(dir, "sphere_explicit.yaml"); backend=Carina.KA.CPU())
 
             mag = maximum_magnitude(sim)
 
@@ -51,7 +51,7 @@
         mktempdir() do dir
             cp_example(joinpath(implicit_dir, "sphere.g"),             joinpath(dir, "sphere.g"))
             cp_example(joinpath(implicit_dir, "sphere_implicit.yaml"), joinpath(dir, "sphere_implicit.yaml"))
-            sim = Carina.run(joinpath(dir, "sphere_implicit.yaml"); device="cpu")
+            sim = Carina.run(joinpath(dir, "sphere_implicit.yaml"); backend=Carina.KA.CPU())
 
             mag = maximum_magnitude(sim)
 

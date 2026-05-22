@@ -14,7 +14,7 @@
     mktempdir() do dir
         cp_example(joinpath(example_dir, "cube.g"),          joinpath(dir, "cube.g"))
         cp_example(joinpath(example_dir, "cube_lbfgs.yaml"), joinpath(dir, "cube_lbfgs.yaml"))
-        sim = Carina.run(joinpath(dir, "cube_lbfgs.yaml"); device="cpu")
+        sim = Carina.run(joinpath(dir, "cube_lbfgs.yaml"); backend=Carina.KA.CPU())
         avg = average_components(sim)
         mx  = maximum_components(sim)
 

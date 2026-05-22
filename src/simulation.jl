@@ -17,17 +17,40 @@ import YAML
 # ---------------------------------------------------------------------------
 
 """
-    Carina.best_device() -> String
+    Carina.best_device() -> KernelAbstractions.Backend
 
-Return the best available compute device as a string: `"rocm"` if a
-functional AMD GPU is found, `"cuda"` if a functional NVIDIA GPU is found,
-or `"cpu"` otherwise.
+Return the best available compute backend: an AMD `ROCBackend` if a functional
+AMD GPU is found, a `CUDABackend` if a functional NVIDIA GPU is found, or
+`KA.CPU()` otherwise.
 """
 function best_device()
-    try AMDGPU.functional() && return "rocm" catch end
-    try CUDA.functional()   && return "cuda"  catch end
-    return "cpu"
+    try AMDGPU.functional() && return AMDGPU.ROCBackend() catch end
+    try CUDA.functional()   && return CUDA.CUDABackend()  catch end
+    return KA.CPU()
 end
+
+# Resolve a device string ("cpu" / "cuda" / "rocm") to a KernelAbstractions
+# backend object, validating that the requested GPU is actually functional.
+function _resolve_backend(device_str::AbstractString)
+    s = lowercase(strip(device_str))
+    if s == "cpu"
+        return KA.CPU()
+    elseif s == "cuda"
+        CUDA.functional() ||
+            error("device: cuda requested but no functional NVIDIA GPU found.")
+        return CUDA.CUDABackend()
+    elseif s == "rocm"
+        AMDGPU.functional() ||
+            error("device: rocm requested but no functional AMD GPU found.")
+        return AMDGPU.ROCBackend()
+    else
+        error("Unknown device \"$device_str\". Expected \"cpu\", \"cuda\", or \"rocm\".")
+    end
+end
+
+# Human-readable label for the device log line.
+_backend_label(b::KA.Backend) =
+    b isa KA.CPU ? "CPU" : "GPU [" * string(nameof(typeof(b))) * "]"
 
 function _log_block_material(block_name::AbstractString, cm_name::AbstractString,
                               density::Float64, props_inputs::Dict)
@@ -43,13 +66,13 @@ end
 # ---------------------------------------------------------------------------
 
 """
-    Carina.run(yaml_file; device=nothing)
+    Carina.run(yaml_file; backend=nothing)
 
 Load `yaml_file`, create a simulation, run it, and close the output file.
-`device` (optional) overrides the `device:` key in the YAML.  Accepted values:
-`"cpu"`, `"rocm"`, `"cuda"`.
+`backend` (optional, a `KernelAbstractions.Backend`) overrides the `device:`
+key in the YAML.  When omitted, the `device:` key is used (default `cpu`).
 """
-function run(yaml_file::String; device::Union{String,Nothing}=nothing)
+function run(yaml_file::String; backend::Union{KA.Backend,Nothing}=nothing)
     open_log_file(yaml_file)
     try
         t_start = time()
@@ -60,7 +83,7 @@ function run(yaml_file::String; device::Union{String,Nothing}=nothing)
         sim_type = lowercase(get(dict, "type", "single"))
         if sim_type == "single"
             sim = create_simulation(dict, dirname(abspath(yaml_file));
-                                    device_override=device)
+                                    backend_override=backend)
             Base.invokelatest(evolve!, sim)
             FEC.close(sim.post_processor)
         else
@@ -81,33 +104,19 @@ end
 # ---------------------------------------------------------------------------
 
 """
-    create_simulation(dict, basedir=""; device_override=nothing) -> SingleDomainSimulation
+    create_simulation(dict, basedir=""; backend_override=nothing) -> SingleDomainSimulation
 
 Parse a YAML dict (already loaded) and return a fully initialised simulation.
 `basedir` is used to resolve relative file paths inside the YAML.
-`device_override` (a string) takes priority over the `device:` YAML key.
+`backend_override` (a `KernelAbstractions.Backend`) takes priority over the
+`device:` YAML key.
 """
 function create_simulation(dict::Dict{String,Any}, basedir::String="";
-                            device_override::Union{String,Nothing}=nothing)
+                            backend_override::Union{KA.Backend,Nothing}=nothing)
     _validate_keys(dict, _TOPLEVEL_KEYS, "top-level input")
-    device_str = device_override !== nothing ? lowercase(device_override) :
-                 lowercase(get(dict, "device", "cpu"))
-    device = if device_str == "rocm"
-        :rocm
-    elseif device_str == "cuda"
-        :cuda
-    else
-        :cpu
-    end
-    if device == :rocm
-        AMDGPU.functional() ||
-            error("device: rocm requested but no functional AMD GPU found.")
-    elseif device == :cuda
-        CUDA.functional() ||
-            error("device: cuda requested but no functional NVIDIA GPU found.")
-    end
-    _carina_log(0, :device, device == :rocm ? "ROCm GPU" :
-                             device == :cuda ? "CUDA GPU" : "CPU")
+    backend = backend_override !== nothing ? backend_override :
+              _resolve_backend(lowercase(get(dict, "device", "cpu")))
+    _carina_log(0, :device, _backend_label(backend))
 
     input_mesh  = _resolve(dict, "input mesh file",  basedir)
     output_file = _resolve(dict, "output mesh file", basedir)
@@ -199,25 +208,21 @@ function create_simulation(dict::Dict{String,Any}, basedir::String="";
         Exodus.write_names(pp.field_output_db, Exodus.ElementVariable, el_names)
     end
 
-    if device == :rocm
-        _carina_log(0, :setup, "Transferring to GPU (ROCm)...")
-        asm = FEC.rocm(asm_cpu)
-        p   = FEC.rocm(p_cpu)
-    elseif device == :cuda
-        _carina_log(0, :setup, "Transferring to GPU (CUDA)...")
-        asm = FEC.cuda(asm_cpu)
-        p   = FEC.cuda(p_cpu)
-    else
+    if backend isa KA.CPU
         asm = asm_cpu
         p   = p_cpu
+    else
+        _carina_log(0, :setup, "Transferring to GPU...")
+        asm = FEC.to_backend(backend, asm_cpu)
+        p   = FEC.to_backend(backend, p_cpu)
     end
 
     @carina_timed "Assembly cache" _init_assembly_cache!(asm_cpu, cm isa CM.LinearElastic)
     _cpu_asm_ref[]    = asm_cpu
     _cpu_params_ref[] = p_cpu
-    _device_sym[]     = device
+    _backend_ref[]    = backend
     integrator = @carina_phase "Building integrator and solver" _parse_integrator(
-                               dict, asm, asm_cpu, p_cpu, controller, device)
+                               dict, asm, asm_cpu, p_cpu, controller, backend)
     _carina_logf(0, :setup, "Solver:  %s", _solver_description(integrator))
 
     # Evaluate Dirichlet BC values at t=0 so _update_for_assembly! can set
@@ -228,7 +233,7 @@ function create_simulation(dict::Dict{String,Any}, basedir::String="";
     t0 = controller.initial_time
     @carina_timed "Initial conditions" begin
         _apply_initial_displacement_ics!(integrator, mesh, asm_cpu, p, p_cpu,
-                                          _parse_displacement_ics(dict), device, t0)
+                                          _parse_displacement_ics(dict), backend, t0)
         _apply_initial_velocity_ics!(integrator, mesh, asm_cpu, p_cpu,
                                       _parse_velocity_ics(dict), t0)
         _compute_initial_acceleration!(integrator, asm_cpu, p_cpu)
@@ -243,7 +248,7 @@ function create_simulation(dict::Dict{String,Any}, basedir::String="";
 
     n_steps = controller.num_stops - 1
     sim = SingleDomainSimulation(p, p_cpu, asm_cpu, integrator, pp,
-                                  controller, device, output_spec, recovery_data)
+                                  controller, backend, output_spec, recovery_data)
 
     # Write initial state (step 1, t=0).
     @carina_phase "Writing initial state" write_output!(sim, 1)
@@ -267,7 +272,7 @@ The controller's `control_step` equals the output interval; the integrator
 subcycles within each interval using its own (possibly adaptive) time step.
 """
 function evolve!(sim::SingleDomainSimulation)
-    (; params, post_processor, controller, device, integrator) = sim
+    (; params, post_processor, controller, integrator) = sim
     n_steps = controller.num_stops - 1
     is_explicit = integrator isa CentralDifferenceIntegrator
 
@@ -349,7 +354,7 @@ function _adjusted_step(t::Float64, dt::Float64, t_stop::Float64)::Float64
 end
 
 function _advance_one_step!(sim)
-    (; params, integrator, device) = sim
+    (; params, integrator) = sim
     _save_state!(integrator, params)
 
     while true
