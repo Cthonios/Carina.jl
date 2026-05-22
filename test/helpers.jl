@@ -1,5 +1,22 @@
 using Statistics
 
+# GPU vendor packages are test-only extras (Project.toml [targets].test):
+# present under `Pkg.test()`, absent under a plain `julia --project=. test/runtests.jl`.
+# Load them when available so the GPU verification can run; otherwise CPU-only.
+try; @eval import CUDA;   catch; end
+try; @eval import AMDGPU; catch; end
+
+const _TEST_CUDA   = isdefined(@__MODULE__, :CUDA)   && CUDA.functional()
+const _TEST_AMDGPU = isdefined(@__MODULE__, :AMDGPU) && AMDGPU.functional()
+
+# Best available compute backend for tests.  Replaces Carina.best_device(),
+# which moved to the bin/carina launcher when CUDA/AMDGPU left the library.
+function test_best_device()
+    _TEST_AMDGPU && return AMDGPU.ROCBackend()
+    _TEST_CUDA   && return CUDA.CUDABackend()
+    return Carina.KA.CPU()
+end
+
 # Copy a file from the examples tree into a temp directory, following symlinks
 # so that mesh files (which are symlinks into examples/meshes/) are copied as
 # real files rather than broken relative symlinks.

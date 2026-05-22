@@ -13,6 +13,7 @@ Manifest.toml
 .vscode
 *.e
 *.exo
+*.log
 .JuliaFormatter.toml
 Carina.jl.code-workspace
 examples/mechanics/explicit-dynamic/clamped/.clamped.yaml.swp

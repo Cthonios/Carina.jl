@@ -17,7 +17,7 @@
     # Uses the explicit solver (no linear solver needed) so the same
     # YAML works on both CPU and GPU.
 
-    backend = Carina.best_device()
+    backend = test_best_device()
     has_gpu = !(backend isa Carina.KA.CPU)
 
     example_dir = joinpath(@__DIR__, "..", "examples", "mechanics",

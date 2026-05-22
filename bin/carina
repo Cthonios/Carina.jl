@@ -2,15 +2,16 @@
 # CLI entry point for Carina.jl
 #
 # Usage:
-#   bin/carina input.yaml
-#   bin/carina input.yaml --device rocm
-#   bin/carina input.yaml --threads 8
-#   bin/carina input.yaml --threads 8 --device cuda
+#   carina input.yaml
+#   carina input.yaml --device cuda
+#   carina input.yaml --device auto --threads 8
+#
+# Runs the launcher environment in bin/ (bin/Project.toml), which owns the GPU
+# vendor packages so the Carina library itself stays vendor-free.
 
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"   # the launcher environment (bin/)
 
-# Parse --threads flag (must be extracted before passing to Julia)
+# Extract --threads / -t before handing the rest to Julia.
 THREADS=""
 JULIA_ARGS=()
 while [[ $# -gt 0 ]]; do
@@ -27,13 +28,20 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [[ -z "${JULIA_ARGS[*]}" ]]; then
-    echo "Usage: carina <input.yaml> [--device cpu|rocm|cuda] [--threads N]" >&2
+    echo "Usage: carina <input.yaml> [--device cpu|cuda|rocm|auto] [--threads N]" >&2
     exit 1
 fi
 
 THREAD_FLAG=""
-if [[ -n "$THREADS" ]]; then
-    THREAD_FLAG="-t $THREADS"
+[[ -n "$THREADS" ]] && THREAD_FLAG="-t $THREADS"
+
+# Instantiate the launcher environment on first use (one-time).
+if [[ ! -f "$SCRIPT_DIR/Manifest.toml" ]]; then
+    echo "carina: first run — instantiating launcher environment (one-time)..." >&2
+    julia --project="$SCRIPT_DIR" -e 'import Pkg; Pkg.instantiate()' || {
+        echo "carina: failed to instantiate the launcher environment" >&2
+        exit 1
+    }
 fi
 
-exec julia $THREAD_FLAG --project="$PROJECT_DIR" "$PROJECT_DIR/src/Carina.jl" "${JULIA_ARGS[@]}"
+exec julia $THREAD_FLAG --project="$SCRIPT_DIR" "$SCRIPT_DIR/carina.jl" "${JULIA_ARGS[@]}"

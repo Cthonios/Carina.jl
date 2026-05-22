@@ -4,9 +4,7 @@ version = "0.1.0"
 authors = ["Alejandro Mota <lxmota@gmail.com>"]
 
 [deps]
-AMDGPU = "21141c5a-9bdb-4563-92ae-f87d6854732e"
 Adapt = "79e6a3ab-5dfb-504d-930d-738a2a938a0e"
-CUDA = "052768ef-5323-5732-b1bb-66c8b64840ba"
 ConstitutiveModels = "fc6ee7eb-129a-416f-804b-d7271ece6a3a"
 Exodus = "f57ae99e-f805-4780-bdca-96e224be1e5a"
 FiniteElementContainers = "d08262e4-672f-4e7f-a976-f2cea5767631"
@@ -30,8 +28,6 @@ FiniteElementContainers = {path = "../FiniteElementContainers.jl"}
 ReferenceFiniteElements = {path = "../ReferenceFiniteElements.jl"}
 
 [compat]
-AMDGPU = "2.2.1"
-CUDA = "5"
 Exodus = "0.14"
 IterativeSolvers = "0.9"
 KernelAbstractions = "0.9"
@@ -44,8 +40,10 @@ StructArrays = "0.7"
 YAML = "0.4"
 
 [extras]
+AMDGPU = "21141c5a-9bdb-4563-92ae-f87d6854732e"
+CUDA = "052768ef-5323-5732-b1bb-66c8b64840ba"
 Statistics = "10745b16-79ce-11e8-11f9-7d13ad32a3b2"
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
 
 [targets]
-test = ["Statistics", "Test"]
+test = ["AMDGPU", "CUDA", "Statistics", "Test"]

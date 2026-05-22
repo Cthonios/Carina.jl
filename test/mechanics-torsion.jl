@@ -15,7 +15,7 @@
     #
     # The test runs on the best available device (ROCm → CUDA → CPU).
 
-    backend = Carina.best_device()
+    backend = test_best_device()
 
     explicit_dir = joinpath(@__DIR__, "..", "examples", "mechanics",
                             "explicit-dynamic", "torsion")

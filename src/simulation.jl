@@ -16,38 +16,6 @@ import YAML
 # Device detection
 # ---------------------------------------------------------------------------
 
-"""
-    Carina.best_device() -> KernelAbstractions.Backend
-
-Return the best available compute backend: an AMD `ROCBackend` if a functional
-AMD GPU is found, a `CUDABackend` if a functional NVIDIA GPU is found, or
-`KA.CPU()` otherwise.
-"""
-function best_device()
-    try AMDGPU.functional() && return AMDGPU.ROCBackend() catch end
-    try CUDA.functional()   && return CUDA.CUDABackend()  catch end
-    return KA.CPU()
-end
-
-# Resolve a device string ("cpu" / "cuda" / "rocm") to a KernelAbstractions
-# backend object, validating that the requested GPU is actually functional.
-function _resolve_backend(device_str::AbstractString)
-    s = lowercase(strip(device_str))
-    if s == "cpu"
-        return KA.CPU()
-    elseif s == "cuda"
-        CUDA.functional() ||
-            error("device: cuda requested but no functional NVIDIA GPU found.")
-        return CUDA.CUDABackend()
-    elseif s == "rocm"
-        AMDGPU.functional() ||
-            error("device: rocm requested but no functional AMD GPU found.")
-        return AMDGPU.ROCBackend()
-    else
-        error("Unknown device \"$device_str\". Expected \"cpu\", \"cuda\", or \"rocm\".")
-    end
-end
-
 # Human-readable label for the device log line.
 _backend_label(b::KA.Backend) =
     b isa KA.CPU ? "CPU" : "GPU [" * string(nameof(typeof(b))) * "]"
@@ -66,13 +34,13 @@ end
 # ---------------------------------------------------------------------------
 
 """
-    Carina.run(yaml_file; backend=nothing)
+    Carina.run(yaml_file; backend=KA.CPU())
 
 Load `yaml_file`, create a simulation, run it, and close the output file.
-`backend` (optional, a `KernelAbstractions.Backend`) overrides the `device:`
-key in the YAML.  When omitted, the `device:` key is used (default `cpu`).
+`backend` is the `KernelAbstractions.Backend` to run on (default `KA.CPU()`).
+Command-line device selection is handled by the `bin/carina` launcher.
 """
-function run(yaml_file::String; backend::Union{KA.Backend,Nothing}=nothing)
+function run(yaml_file::String; backend::KA.Backend=KA.CPU())
     open_log_file(yaml_file)
     try
         t_start = time()
@@ -83,7 +51,7 @@ function run(yaml_file::String; backend::Union{KA.Backend,Nothing}=nothing)
         sim_type = lowercase(get(dict, "type", "single"))
         if sim_type == "single"
             sim = create_simulation(dict, dirname(abspath(yaml_file));
-                                    backend_override=backend)
+                                    backend=backend)
             Base.invokelatest(evolve!, sim)
             FEC.close(sim.post_processor)
         else
@@ -104,18 +72,15 @@ end
 # ---------------------------------------------------------------------------
 
 """
-    create_simulation(dict, basedir=""; backend_override=nothing) -> SingleDomainSimulation
+    create_simulation(dict, basedir=""; backend=KA.CPU()) -> SingleDomainSimulation
 
 Parse a YAML dict (already loaded) and return a fully initialised simulation.
 `basedir` is used to resolve relative file paths inside the YAML.
-`backend_override` (a `KernelAbstractions.Backend`) takes priority over the
-`device:` YAML key.
+`backend` is the `KernelAbstractions.Backend` to run on.
 """
 function create_simulation(dict::Dict{String,Any}, basedir::String="";
-                            backend_override::Union{KA.Backend,Nothing}=nothing)
+                            backend::KA.Backend=KA.CPU())
     _validate_keys(dict, _TOPLEVEL_KEYS, "top-level input")
-    backend = backend_override !== nothing ? backend_override :
-              _resolve_backend(lowercase(get(dict, "device", "cpu")))
     _carina_log(0, :device, _backend_label(backend))
 
     input_mesh  = _resolve(dict, "input mesh file",  basedir)
