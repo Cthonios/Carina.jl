@@ -35,6 +35,66 @@ const _COLORS = Dict{Symbol, Symbol}(
     :warning      => :yellow,
 )
 
+# Trim-safe support: precompute indents, 9-char labels, and ANSI escape codes
+# so the hot path avoids `repeat`/`rpad`/`printstyled` (none of which survive
+# `juliac --trim`).
+
+const _INDENTS = ("", "    ", "        ", "            ", "                ")
+@inline function _indent(level::Int)
+    @inbounds for k in 0:length(_INDENTS) - 1
+        4k == level && return _INDENTS[k + 1]
+    end
+    return ""
+end
+
+# 9-char-wide bracketed labels: bracketed name padded to a 9-char column.
+const _LABELS = (
+    (:acceleration, "[ACCELER]"),
+    (:advance,      "[ADVANCE]"),
+    (:carina,       "[CARINA] "),
+    (:device,       "[DEVICE] "),
+    (:done,         "[DONE]   "),
+    (:equilibrium,  "[EQUILIB]"),
+    (:function,     "[FUNCTIO]"),
+    (:linesearch,   "[LINESEA]"),
+    (:output,       "[OUTPUT] "),
+    (:recover,      "[RECOVER]"),
+    (:setup,        "[SETUP]  "),
+    (:size,         "[SIZE]   "),
+    (:solve,        "[SOLVE]  "),
+    (:stop,         "[STOP]   "),
+    (:time,         "[TIME]   "),
+    (:warning,      "[WARNING]"),
+)
+@inline function _label(keyword::Symbol)
+    @inbounds for (k, v) in _LABELS
+        k === keyword && return v
+    end
+    return "[" * uppercase(string(keyword)) * "]"
+end
+
+# ANSI escape codes mirroring the entries in _COLORS.
+const _ANSI = (
+    (:blue,       "\e[34m"),
+    (:green,      "\e[32m"),
+    (:magenta,    "\e[35m"),
+    (:cyan,       "\e[36m"),
+    (:yellow,     "\e[33m"),
+    (:red,        "\e[31m"),
+    (:light_blue, "\e[94m"),
+    (:light_cyan, "\e[96m"),
+    (:default,    "\e[39m"),
+)
+@inline function _ansi(color::Symbol)
+    @inbounds for (k, v) in _ANSI
+        k === color && return v
+    end
+    return "\e[39m"
+end
+
+const _ANSI_BOLD  = "\e[1m"
+const _ANSI_RESET = "\e[22;39m"
+
 const CARINA_WRITE_LOG_FILE = Ref(true)
 const CARINA_LOG_FILE = Ref{Union{IOStream,Nothing}}(nothing)
 
@@ -55,19 +115,14 @@ function close_log_file()
 end
 
 function _carina_log(level::Int, keyword::Symbol, msg::AbstractString)
-    indent    = " "^level
-    kw_str    = uppercase(string(keyword))
-    kw_str    = kw_str[1:min(end, 7)]
-    bracketed = "[" * kw_str * "]"
-    padded    = rpad(bracketed, 9)
-    prefix    = indent * padded * " "
+    prefix = _indent(level) * _label(keyword) * " "
     if _use_color()
         color = get(_COLORS, keyword, :default)
-        printstyled(prefix; color=color, bold=true)
+        print(Core.stdout, _ANSI_BOLD, _ansi(color), prefix, _ANSI_RESET)
     else
-        print(prefix)
+        print(Core.stdout, prefix)
     end
-    println(msg)
+    println(Core.stdout, msg)
 
     io = CARINA_LOG_FILE[]
     if io !== nothing
