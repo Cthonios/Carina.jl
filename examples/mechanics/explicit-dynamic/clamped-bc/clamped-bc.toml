@@ -1,0 +1,53 @@
+input_mesh_file = "clamped-bc.g"
+output_interval = 1.0e-5
+type = "single"
+output_mesh_file = "clamped-bc.e"
+
+# Right-traveling Gaussian pulse injected by time-varying Dirichlet at z = -L/2,
+# absorbed by clamping at z = +L/2.  See Mota-Tezaur-Phlipot IJNME 2022 § 3.3.
+# g(t) = a * exp(-(t - tc)^2 / (2 * tau^2)),  a = 1e-3, tc = 2.5e-4, tau = 5e-5.
+# Final time chosen so the peak (eta = 0) lands at z = 0:
+#   t_f - tc = (L/2)/c  =>  t_f = 2.5e-4 + 5e-4 = 7.5e-4.
+
+[[boundary_conditions.dirichlet]]
+node_set = "nsx-"
+function = "0.0"
+component = "x"
+[[boundary_conditions.dirichlet]]
+node_set = "nsx+"
+function = "0.0"
+component = "x"
+[[boundary_conditions.dirichlet]]
+node_set = "nsy-"
+function = "0.0"
+component = "y"
+[[boundary_conditions.dirichlet]]
+node_set = "nsy+"
+function = "0.0"
+component = "y"
+[[boundary_conditions.dirichlet]]
+node_set = "nsz-"
+function = "a=1.0e-3; tc=2.5e-4; tau=5.0e-5; a*exp(-(t-tc)*(t-tc)/tau/tau/2)"
+component = "z"
+[[boundary_conditions.dirichlet]]
+node_set = "nsz+"
+function = "0.0"
+component = "z"
+
+[model]
+type = "solid_mechanics"
+
+    [model.material.linear_elastic]
+    density = 1000.0
+    poissons_ratio = 0.0
+    elastic_modulus = 1.0e9
+
+    [model.material.blocks]
+    clamped = "linear_elastic"
+
+[time_integrator]
+final_time = 7.5e-4
+time_step = 5.0e-7
+gamma = 0.5
+initial_time = 0.0
+type = "central_difference"
