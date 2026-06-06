@@ -359,6 +359,42 @@ end
 end
 
 # --------------------------------------------------------------------------- #
+# FEC interface: lumped_mass (per-element row-sum / partition-of-unity)
+# --------------------------------------------------------------------------- #
+#
+# Per node `a`, in each spatial direction, the contribution is:
+#   m_el[3*(a-1)+d] = ρ · JxW · Σ_b N[a] · N[b]
+#                  = ρ · JxW · N[a]              (partition of unity: Σ_b N[b] = 1)
+# i.e. Norma's `add_lumped_mass!`.  Scattered by FEC into the full-DOF
+# residual storage, then extracted to the free-DOF subset by
+# `FEC.lumped_mass(asm)`.
+
+@inline function FEC.lumped_mass(
+    physics::SolidMechanics,
+    interps, x_el,
+    t, dt,
+    u_el, u_el_old,
+    state_old_q, state_new_q,
+    props_el,
+)
+    cell = FEC.map_interpolants(interps, x_el)
+    (; N, JxW) = cell
+
+    N_nodes = size(N, 1)
+    NDOF    = 3 * N_nodes
+    ρJxW    = JxW * physics.density
+    tup = zeros(SVector{NDOF, eltype(N)})
+    for a in 1:N_nodes
+        m_a = ρJxW * N[a]
+        idx = 3 * (a - 1)
+        tup = setindex(tup, m_a, idx + 1)
+        tup = setindex(tup, m_a, idx + 2)
+        tup = setindex(tup, m_a, idx + 3)
+    end
+    return tup
+end
+
+# --------------------------------------------------------------------------- #
 # FEC interface: mass_action (M·v per quadrature point, no matrix formed)
 # --------------------------------------------------------------------------- #
 

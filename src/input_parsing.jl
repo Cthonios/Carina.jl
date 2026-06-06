@@ -320,21 +320,6 @@ function _parse_integrator(dict, asm, asm_cpu, p_cpu, controller, backend=KA.CPU
     end
 end
 
-# Compute the Jacobi (diagonal) preconditioner for the Newmark effective
-# stiffness K + c_M·M using the mass-only approximation d_ii ≈ c_M·M_ii.
-#
-# The diagonal is computed on CPU (asm_cpu, p_cpu) and then transferred to
-# the target device (ΔUu_template may be a GPU array).
-# Assemble diag(A·ones) on CPU via matrix-action, copy result to target device.
-# Common boilerplate for Jacobi preconditioner and lumped mass computation.
-function _assemble_diag_cpu(action, asm_cpu, p_cpu, template)
-    n    = length(template)
-    ones_v  = ones(Float64, n)
-    U_zeros = zeros(Float64, n)
-    FEC.assemble_matrix_action!(asm_cpu, action, U_zeros, ones_v, p_cpu)
-    return copy(FEC.hvp(asm_cpu, ones_v))
-end
-
 function _to_device(cpu_vec, template)
     out = similar(template)
     copyto!(out, cpu_vec)
@@ -345,11 +330,15 @@ function _compute_jacobi_precond(β, Δt, asm_cpu, p_cpu, ΔUu_template)
     c_M = 1.0 / (β * Δt^2)
     n = length(ΔUu_template)
     U_zeros = zeros(Float64, n)
-    # diag(K_eff) = diag(K) + c_M · diag(M)
+    # diag(K_eff) ≈ diag(K) + c_M · m_lumped.  Using the partition-of-unity
+    # lumped mass as the M-side contribution is a valid SPD Jacobi preconditioner
+    # (same scaling class as diag(M)) and avoids the row-sum-of-reduced-M bug
+    # that under-counts at boundary-adjacent free DOFs.
     @carina_timed "    assemble_stiffness!" FEC.assemble_stiffness!(asm_cpu, FEC.stiffness, U_zeros, p_cpu)
     K = FEC.stiffness(asm_cpu)
     k_diag = @carina_timed "    extract diag(K)" [K[i, i] for i in 1:size(K, 1)]
-    m_diag = @carina_timed "    mass diag action" _assemble_diag_cpu(FEC.mass, asm_cpu, p_cpu, ΔUu_template)
+    @carina_timed "    assemble_lumped_mass!" FEC.assemble_lumped_mass!(asm_cpu, FEC.lumped_mass, U_zeros, p_cpu)
+    m_diag = copy(FEC.lumped_mass(asm_cpu))
     eff_diag = k_diag .+ c_M .* m_diag
     inv_diag_cpu = 1.0 ./ max.(abs.(eff_diag), eps(Float64))
     return JacobiPreconditioner(_to_device(inv_diag_cpu, ΔUu_template))
@@ -368,9 +357,15 @@ function _compute_stiffness_jacobi_precond(asm_cpu, p_cpu, ΔUu_template)
     return JacobiPreconditioner(_to_device(inv_diag_cpu, ΔUu_template))
 end
 
-# Lumped mass vector (diagonal row sums of consistent mass matrix).
+# Partition-of-unity row-sum lumped mass via per-element scatter.
+# Each free DOF receives ρ · N_a · JxW summed over connected QPs — preserves
+# partition of unity even at free DOFs adjacent to constrained ones, unlike
+# the legacy `M_red * 1_free` approach.
 function _compute_lumped_mass(asm_cpu, p_cpu, ΔUu_template)
-    m_cpu = _assemble_diag_cpu(FEC.mass, asm_cpu, p_cpu, ΔUu_template)
+    n = length(ΔUu_template)
+    U_zeros = zeros(Float64, n)
+    FEC.assemble_lumped_mass!(asm_cpu, FEC.lumped_mass, U_zeros, p_cpu)
+    m_cpu = copy(FEC.lumped_mass(asm_cpu))
     return _to_device(m_cpu, ΔUu_template)
 end
 

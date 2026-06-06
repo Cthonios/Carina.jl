@@ -47,14 +47,6 @@ end
     # At t = 1e-5 the wave has barely moved (c*t = 0.01 m = 1% of L),
     # so the pulse is still near the center and far from boundaries.
     # Relative error should be < 1% (Table 1 in paper: ~0.35% for explicit CM).
-    #
-    # TODO: this threshold has no engineering margin and is host-FP-sensitive.
-    # |U|_max at t=10us differs ~2% between CI (Ubuntu) and a Fedora host with
-    # identical source/mesh/deps — enough to push rel_err from <1% (CI pass)
-    # to ~2.1% (local fail).  Implicit Newmark sibling is dissipative enough
-    # to absorb the variance.  Fix: tighten mesh+dt 10x so the true error
-    # sits ~0.035% well below threshold, OR raise the threshold to 0.05.
-
     example_dir = joinpath(@__DIR__, "..", "examples", "mechanics",
                            "explicit-dynamic", "clamped")
     mktempdir() do dir
