@@ -1,0 +1,41 @@
+input_mesh_file = "cube.g"
+type = "single"
+output_mesh_file = "cube.e"
+
+[model]
+type = "solid_mechanics"
+
+    [model.material.linear_elastic]
+    density = 1000.0
+    poissons_ratio = 0.25
+    elastic_modulus = 1.0e9
+
+    [model.material.blocks]
+    cube = "linear_elastic"
+
+[time_integrator]
+final_time = 1.0
+time_step = 0.1
+gamma = 0.5
+initial_time = 0.0
+type = "newmark"
+beta = 0.25
+
+[solver]
+type = "newton"
+
+    [solver.linear_solver]
+    type = "direct"
+
+    [[solver.termination.fail_when_any]]
+    maximum_iterations = 16
+
+    [[solver.termination.converge_when_any]]
+    absolute_residual = 1.0e-6
+    [[solver.termination.converge_when_any]]
+    relative_residual = 1.0e-10
+
+[[initial_conditions.velocity]]
+node_set = "nsall"
+function = "1.0"
+component = "z"

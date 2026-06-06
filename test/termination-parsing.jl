@@ -4,12 +4,12 @@
     @testset "new syntax — converge when any / fail when any" begin
         sol = Dict(
             "termination" => Dict(
-                "converge when any" => [
-                    Dict("absolute residual" => 1e-6),
-                    Dict("relative residual" => 1e-10),
+                "converge_when_any" => [
+                    Dict("absolute_residual" => 1e-6),
+                    Dict("relative_residual" => 1e-10),
                 ],
-                "fail when any" => [
-                    Dict("maximum iterations" => 16),
+                "fail_when_any" => [
+                    Dict("maximum_iterations" => 16),
                 ],
             ),
         )
@@ -40,15 +40,15 @@
     @testset "new syntax — converge when all with nested any" begin
         sol = Dict(
             "termination" => Dict(
-                "converge when all" => [
-                    Dict("minimum iterations" => 0),
+                "converge_when_all" => [
+                    Dict("minimum_iterations" => 0),
                     Dict("any" => [
-                        Dict("absolute residual" => 1e-8),
-                        Dict("relative residual" => 1e-12),
+                        Dict("absolute_residual" => 1e-8),
+                        Dict("relative_residual" => 1e-12),
                     ]),
                 ],
-                "fail when any" => [
-                    Dict("maximum iterations" => 16),
+                "fail_when_any" => [
+                    Dict("maximum_iterations" => 16),
                 ],
             ),
         )
@@ -72,15 +72,15 @@
     @testset "new syntax — nested all inside converge when any" begin
         sol = Dict(
             "termination" => Dict(
-                "converge when any" => [
+                "converge_when_any" => [
                     Dict("all" => [
-                        Dict("absolute residual" => 1e-6),
-                        Dict("absolute update"   => 1e-8),
+                        Dict("absolute_residual" => 1e-6),
+                        Dict("absolute_update"   => 1e-8),
                     ]),
-                    Dict("relative residual" => 1e-14),
+                    Dict("relative_residual" => 1e-14),
                 ],
-                "fail when any" => [
-                    Dict("maximum iterations" => 20),
+                "fail_when_any" => [
+                    Dict("maximum_iterations" => 20),
                 ],
             ),
         )
@@ -97,11 +97,11 @@
     @testset "evaluation — converge when any" begin
         sol = Dict(
             "termination" => Dict(
-                "converge when any" => [
-                    Dict("absolute residual" => 1e-6),
+                "converge_when_any" => [
+                    Dict("absolute_residual" => 1e-6),
                 ],
-                "fail when any" => [
-                    Dict("maximum iterations" => 10),
+                "fail_when_any" => [
+                    Dict("maximum_iterations" => 10),
                 ],
             ),
         )
@@ -121,12 +121,12 @@
     @testset "evaluation — converge when all" begin
         sol = Dict(
             "termination" => Dict(
-                "converge when all" => [
-                    Dict("minimum iterations" => 3),
-                    Dict("absolute residual"  => 1e-6),
+                "converge_when_all" => [
+                    Dict("minimum_iterations" => 3),
+                    Dict("absolute_residual"  => 1e-6),
                 ],
-                "fail when any" => [
-                    Dict("maximum iterations" => 20),
+                "fail_when_any" => [
+                    Dict("maximum_iterations" => 20),
                 ],
             ),
         )
@@ -147,11 +147,11 @@
                     "type" => "combo",
                     "combo" => "or",
                     "tests" => [
-                        Dict("type" => "absolute residual", "tolerance" => 1e-6),
-                        Dict("type" => "relative residual", "tolerance" => 1e-10),
+                        Dict("type" => "absolute_residual", "tolerance" => 1e-6),
+                        Dict("type" => "relative_residual", "tolerance" => 1e-10),
                     ],
                 ),
-                Dict("type" => "maximum iterations", "value" => 16),
+                Dict("type" => "maximum_iterations", "value" => 16),
             ],
         )
         root = Carina._parse_termination(sol)
@@ -163,8 +163,8 @@
     # ----- Flat-key legacy (oldest format) ----------------------------------
     @testset "oldest legacy — flat tolerance keys" begin
         sol = Dict(
-            "absolute tolerance" => 1e-8,
-            "relative tolerance" => 1e-12,
+            "absolute_tolerance" => 1e-8,
+            "relative_tolerance" => 1e-12,
         )
         root = Carina._parse_termination(sol)
         @test root isa Carina.ComboOrTest
@@ -176,8 +176,8 @@
     @testset "error on unknown test name" begin
         sol = Dict(
             "termination" => Dict(
-                "converge when any" => [
-                    Dict("bogus test" => 1.0),
+                "converge_when_any" => [
+                    Dict("bogus_test" => 1.0),
                 ],
             ),
         )
@@ -189,7 +189,7 @@
         sol = Dict(
             "termination" => Dict(
                 "stop when maybe" => [
-                    Dict("absolute residual" => 1e-6),
+                    Dict("absolute_residual" => 1e-6),
                 ],
             ),
         )
@@ -199,13 +199,13 @@
     # ----- All test types recognized ----------------------------------------
     @testset "all test types parse" begin
         items = [
-            (Dict("absolute residual"  => 1e-6),  Carina.AbsResidualTest),
-            (Dict("relative residual"  => 1e-10), Carina.RelResidualTest),
-            (Dict("absolute update"    => 1e-8),  Carina.AbsUpdateTest),
-            (Dict("relative update"    => 1e-6),  Carina.RelUpdateTest),
-            (Dict("maximum iterations" => 20),    Carina.MaxIterationsTest),
-            (Dict("minimum iterations" => 2),     Carina.MinIterationsTest),
-            (Dict("finite value"       => 0),     Carina.FiniteValueTest),
+            (Dict("absolute_residual"  => 1e-6),  Carina.AbsResidualTest),
+            (Dict("relative_residual"  => 1e-10), Carina.RelResidualTest),
+            (Dict("absolute_update"    => 1e-8),  Carina.AbsUpdateTest),
+            (Dict("relative_update"    => 1e-6),  Carina.RelUpdateTest),
+            (Dict("maximum_iterations" => 20),    Carina.MaxIterationsTest),
+            (Dict("minimum_iterations" => 2),     Carina.MinIterationsTest),
+            (Dict("finite_value"       => 0),     Carina.FiniteValueTest),
             (Dict("divergence"         => 1e6),   Carina.DivergenceTest),
             (Dict("stagnation"         => 5),     Carina.StagnationTest),
         ]

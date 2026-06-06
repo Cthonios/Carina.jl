@@ -1,0 +1,53 @@
+input_mesh_file = "cube.g"
+type = "single"
+output_mesh_file = "cube_nlcg.e"
+
+[[boundary_conditions.dirichlet]]
+side_set = "ssx-"
+function = "0.0"
+component = "x"
+[[boundary_conditions.dirichlet]]
+side_set = "ssy-"
+function = "0.0"
+component = "y"
+[[boundary_conditions.dirichlet]]
+side_set = "ssz-"
+function = "0.0"
+component = "z"
+[[boundary_conditions.dirichlet]]
+side_set = "ssz+"
+function = "1.0e-3 * t"
+component = "z"
+
+[model]
+type = "solid_mechanics"
+
+    [model.material.linear_elastic]
+    density = 1000.0
+    poissons_ratio = 0.25
+    elastic_modulus = 1.0e10
+
+    [model.material.blocks]
+    cube = "linear_elastic"
+
+[time_integrator]
+final_time = 1.0
+time_step = 0.1
+initial_time = 0.0
+type = "quasi_static"
+
+[solver]
+line_search_maximum_iterations = 30
+use_line_search = true
+type = "nonlinear_cg"
+
+    [solver.preconditioner]
+    type = "jacobi"
+
+    [[solver.termination.fail_when_any]]
+    maximum_iterations = 200
+
+    [[solver.termination.converge_when_any]]
+    absolute_residual = 1.0e-8
+    [[solver.termination.converge_when_any]]
+    relative_residual = 1.0e-14

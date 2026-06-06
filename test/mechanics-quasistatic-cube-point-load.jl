@@ -14,61 +14,69 @@
     mktempdir() do dir
         cp_example(joinpath(example_dir, "cube.g"), joinpath(dir, "cube.g"))
 
-        yaml = """
-type: single
+        toml = """
+type = "single"
 
-input mesh file:  cube.g
-output mesh file: cube.e
+input_mesh_file = "cube.g"
+output_mesh_file = "cube.e"
 
-model:
-  type: solid mechanics
-  material:
-    blocks:
-      cube: linear elastic
-    linear elastic:
-      elastic modulus: 1.0e9
-      Poisson's ratio: 0.25
-      density: 1000.0
+[model]
+type = "solid_mechanics"
 
-time integrator:
-  type: quasi static
-  initial time: 0.0
-  final time:   1.0
-  time step:    0.1
+[model.material.blocks]
+cube = "linear_elastic"
 
-boundary conditions:
-  Dirichlet:
-    - side set:   ssx-
-      component: x
-      function:  "0.0"
-    - side set:   ssy-
-      component: y
-      function:  "0.0"
-    - side set:   ssz-
-      component: z
-      function:  "0.0"
-  Neumann:
-    - node set:  nsz+
-      component: z
-      function:  "0.25e+09 * t"
+[model.material.linear_elastic]
+elastic_modulus = 1.0e9
+poissons_ratio = 0.25
+density = 1000.0
 
-solver:
-  type: newton
-  termination:
-    - type: combo
-      combo: or
-      tests:
-        - type: absolute residual
-          tolerance: 1.0e-08
-        - type: relative residual
-          tolerance: 1.0e-14
-    - type: maximum iterations
-      value: 16
-  linear solver:
-    type: direct
+[time_integrator]
+type = "quasi_static"
+initial_time = 0.0
+final_time = 1.0
+time_step = 0.1
+
+[[boundary_conditions.dirichlet]]
+side_set = "ssx-"
+component = "x"
+function = "0.0"
+
+[[boundary_conditions.dirichlet]]
+side_set = "ssy-"
+component = "y"
+function = "0.0"
+
+[[boundary_conditions.dirichlet]]
+side_set = "ssz-"
+component = "z"
+function = "0.0"
+
+[[boundary_conditions.neumann]]
+node_set = "nsz+"
+component = "z"
+function = "0.25e+09 * t"
+
+[solver]
+type = "newton"
+
+[[solver.termination]]
+type = "combo"
+combo = "or"
+tests = [
+    { type = "absolute_residual", tolerance = 1.0e-8 },
+    { type = "relative_residual", tolerance = 1.0e-14 },
+]
+
+[[solver.termination]]
+type = "maximum_iterations"
+value = 16
+
+[solver.linear_solver]
+type = "direct"
 """
-        write(joinpath(dir, "cube_point_load.yaml"), yaml)
-        sim = Carina.run(joinpath(dir, "cube_point_load.yaml"))
+        write(joinpath(dir, "cube_point_load.toml"), toml)
+        sim = Carina.run(joinpath(dir, "cube_point_load.toml"))
         avg = average_components(sim)
 
         @test avg[3] ≈  0.5   rtol=1e-6   # avg u_z (tension)

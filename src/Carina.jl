@@ -12,7 +12,7 @@ import Krylov
 import LinearOperators
 import ReferenceFiniteElements as RFE
 import SparseArrays
-import YAML
+import TOML
 using LinearAlgebra
 using StaticArrays
 using StructArrays
@@ -31,7 +31,7 @@ include("integrators.jl")
 include("linear_solvers.jl")
 include("nonlinear_solvers.jl")
 include("materials.jl")
-include("yaml_parsing.jl")
+include("input_parsing.jl")
 include("initialization.jl")
 include("io.jl")
 include("simulation.jl")

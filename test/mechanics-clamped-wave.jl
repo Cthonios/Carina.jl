@@ -47,13 +47,20 @@ end
     # At t = 1e-5 the wave has barely moved (c*t = 0.01 m = 1% of L),
     # so the pulse is still near the center and far from boundaries.
     # Relative error should be < 1% (Table 1 in paper: ~0.35% for explicit CM).
+    #
+    # TODO: this threshold has no engineering margin and is host-FP-sensitive.
+    # |U|_max at t=10us differs ~2% between CI (Ubuntu) and a Fedora host with
+    # identical source/mesh/deps — enough to push rel_err from <1% (CI pass)
+    # to ~2.1% (local fail).  Implicit Newmark sibling is dissipative enough
+    # to absorb the variance.  Fix: tighten mesh+dt 10x so the true error
+    # sits ~0.035% well below threshold, OR raise the threshold to 0.05.
 
     example_dir = joinpath(@__DIR__, "..", "examples", "mechanics",
                            "explicit-dynamic", "clamped")
     mktempdir() do dir
         cp_example(joinpath(example_dir, "clamped.g"),    joinpath(dir, "clamped.g"))
-        cp_example(joinpath(example_dir, "clamped.yaml"), joinpath(dir, "clamped.yaml"))
-        sim = Carina.run(joinpath(dir, "clamped.yaml"))
+        cp_example(joinpath(example_dir, "clamped.toml"), joinpath(dir, "clamped.toml"))
+        sim = Carina.run(joinpath(dir, "clamped.toml"))
 
         rel_err = _clamped_z_disp_rel_error(sim)
         @test rel_err < 0.01   # < 1% relative error vs analytical solution
@@ -69,8 +76,8 @@ end
                            "implicit-dynamic", "clamped")
     mktempdir() do dir
         cp_example(joinpath(example_dir, "clamped.g"),    joinpath(dir, "clamped.g"))
-        cp_example(joinpath(example_dir, "clamped.yaml"), joinpath(dir, "clamped.yaml"))
-        sim = Carina.run(joinpath(dir, "clamped.yaml"))
+        cp_example(joinpath(example_dir, "clamped.toml"), joinpath(dir, "clamped.toml"))
+        sim = Carina.run(joinpath(dir, "clamped.toml"))
 
         rel_err = _clamped_z_disp_rel_error(sim)
         @test rel_err < 0.01   # < 1% relative error vs analytical solution

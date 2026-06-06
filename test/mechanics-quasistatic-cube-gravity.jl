@@ -14,8 +14,8 @@
     example_dir = joinpath(@__DIR__, "..", "examples", "mechanics", "quasistatic", "cube-gravity")
     mktempdir() do dir
         cp_example(joinpath(example_dir, "cube.g"),    joinpath(dir, "cube.g"))
-        cp_example(joinpath(example_dir, "cube.yaml"), joinpath(dir, "cube.yaml"))
-        sim = Carina.run(joinpath(dir, "cube.yaml"))
+        cp_example(joinpath(example_dir, "cube.toml"), joinpath(dir, "cube.toml"))
+        sim = Carina.run(joinpath(dir, "cube.toml"))
 
         uz_min = minimum_components(sim)[3]
         avg    = average_components(sim)

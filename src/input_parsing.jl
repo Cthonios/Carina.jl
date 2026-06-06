@@ -1,20 +1,19 @@
-# YAML parsing and factory helpers for simulation construction.
+# TOML parsing and factory helpers for simulation construction.
 #
-# All functions that translate YAML dict entries into Julia objects
+# All functions that translate input dict entries into Julia objects
 # (integrators, solvers, BCs, materials, etc.) live here.
 
 import FiniteElementContainers as FEC
 import ConstitutiveModels as CM
 import Krylov
-import YAML
 using StaticArrays
 using LinearAlgebra
 
 # ---------------------------------------------------------------------------
-# YAML key validation
+# Key validation
 # ---------------------------------------------------------------------------
 #
-# Each YAML section has a set of known keys. Unknown keys are flagged with
+# Each input section has a set of known keys. Unknown keys are flagged with
 # a suggestion (Levenshtein distance) to catch typos early.
 
 # Levenshtein distance for fuzzy matching
@@ -69,26 +68,26 @@ end
 # --- Known keys per section ---
 
 const _TOPLEVEL_KEYS = Set([
-    "type", "device", "input mesh file", "output mesh file", "output interval",
-    "output", "model", "time integrator", "boundary conditions", "body forces",
-    "initial conditions", "solver", "quadrature",
+    "type", "device", "input_mesh_file", "output_mesh_file", "output_interval",
+    "output", "model", "time_integrator", "boundary_conditions", "body_forces",
+    "initial_conditions", "solver", "quadrature",
 ])
 
 const _TIME_INTEGRATOR_KEYS = Set([
-    "type", "initial time", "final time", "time step",
-    "minimum time step", "maximum time step", "decrease factor", "increase factor",
-    "initial equilibrium",
-    "beta", "gamma", "β", "γ", "alpha",
-    "CFL", "cfl", "stable time step interval",
+    "type", "initial_time", "final_time", "time_step",
+    "minimum_time_step", "maximum_time_step", "decrease_factor", "increase_factor",
+    "initial_equilibrium",
+    "beta", "gamma", "alpha",
+    "cfl", "stable_time_step_interval",
 ])
 
 const _SOLVER_KEYS = Set([
-    "type", "minimum iterations", "maximum iterations",
-    "absolute tolerance", "relative tolerance", "termination",
-    "use line search", "line search backtrack factor",
-    "line search decrease factor", "line search maximum iterations",
-    "linear solver", "preconditioner",
-    "orthogonality tolerance", "restart interval",
+    "type", "minimum_iterations", "maximum_iterations",
+    "absolute_tolerance", "relative_tolerance", "termination",
+    "use_line_search", "line_search_backtrack_factor",
+    "line_search_decrease_factor", "line_search_maximum_iterations",
+    "linear_solver", "preconditioner",
+    "orthogonality_tolerance", "restart_interval",
 ])
 
 const _TERMINATION_TEST_KEYS = Set([
@@ -97,29 +96,40 @@ const _TERMINATION_TEST_KEYS = Set([
 ])
 
 const _LINEAR_SOLVER_KEYS = Set([
-    "type", "maximum iterations", "tolerance", "history size",
+    "type", "maximum_iterations", "tolerance", "history_size",
     "preconditioner", "assembled",
 ])
 
-const _DBC_ENTRY_KEYS = Set(["side set", "node set", "component", "function"])
-const _NBC_ENTRY_KEYS = Set(["side set", "node set", "component", "function"])
+const _DBC_ENTRY_KEYS = Set(["side_set", "node_set", "component", "function"])
+const _NBC_ENTRY_KEYS = Set(["side_set", "node_set", "component", "function"])
 const _BF_ENTRY_KEYS  = Set(["block", "component", "function"])
-const _IC_ENTRY_KEYS  = Set(["node set", "component", "function"])
+const _IC_ENTRY_KEYS  = Set(["node_set", "component", "function"])
 
 const _OUTPUT_KEYS = Set([
-    "velocity", "acceleration", "stress", "deformation gradient",
-    "internal variables", "recovery",
+    "velocity", "acceleration", "stress", "deformation_gradient",
+    "internal_variables", "recovery",
 ])
 
 # ---------------------------------------------------------------------------
 # Internal parsers
 # ---------------------------------------------------------------------------
 
-# Resolve a file path relative to the YAML's directory.
+# Resolve a file path relative to the input file's directory.
 function _resolve(dict, key, basedir)
     val = get(dict, key, nothing)
-    val === nothing && error("Missing required YAML key: \"$key\"")
-    isabspath(val) ? val : joinpath(basedir, val)
+    val === nothing && error("Missing required input key: \"$key\"")
+    path = val::String
+    isabspath(path) ? path : joinpath(basedir, path)
+end
+
+# Trim-safe Any → Float64.  TOML scalars are Int64 or Float64; we dispatch
+# on the concrete runtime type so each branch's call site is verifier-resolvable.
+# `Float64(::Real)` would otherwise be an abstract dispatch that the trim
+# verifier cannot follow.
+@inline function _f64(x)
+    x isa Float64 && return x
+    x isa Int64   && return Float64(x)
+    return Float64(x::Real)
 end
 
 # ---- quadrature ----
@@ -129,15 +139,15 @@ function _parse_quadrature(dict)
     if q_section === nothing
         return RFE.GaussLegendre, 2
     end
-    type_str = lowercase(get(q_section, "type", "gauss legendre"))
+    type_str = lowercase(get(q_section, "type", "gauss_legendre"))
     order    = Int(get(q_section, "order", 2))
-    if type_str in ("gauss legendre", "gl")
+    if type_str in ("gauss_legendre", "gl")
         return RFE.GaussLegendre, order
-    elseif type_str in ("gauss lobatto legendre", "gll")
+    elseif type_str in ("gauss_lobatto_legendre", "gll")
         return RFE.GaussLobattoLegendre, order
     else
-        error("Unknown \"quadrature: type: $type_str\". " *
-              "Supported: \"gauss legendre\", \"gauss lobatto legendre\".")
+        error("Unknown quadrature.type = \"$type_str\". " *
+              "Supported: \"gauss_legendre\", \"gauss_lobatto_legendre\".")
     end
 end
 
@@ -145,25 +155,28 @@ end
 
 function _parse_material_section(dict)
     model_dict_top = get(dict, "model", nothing)
-    model_dict_top === nothing && error("Missing \"model:\" section in YAML.")
+    model_dict_top === nothing && error("Missing [model] section in input.")
 
     mat_section = get(model_dict_top, "material", nothing)
-    mat_section === nothing && error("Missing \"model: material:\" section in YAML.")
+    mat_section === nothing && error("Missing [model.material] section in input.")
 
     # Expect:  blocks: { block_name: model_name }  followed by model-specific keys.
     blocks = get(mat_section, "blocks", nothing)
-    blocks === nothing && error("Missing \"material: blocks:\" mapping.")
+    blocks === nothing && error("Missing [model.material.blocks] mapping.")
+    blocks_dict = blocks::Dict{String,Any}
     # Use the first (and for single-domain Phase 1, only) block's model name.
-    block_name, model_name = first(pairs(blocks))
+    pair = first(blocks_dict)
+    block_name = pair.first
+    model_name = pair.second::String
 
-    # The model-specific sub-dict (e.g.  neohookean: { elastic modulus: ... })
+    # The model-specific sub-dict (e.g.  neohookean: { elastic_modulus: ... })
     model_props = get(mat_section, model_name, nothing)
     model_props === nothing && error(
         "Material block \"$model_name\" listed in blocks but no property dict found."
     )
 
-    cm, density, props_inputs = parse_material(model_name, model_props)
-    return String(block_name), cm, density, props_inputs
+    cm, density, props_inputs = parse_material(model_name, model_props::Dict{String,Any})
+    return block_name, cm, density, props_inputs
 end
 
 # ---- time ----
@@ -172,19 +185,19 @@ end
 # (currently only central difference).  Used to opt into FEC's matrix-free
 # assembler mode at construction time, before the integrator object exists.
 function _integrator_is_matrix_free(dict)
-    ti_dict = get(dict, "time integrator", nothing)
+    ti_dict = get(dict, "time_integrator", nothing)
     ti_dict === nothing && return false
     type_str = lowercase(get(ti_dict, "type", ""))
-    return type_str in ("central difference", "centraldifference", "cd")
+    return type_str in ("central_difference", "centraldifference", "cd")
 end
 
 function _parse_times(dict)
-    ti_dict = get(dict, "time integrator", nothing)
-    ti_dict === nothing && error("Missing \"time integrator:\" section.")
-    _validate_keys(ti_dict, _TIME_INTEGRATOR_KEYS, "time integrator")
-    t0  = Float64(get(ti_dict, "initial time", 0.0))
-    tf  = Float64(ti_dict["final time"])
-    dt  = Float64(ti_dict["time step"])
+    ti_dict = get(dict, "time_integrator", nothing)
+    ti_dict === nothing && error("Missing [time_integrator] section.")
+    _validate_keys(ti_dict, _TIME_INTEGRATOR_KEYS, "time_integrator")
+    t0  = Float64(get(ti_dict, "initial_time", 0.0))
+    tf  = Float64(ti_dict["final_time"])
+    dt  = Float64(ti_dict["time_step"])
     # FEC.TimeStepper: used by FEC internals (BC evaluation, time queries).
     # Δt will be overwritten each sub-step during subcycling.
     times = FEC.TimeStepper(t0, tf, round(Int, (tf - t0) / dt))
@@ -194,24 +207,24 @@ end
 # ---- adaptive stepping ----
 
 function _parse_adaptive_stepping(ti_dict, dt_nominal)
-    has_min = haskey(ti_dict, "minimum time step")
-    has_max = haskey(ti_dict, "maximum time step")
-    has_dec = haskey(ti_dict, "decrease factor")
-    has_inc = haskey(ti_dict, "increase factor")
+    has_min = haskey(ti_dict, "minimum_time_step")
+    has_max = haskey(ti_dict, "maximum_time_step")
+    has_dec = haskey(ti_dict, "decrease_factor")
+    has_inc = haskey(ti_dict, "increase_factor")
     has_any = has_min || has_max || has_dec || has_inc
     has_all = has_min && has_max && has_dec && has_inc
     has_any && !has_all &&
         error("Adaptive time stepping requires all four: " *
-              "\"minimum time step\", \"maximum time step\", " *
-              "\"decrease factor\", \"increase factor\".")
+              "minimum_time_step, maximum_time_step, " *
+              "decrease_factor, increase_factor.")
     if has_all
-        min_dt = Float64(ti_dict["minimum time step"])
-        max_dt = Float64(ti_dict["maximum time step"])
-        dec    = Float64(ti_dict["decrease factor"])
-        inc    = Float64(ti_dict["increase factor"])
-        dec >= 1.0 && error("\"decrease factor\" must be < 1.0")
-        inc <= 1.0 && error("\"increase factor\" must be > 1.0")
-        min_dt > max_dt && error("\"minimum time step\" > \"maximum time step\"")
+        min_dt = Float64(ti_dict["minimum_time_step"])
+        max_dt = Float64(ti_dict["maximum_time_step"])
+        dec    = Float64(ti_dict["decrease_factor"])
+        inc    = Float64(ti_dict["increase_factor"])
+        dec >= 1.0 && error("decrease_factor must be < 1.0")
+        inc <= 1.0 && error("increase_factor must be > 1.0")
+        min_dt > max_dt && error("minimum_time_step > maximum_time_step")
     else
         min_dt = max_dt = dt_nominal
         dec = inc = 1.0
@@ -222,10 +235,10 @@ end
 # ---- integrator ----
 
 function _parse_integrator(dict, asm, asm_cpu, p_cpu, controller, backend=KA.CPU())
-    ti_dict  = get(dict, "time integrator", nothing)
-    ti_dict === nothing && error("Missing \"time integrator:\" section.")
-    type_str = lowercase(get(ti_dict, "type", "quasi static"))
-    dt       = Float64(ti_dict["time step"])
+    ti_dict  = get(dict, "time_integrator", nothing)
+    ti_dict === nothing && error("Missing [time_integrator] section.")
+    type_str = lowercase(get(ti_dict, "type", "quasi_static"))
+    dt       = Float64(ti_dict["time_step"])
 
     # Get a template vector from a DirectLinearSolver built on the device assembler.
     # asm is already on the correct device (CPU, ROCm, or CUDA), so its ΔUu
@@ -233,10 +246,10 @@ function _parse_integrator(dict, asm, asm_cpu, p_cpu, controller, backend=KA.CPU
     fec_ls   = @carina_timed "  DirectLinearSolver (template)" FEC.DirectLinearSolver(asm)
     template = fec_ls.ΔUu
 
-    if type_str in ("quasi static", "quasistatic", "static")
+    if type_str in ("quasi_static", "quasistatic", "static")
         sol_dict, ls_dict = _read_solver_dicts(dict)
         min_dt, max_dt, dec, inc = _parse_adaptive_stepping(ti_dict, dt)
-        init_eq = Bool(get(ti_dict, "initial equilibrium", false))
+        init_eq = Bool(get(ti_dict, "initial_equilibrium", false))
 
         make_precond = () -> _compute_stiffness_jacobi_precond(asm_cpu, p_cpu, template)
         ls = _parse_linear_solver(ls_dict, template, backend, make_precond)
@@ -250,7 +263,7 @@ function _parse_integrator(dict, asm, asm_cpu, p_cpu, controller, backend=KA.CPU
                                       increase_factor=inc,
                                       initial_equilibrium=init_eq)
 
-    elseif type_str in ("newmark", "newmark-beta", "newmark beta")
+    elseif type_str in ("newmark", "newmark-beta", "newmark_beta")
         sol_dict, ls_dict = _read_solver_dicts(dict)
         α_hht = Float64(get(ti_dict, "alpha", 0.0))
         β = α_hht != 0.0 ? (1.0 - α_hht)^2 / 4.0 : Float64(get(ti_dict, "beta",  0.25))
@@ -271,11 +284,11 @@ function _parse_integrator(dict, asm, asm_cpu, p_cpu, controller, backend=KA.CPU
                                   decrease_factor=dec,
                                   increase_factor=inc)
 
-    elseif type_str in ("central difference", "centraldifference", "cd")
-        γ = Float64(get(ti_dict, "gamma", get(ti_dict, "γ", 0.5)))
+    elseif type_str in ("central_difference", "centraldifference", "cd")
+        γ = Float64(get(ti_dict, "gamma", 0.5))
         min_dt, max_dt, dec, inc = _parse_adaptive_stepping(ti_dict, dt)
-        CFL_val = Float64(get(ti_dict, "CFL", get(ti_dict, "cfl", 0.0)))
-        stable_dt_interval = Int(get(ti_dict, "stable time step interval", 0))
+        CFL_val = Float64(get(ti_dict, "cfl", 0.0))
+        stable_dt_interval = Int(get(ti_dict, "stable_time_step_interval", 0))
 
         m_lumped = _compute_lumped_mass(asm_cpu, p_cpu, template)
 
@@ -302,8 +315,8 @@ function _parse_integrator(dict, asm, asm_cpu, p_cpu, controller, backend=KA.CPU
 
         return ig
     else
-        error("Unknown time integrator type: \"$type_str\". " *
-              "Supported: \"quasi static\", \"Newmark\", \"central difference\".")
+        error("Unknown time_integrator.type = \"$type_str\". " *
+              "Supported: \"quasi_static\", \"newmark\", \"central_difference\".")
     end
 end
 
@@ -454,29 +467,29 @@ end
 # Errors if the required two-level structure is absent.
 function _read_solver_dicts(dict)
     haskey(dict, "solver") ||
-        error("Missing required \"solver:\" section.")
+        error("Missing required [solver] section.")
     sol_dict = dict["solver"]
     _validate_keys(sol_dict, _SOLVER_KEYS, "solver")
 
     haskey(sol_dict, "type") ||
-        error("Missing required \"solver: type:\". " *
-              "Supported values: \"newton\", \"hessian minimizer\".")
+        error("Missing required solver.type. " *
+              "Supported values: \"newton\", \"hessian_minimizer\".")
     nl_type = lowercase(sol_dict["type"])
-    nl_type in ("newton", "hessian minimizer", "nonlinear cg", "nlcg", "conjugate gradient",
-                 "steepest descent", "gradient descent", "sd") ||
-        error("Unknown \"solver: type: $(sol_dict["type"])\". " *
-              "Supported: \"newton\", \"nonlinear cg\", \"steepest descent\".")
+    nl_type in ("newton", "hessian_minimizer", "nonlinear_cg", "nlcg", "conjugate_gradient",
+                 "steepest_descent", "gradient_descent", "sd") ||
+        error("Unknown solver.type = \"$(sol_dict["type"])\". " *
+              "Supported: \"newton\", \"nonlinear_cg\", \"steepest_descent\".")
 
-    if nl_type in ("nonlinear cg", "nlcg", "conjugate gradient",
-                    "steepest descent", "gradient descent", "sd")
+    if nl_type in ("nonlinear_cg", "nlcg", "conjugate_gradient",
+                    "steepest_descent", "gradient_descent", "sd")
         # Matrix-free solvers; linear solver section is optional
-        ls_dict = get(sol_dict, "linear solver", Dict{String,Any}("type" => "none"))
+        ls_dict = get(sol_dict, "linear_solver", Dict{String,Any}("type" => "none"))
     else
-        haskey(sol_dict, "linear solver") ||
-            error("Missing required \"solver: linear solver:\" section.")
-        ls_dict = sol_dict["linear solver"]
+        haskey(sol_dict, "linear_solver") ||
+            error("Missing required [solver.linear_solver] section.")
+        ls_dict = sol_dict["linear_solver"]
         haskey(ls_dict, "type") ||
-            error("Missing required \"solver: linear solver: type:\". " *
+            error("Missing required solver.linear_solver.type. " *
                   "Supported values: \"direct\", \"iterative\", \"cg\", \"minres\", \"lbfgs\", \"none\".")
     end
 
@@ -516,33 +529,33 @@ end
 #       value: 16
 # --------------------------------------------------------------------------- #
 
-# Map from YAML test name → constructor taking a single numeric value.
+# Map from test name → constructor taking a single numeric value.
 const _TERMINATION_TEST_MAP = Dict{String,Any}(
-    "absolute residual"  => v -> AbsResidualTest(Float64(v)),
-    "abs residual"       => v -> AbsResidualTest(Float64(v)),
+    "absolute_residual"  => v -> AbsResidualTest(Float64(v)),
     "abs_residual"       => v -> AbsResidualTest(Float64(v)),
-    "relative residual"  => v -> RelResidualTest(Float64(v)),
-    "rel residual"       => v -> RelResidualTest(Float64(v)),
+    "abs_residual"       => v -> AbsResidualTest(Float64(v)),
+    "relative_residual"  => v -> RelResidualTest(Float64(v)),
     "rel_residual"       => v -> RelResidualTest(Float64(v)),
-    "absolute update"    => v -> AbsUpdateTest(Float64(v)),
-    "abs update"         => v -> AbsUpdateTest(Float64(v)),
+    "rel_residual"       => v -> RelResidualTest(Float64(v)),
+    "absolute_update"    => v -> AbsUpdateTest(Float64(v)),
     "abs_update"         => v -> AbsUpdateTest(Float64(v)),
-    "relative update"    => v -> RelUpdateTest(Float64(v)),
-    "rel update"         => v -> RelUpdateTest(Float64(v)),
+    "abs_update"         => v -> AbsUpdateTest(Float64(v)),
+    "relative_update"    => v -> RelUpdateTest(Float64(v)),
     "rel_update"         => v -> RelUpdateTest(Float64(v)),
-    "maximum iterations" => v -> MaxIterationsTest(Int(v)),
-    "max iterations"     => v -> MaxIterationsTest(Int(v)),
-    "minimum iterations" => v -> MinIterationsTest(Int(v)),
-    "min iterations"     => v -> MinIterationsTest(Int(v)),
-    "finite value"       => _ -> FiniteValueTest(),
-    "nan check"          => _ -> FiniteValueTest(),
+    "rel_update"         => v -> RelUpdateTest(Float64(v)),
+    "maximum_iterations" => v -> MaxIterationsTest(Int(v)),
+    "max_iterations"     => v -> MaxIterationsTest(Int(v)),
+    "minimum_iterations" => v -> MinIterationsTest(Int(v)),
+    "min_iterations"     => v -> MinIterationsTest(Int(v)),
+    "finite_value"       => _ -> FiniteValueTest(),
+    "nan_check"          => _ -> FiniteValueTest(),
     "divergence"         => v -> DivergenceTest(Float64(v)),
     "stagnation"         => v -> StagnationTest(; window=Int(v)),
 )
 
 """
 Parse a single item from a termination test list (new compact syntax).
-Each item is a single-key Dict, e.g. `{"absolute residual": 1.0e-06}`,
+Each item is a single-key Dict, e.g. `{"absolute_residual": 1.0e-06}`,
 or a nested group `{"any": [...]}` / `{"all": [...]}`.
 """
 function _parse_termination_item(entry::Dict)
@@ -575,35 +588,35 @@ function _parse_when_block(items::Vector, operator::String)
 end
 
 """
-Parse a single termination test entry from YAML (legacy syntax).
+Parse a single termination test entry (legacy syntax).
 Returns an AbstractStatusTest.
 """
 function _parse_termination_test(entry::Dict)
     test_type = lowercase(get(entry, "type", ""))
 
-    if test_type in ("absolute residual", "abs residual", "abs_residual")
+    if test_type in ("absolute_residual", "abs_residual", "abs_residual")
         tol = Float64(entry["tolerance"])
         return AbsResidualTest(tol)
 
-    elseif test_type in ("relative residual", "rel residual", "rel_residual")
+    elseif test_type in ("relative_residual", "rel_residual", "rel_residual")
         tol = Float64(entry["tolerance"])
         return RelResidualTest(tol)
 
-    elseif test_type in ("absolute update", "abs update", "abs_update")
+    elseif test_type in ("absolute_update", "abs_update", "abs_update")
         tol = Float64(entry["tolerance"])
         return AbsUpdateTest(tol)
 
-    elseif test_type in ("relative update", "rel update", "rel_update")
+    elseif test_type in ("relative_update", "rel_update", "rel_update")
         tol = Float64(entry["tolerance"])
         return RelUpdateTest(tol)
 
-    elseif test_type in ("max iterations", "maximum iterations")
+    elseif test_type in ("max_iterations", "maximum_iterations")
         return MaxIterationsTest(Int(entry["value"]))
 
-    elseif test_type in ("min iterations", "minimum iterations")
+    elseif test_type in ("min_iterations", "minimum_iterations")
         return MinIterationsTest(Int(entry["value"]))
 
-    elseif test_type in ("finite value", "nan check")
+    elseif test_type in ("finite_value", "nan_check")
         return FiniteValueTest()
 
     elseif test_type in ("divergence",)
@@ -628,10 +641,10 @@ end
 
 # Keys recognized as the new converge/fail syntax.
 const _WHEN_KEYS = Dict(
-    "converge when any" => ("converge", "or"),
-    "converge when all" => ("converge", "and"),
-    "fail when any"     => ("fail",     "or"),
-    "fail when all"     => ("fail",     "and"),
+    "converge_when_any" => ("converge", "or"),
+    "converge_when_all" => ("converge", "and"),
+    "fail_when_any"     => ("fail",     "or"),
+    "fail_when_all"     => ("fail",     "and"),
 )
 
 """
@@ -646,8 +659,8 @@ Supports three formats:
 function _parse_termination(sol_dict)
     if !haskey(sol_dict, "termination")
         # Oldest legacy: flat keys
-        abs_tol = Float64(get(sol_dict, "absolute tolerance", 1e-10))
-        rel_tol = Float64(get(sol_dict, "relative tolerance", 1e-14))
+        abs_tol = Float64(get(sol_dict, "absolute_tolerance", 1e-10))
+        rel_tol = Float64(get(sol_dict, "relative_tolerance", 1e-14))
         return ComboOrTest(AbstractStatusTest[
             AbsResidualTest(abs_tol),
             RelResidualTest(rel_tol),
@@ -686,7 +699,7 @@ end
 # --------------------------------------------------------------------------- #
 
 function _parse_linear_solver(ls_dict, template, backend, make_precond::Function)
-    _validate_keys(ls_dict, _LINEAR_SOLVER_KEYS, "linear solver")
+    _validate_keys(ls_dict, _LINEAR_SOLVER_KEYS, "linear_solver")
     ls_type = lowercase(ls_dict["type"])
     T  = eltype(template)
     n  = length(template)
@@ -694,12 +707,12 @@ function _parse_linear_solver(ls_dict, template, backend, make_precond::Function
 
     if ls_type == "direct"
         !(backend isa KA.CPU) && error(
-            "\"solver: linear solver: type: direct\" is CPU-only.")
+            "solver.linear_solver.type = \"direct\" is CPU-only.")
         return DirectLinearSolver()
 
-    elseif ls_type in ("iterative", "krylov", "minres", "cg", "conjugate gradient")
+    elseif ls_type in ("iterative", "krylov", "minres", "cg", "conjugate_gradient")
         # All solid mechanics stiffness matrices are SPD → always use CG.
-        itmax     = Int(get(ls_dict, "maximum iterations", 1000))
+        itmax     = Int(get(ls_dict, "maximum_iterations", 1000))
         rtol      = Float64(get(ls_dict, "tolerance", 1e-8))
         assembled = backend isa KA.CPU
 
@@ -707,9 +720,9 @@ function _parse_linear_solver(ls_dict, template, backend, make_precond::Function
         precond_type = lowercase(get(precond_dict, "type", "none"))
         precond = if precond_type == "jacobi"
             make_precond()
-        elseif precond_type in ("ic", "incomplete cholesky", "ildl", "incomplete ldlt")
+        elseif precond_type in ("ic", "incomplete_cholesky", "ildl", "incomplete_ldlt")
             ICPreconditioner()
-        elseif precond_type in ("chebyshev", "chebyshev polynomial")
+        elseif precond_type in ("chebyshev", "chebyshev_polynomial")
             degree = Int(get(precond_dict, "degree", 5))
             mk_s() = (v = similar(template); fill!(v, zero(T)); v)
             ChebyshevPreconditioner(degree, Ref(0.0), Ref(0.0), mk_s(), mk_s(), mk_s())
@@ -725,7 +738,7 @@ function _parse_linear_solver(ls_dict, template, backend, make_precond::Function
                                    workspace, ones_v, scratch)
 
     elseif ls_type == "lbfgs"
-        m     = Int(get(ls_dict, "history size", 10))
+        m     = Int(get(ls_dict, "history_size", 10))
         precond = make_precond()
         mk()  = (v = similar(template); fill!(v, zero(T)); v)
 
@@ -742,7 +755,7 @@ function _parse_linear_solver(ls_dict, template, backend, make_precond::Function
         return NoLinearSolver()
 
     else
-        error("Unknown \"solver: linear solver: type: $ls_type\". " *
+        error("Unknown solver.linear_solver.type = \"$ls_type\". " *
               "Supported values: \"direct\", \"iterative\", \"cg\", \"minres\", \"lbfgs\", \"none\".")
     end
 end
@@ -756,19 +769,19 @@ function _parse_nonlinear_solver(sol_dict, ls::AbstractLinearSolver;
     # Parse termination tree and extract iteration limits from it (or fall back to flat keys)
     term_tree = _parse_termination(sol_dict)
     tree_max = _extract_max_iters(term_tree)
-    min_iters = Int(get(sol_dict, "minimum iterations", 0))
-    max_iters = tree_max > 0 ? tree_max : Int(get(sol_dict, "maximum iterations", 20))
-    abs_tol   = Float64(get(sol_dict, "absolute tolerance", 1e-10))
-    rel_tol   = Float64(get(sol_dict, "relative tolerance", 1e-14))
+    min_iters = Int(get(sol_dict, "minimum_iterations", 0))
+    max_iters = tree_max > 0 ? tree_max : Int(get(sol_dict, "maximum_iterations", 20))
+    abs_tol   = Float64(get(sol_dict, "absolute_tolerance", 1e-10))
+    rel_tol   = Float64(get(sol_dict, "relative_tolerance", 1e-14))
     # Line search parameters
-    use_ls     = Bool(get(sol_dict, "use line search", false))
-    ls_back    = Float64(get(sol_dict, "line search backtrack factor", 0.5))
-    ls_dec     = Float64(get(sol_dict, "line search decrease factor", 1e-4))
-    ls_max     = Int(get(sol_dict, "line search maximum iterations", 10))
+    use_ls     = Bool(get(sol_dict, "use_line_search", false))
+    ls_back    = Float64(get(sol_dict, "line_search_backtrack_factor", 0.5))
+    ls_dec     = Float64(get(sol_dict, "line_search_decrease_factor", 1e-4))
+    ls_max     = Int(get(sol_dict, "line_search_maximum_iterations", 10))
 
-    if solver_type in ("nonlinear cg", "nlcg", "conjugate gradient")
-        orth_tol = Float64(get(sol_dict, "orthogonality tolerance", 0.5))
-        restart  = Int(get(sol_dict, "restart interval", 0))
+    if solver_type in ("nonlinear_cg", "nlcg", "conjugate_gradient")
+        orth_tol = Float64(get(sol_dict, "orthogonality_tolerance", 0.5))
+        restart  = Int(get(sol_dict, "restart_interval", 0))
         pc_dict  = get(sol_dict, "preconditioner", nothing)
         precond  = if pc_dict !== nothing && make_precond !== nothing
             make_precond()
@@ -780,7 +793,7 @@ function _parse_nonlinear_solver(sol_dict, ls::AbstractLinearSolver;
                           orth_tol, restart, precond,
                           mk(), mk(), mk(), mk())
 
-    elseif solver_type in ("steepest descent", "gradient descent", "sd")
+    elseif solver_type in ("steepest_descent", "gradient_descent", "sd")
         pc_dict  = get(sol_dict, "preconditioner", nothing)
         precond  = if pc_dict !== nothing && make_precond !== nothing
             make_precond()
@@ -817,25 +830,25 @@ _extract_max_iters(::AbstractStatusTest) = 0
 # ---- Dirichlet BCs ----
 
 function _parse_dirichlet_bcs(dict)
-    bc_section = get(dict, "boundary conditions", nothing)
+    bc_section = get(dict, "boundary_conditions", nothing)
     bc_section === nothing && return FEC.DirichletBC[]
-    entries = get(bc_section, "Dirichlet", FEC.DirichletBC[])
-    entries isa Vector || error("\"Dirichlet:\" must be a list.")
+    entries = get(bc_section, "dirichlet", FEC.DirichletBC[])
+    entries isa Vector || error("[[boundary_conditions.dirichlet]] must be a list.")
 
     dbcs = FEC.DirichletBC[]
     for (i, entry) in enumerate(entries)
         _validate_keys(entry, _DBC_ENTRY_KEYS, "Dirichlet BC entry $i")
         var_sym  = _component_to_string(entry["component"])
         func     = _make_function(entry["function"])
-        # Accept either "side set" or "node set"
-        if haskey(entry, "side set")
+        # Accept either "side_set" or "node_set"
+        if haskey(entry, "side_set")
             push!(dbcs, FEC.DirichletBC(var_sym, func;
-                sideset_name = entry["side set"]))
-        elseif haskey(entry, "node set")
+                sideset_name = entry["side_set"]))
+        elseif haskey(entry, "node_set")
             push!(dbcs, FEC.DirichletBC(var_sym, func;
-                nodeset_name = entry["node set"]))
+                nodeset_name = entry["node_set"]))
         else
-            error("Dirichlet BC entry must specify \"side set\" or \"node set\".")
+            error("Dirichlet BC entry must specify side_set or node_set.")
         end
     end
     return dbcs
@@ -844,11 +857,11 @@ end
 # ---- Neumann BCs ----
 
 function _parse_neumann_bcs(dict)
-    bc_section = get(dict, "boundary conditions", nothing)
+    bc_section = get(dict, "boundary_conditions", nothing)
     bc_section === nothing && return FEC.NeumannBC[], Dict{String,Any}[]
-    entries = get(bc_section, "Neumann", nothing)
+    entries = get(bc_section, "neumann", nothing)
     entries === nothing && return FEC.NeumannBC[], Dict{String,Any}[]
-    entries isa Vector || error("\"Neumann:\" must be a list.")
+    entries isa Vector || error("[[boundary_conditions.neumann]] must be a list.")
 
     nbcs = FEC.NeumannBC[]
     point_load_entries = Dict{String,Any}[]  # deferred: need mesh/dof for PointLoad creation
@@ -856,7 +869,7 @@ function _parse_neumann_bcs(dict)
     for (i, entry) in enumerate(entries)
         _validate_keys(entry, _NBC_ENTRY_KEYS, "Neumann BC entry $i")
 
-        if haskey(entry, "side set")
+        if haskey(entry, "side_set")
             # Surface traction: integrate over side set (FEC handles this).
             # FEC's Neumann convention adds f_val to the residual R (which is
             # F_int − F_ext), so a positive user traction must be negated.
@@ -871,15 +884,15 @@ function _parse_neumann_bcs(dict)
                                         idx == 3 ? v : 0.0)
                 end
             end
-            sset = entry["side set"]
+            sset = entry["side_set"]
             push!(nbcs, FEC.NeumannBC(var_sym, func, sset))
 
-        elseif haskey(entry, "node set")
+        elseif haskey(entry, "node_set")
             # Point load: apply directly at nodes (deferred to after mesh is built)
             push!(point_load_entries, entry)
 
         else
-            error("Neumann BC entry $i must specify \"side set\" or \"node set\".")
+            error("Neumann BC entry $i must specify side_set or node_set.")
         end
     end
     return nbcs, point_load_entries
@@ -897,7 +910,7 @@ function _build_point_loads(entries, mesh, dof)
     for entry in entries
         var_sym  = _component_to_string(entry["component"])
         func     = _make_function(entry["function"])
-        nset_sym = entry["node set"]
+        nset_sym = entry["node_set"]
         bk = FEC.BCBookKeeping(mesh, dof, var_sym; nset_name=nset_sym)
         for (full_dof, node) in zip(bk.dofs, bk.nodes)
             unk_idx = inv_map[full_dof]
@@ -910,7 +923,7 @@ end
 # ---- Body Forces ----
 
 function _parse_body_forces(dict)
-    bf_section = get(dict, "body forces", nothing)
+    bf_section = get(dict, "body_forces", nothing)
     bf_section === nothing && return FEC.Source[]
     entries = bf_section isa Vector ? bf_section : [bf_section]
 
@@ -977,7 +990,7 @@ function _component_to_string(comp::String)
     error("Unknown component \"$comp\". Expected x, y, or z.")
 end
 
-# Turn a YAML function string into a Julia (coords, t) -> value closure.
+# Turn a TOML function string into a Julia (coords, t) -> value closure.
 # Supported variables in the expression: t, x, y, z (node coordinates).
 #
 # Uses @eval to create a compiled anonymous function that is isbits
@@ -1000,17 +1013,17 @@ end
 # ---- initial conditions ----
 
 function _parse_displacement_ics(dict)
-    ic_dict = get(dict, "initial conditions", nothing)
+    ic_dict = get(dict, "initial_conditions", nothing)
     ic_dict === nothing && return Any[]
     disp_ics = get(ic_dict, "displacement", Any[])
-    disp_ics isa Vector || error("\"initial conditions: displacement:\" must be a list.")
+    disp_ics isa Vector || error("initial_conditions.displacement must be a list.")
     return disp_ics
 end
 
 function _parse_velocity_ics(dict)
-    ic_dict = get(dict, "initial conditions", nothing)
+    ic_dict = get(dict, "initial_conditions", nothing)
     ic_dict === nothing && return Any[]
     vel_ics = get(ic_dict, "velocity", Any[])
-    vel_ics isa Vector || error("\"initial conditions: velocity:\" must be a list.")
+    vel_ics isa Vector || error("initial_conditions.velocity must be a list.")
     return vel_ics
 end

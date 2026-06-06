@@ -30,7 +30,7 @@ function _apply_initial_displacement_ics!(integrator, mesh, asm_cpu, p, p_cpu,
     for entry in disp_ics
         var_sym  = _component_to_string(entry["component"])
         func     = _make_function(entry["function"])
-        nset_sym = entry["node set"]
+        nset_sym = entry["node_set"]
         bk       = FEC.BCBookKeeping(mesh, dof, var_sym; nset_name=nset_sym)
         for (full_dof, node) in zip(bk.dofs, bk.nodes)
             unk_idx = inv_map[full_dof]
@@ -75,7 +75,7 @@ function _apply_initial_velocity_ics!(integrator::_DynamicIntegrator, mesh, asm_
     for entry in vel_ics
         var_sym  = _component_to_string(entry["component"])
         func     = _make_function(entry["function"])
-        nset_sym = entry["node set"]
+        nset_sym = entry["node_set"]
         bk       = FEC.BCBookKeeping(mesh, dof, var_sym; nset_name=nset_sym)
         for (full_dof, node) in zip(bk.dofs, bk.nodes)
             unk_idx = inv_map[full_dof]

@@ -1,8 +1,8 @@
-# YAML-driven simulation factory and time loop.
+# TOML-driven simulation factory and time loop.
 #
-# Entry point: Carina.run(yaml_file)
+# Entry point: Carina.run(input_file)
 #
-# create_simulation(dict)  reads a parsed YAML dict and builds a
+# create_simulation(dict)  reads a parsed TOML dict and builds a
 #   SingleDomainSimulation ready to evolve.
 #
 # evolve!(sim)  runs the full time loop and writes Exodus output.
@@ -10,7 +10,7 @@
 import Adapt
 import FiniteElementContainers as FEC
 import ConstitutiveModels as CM
-import YAML
+import TOML
 
 # ---------------------------------------------------------------------------
 # Device detection
@@ -34,23 +34,23 @@ end
 # ---------------------------------------------------------------------------
 
 """
-    Carina.run(yaml_file; backend=KA.CPU())
+    Carina.run(input_file; backend=KA.CPU())
 
-Load `yaml_file`, create a simulation, run it, and close the output file.
+Load `input_file` (TOML), create a simulation, run it, and close the output file.
 `backend` is the `KernelAbstractions.Backend` to run on (default `KA.CPU()`).
 Command-line device selection is handled by the `bin/carina` launcher.
 """
-function run(yaml_file::String; backend::KA.Backend=KA.CPU())
-    open_log_file(yaml_file)
+function run(input_file::String; backend::KA.Backend=KA.CPU())
+    open_log_file(input_file)
     try
         t_start = time()
         _carina_log(0, :carina, "BEGIN SIMULATION")
-        _carina_log(0, :setup,  "Reading from $yaml_file")
+        _carina_log(0, :setup,  "Reading from $input_file")
 
-        dict = YAML.load_file(yaml_file; dicttype=Dict{String,Any})
-        sim_type = lowercase(get(dict, "type", "single"))
+        dict = TOML.parsefile(input_file)
+        sim_type = get(dict, "type", "single")::String
         if sim_type == "single"
-            sim = create_simulation(dict, dirname(abspath(yaml_file));
+            sim = create_simulation(dict, dirname(abspath(input_file));
                                     backend=backend)
             Base.invokelatest(evolve!, sim)
             FEC.close(sim.post_processor)
@@ -74,8 +74,8 @@ end
 """
     create_simulation(dict, basedir=""; backend=KA.CPU()) -> SingleDomainSimulation
 
-Parse a YAML dict (already loaded) and return a fully initialised simulation.
-`basedir` is used to resolve relative file paths inside the YAML.
+Parse a TOML dict (already loaded) and return a fully initialised simulation.
+`basedir` is used to resolve relative file paths inside the input.
 `backend` is the `KernelAbstractions.Backend` to run on.
 """
 function create_simulation(dict::Dict{String,Any}, basedir::String="";
@@ -83,8 +83,8 @@ function create_simulation(dict::Dict{String,Any}, basedir::String="";
     _validate_keys(dict, _TOPLEVEL_KEYS, "top-level input")
     _carina_log(0, :device, _backend_label(backend))
 
-    input_mesh  = _resolve(dict, "input mesh file",  basedir)
-    output_file = _resolve(dict, "output mesh file", basedir)
+    input_mesh  = _resolve(dict, "input_mesh_file",  basedir)
+    output_file = _resolve(dict, "output_mesh_file", basedir)
     _carina_log(0, :setup, "Input:  $input_mesh")
     _carina_log(0, :setup, "Output: $output_file")
 
@@ -129,7 +129,7 @@ function create_simulation(dict::Dict{String,Any}, basedir::String="";
     bfs  = _parse_body_forces(dict)
 
     t0, tf, dt, times = _parse_times(dict)
-    raw_oi = get(dict, "output interval", nothing)
+    raw_oi = get(dict, "output_interval", nothing)
     output_interval = raw_oi === nothing ? dt : Float64(raw_oi)
     num_stops = round(Int, (tf - t0) / output_interval) + 1
     controller = TimeController(t0, tf, output_interval, t0, t0, num_stops, 0)
