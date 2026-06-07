@@ -14,9 +14,9 @@ import Printf
 
 @inline _use_color() =
     get(ENV, "CARINA_NO_COLOR", "false") != "true" &&
-    (get(ENV, "FORCE_COLOR", "") != "" ||
-     (isdefined(Base, :have_color) && Base.have_color === true) ||
-     stdout isa Base.TTY)
+    get(ENV, "NO_COLOR", "") == "" &&
+    get(ENV, "CI", "") == "" &&
+    (get(ENV, "FORCE_COLOR", "") != "" || stdout isa Base.TTY)
 
 const _COLORS = Dict{Symbol, Symbol}(
     :acceleration => :blue,
