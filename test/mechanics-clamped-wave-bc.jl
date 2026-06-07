@@ -21,15 +21,16 @@
 # *displacement* (carried by sim.params.field.data); V_BC and A_BC are
 # not stored in Carina today and read as zero here.
 function _clamped_bc_full(sim, sym::Symbol)
-    asm = sim.integrator.asm
-    n_total = length(sim.params.field.data)
+    # sim.integrator.{U, V, A} are full-DOF (Norma-shape state).  BC slots
+    # carry g(t), g'(t), g''(t) — written each step by predict! via
+    # FEC.update_field_dirichlet_bcs!.  No scatter from a free-DOF buffer
+    # required.
     if sym === :displacement
         return Vector(sim.params.field.data)
+    elseif sym === :velocity
+        return Vector(sim.integrator.V)
     else
-        src = sym === :velocity ? sim.integrator.V : sim.integrator.A
-        full = zeros(n_total)
-        full[Vector(asm.dof.unknown_dofs)] = Vector(src)
-        return full
+        return Vector(sim.integrator.A)
     end
 end
 

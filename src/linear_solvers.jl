@@ -333,9 +333,13 @@ function _setup_linear_ops(ig::QuasiStaticIntegrator, ls::KrylovLinearSolver, p)
 end
 
 function _setup_linear_ops(ig::NewmarkIntegrator, ls::KrylovLinearSolver, p)
-    U = ig.U; n = length(U); c_M = ig.c_M
+    # ig.U is full-DOF in the Norma-shape integrator state; the linear
+    # solver acts on the free-DOF (Newton) subspace, so size the operator
+    # from unknown_dofs and pass the free-DOF view as the linearization
+    # point for the matvec.
+    Uu = _displacement(ig); n = length(Uu); c_M = ig.c_M
     ls.assembled && return (nothing, nothing)
-    matvec! = (y, v) -> _eff_stiffness_matvec!(y, v, ig.asm, U, c_M, p, ls.scratch)
+    matvec! = (y, v) -> _eff_stiffness_matvec!(y, v, ig.asm, Uu, c_M, p, ls.scratch)
     K_eff_op = LinearOperator(Float64, n, n, true, true, matvec!)
     return K_eff_op, _mf_precond_op(ls.precond, n, matvec!)
 end
@@ -472,11 +476,12 @@ function _linear_solve!(ls::KrylovLinearSolver, ig::QuasiStaticIntegrator, p, op
 end
 
 function _linear_solve!(ls::KrylovLinearSolver, ig::NewmarkIntegrator, p, ops)
-    asm = ig.asm; n = length(ig.U)
-    K_eff_op, M_op_mf = ops
+    asm = ig.asm
     R = residual(ig)
+    n = length(R)             # free-DOF Newton system size (ig.U is full-DOF)
+    K_eff_op, M_op_mf = ops
     af = _asm_flags
-    ΔU = similar(ig.U)
+    ΔU = similar(R)
     fill!(ls.workspace.x, zero(eltype(ls.workspace.x)))
     t_kry = @elapsed begin
         try
@@ -546,7 +551,11 @@ end
 _lbfgs_precompute_M_d!(::QuasiStaticIntegrator, ls, p) = nothing
 
 function _lbfgs_precompute_M_d!(ig::NewmarkIntegrator, ls, p)
-    FEC.assemble_matrix_free_action!(ig.asm, FEC.mass_action, ig.U, ls.d, p)
+    # Linearization point passes through as the free-DOF Uu; ls.d is the
+    # free-DOF LBFGS direction.  Uses the free-DOF action because the
+    # LBFGS step direction perturbs unknowns only (no BC contribution).
+    FEC.assemble_matrix_free_action!(ig.asm, FEC.mass_action,
+                                      _displacement(ig), ls.d, p)
     copyto!(ls.M_d, FEC.hvp(ig.asm, ls.d))
 end
 
@@ -574,7 +583,10 @@ end
 
 function _lbfgs_trial_rhs!(ig::NewmarkIntegrator, ls, step, p)
     α_hht = ig.α_hht; c_M = ig.c_M
-    @. ls.q = ig.U + step * ls.d
+    # ls.q (= trial Uu) is free-DOF; built from the free slice of ig.U
+    # plus a scaled LBFGS direction.
+    Uu = _displacement(ig)
+    @. ls.q = Uu + step * ls.d
     FEC.assemble_vector!(ig.asm, FEC.residual, ls.q, p)
     FEC.assemble_vector_neumann_bc!(ig.asm, ls.q, p)
     FEC.assemble_vector_source!(ig.asm, ls.q, p)

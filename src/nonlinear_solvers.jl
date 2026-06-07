@@ -394,6 +394,11 @@ end
 function solve!(::ExplicitSolver, ig::CentralDifferenceIntegrator, p)
     evaluate!(ig, p) || (ig.failed[] = true; return)
     R_eff = residual(ig)
-    @. ig.A = R_eff / ig.m_lumped
+    # Update free-DOF acceleration: a = R/m_lumped.  ig.A is full-DOF now,
+    # but BC slots = g''(t_{n+1}) (already set by predict! via
+    # FEC.update_field_dirichlet_bcs!) and must not be overwritten by the
+    # explicit update.  m_lumped and R_eff are free-DOF sized.
+    free = ig.asm.dof.unknown_dofs
+    @views @. ig.A[free] = R_eff / ig.m_lumped
     ig.failed[] = false
 end

@@ -57,15 +57,17 @@ end
 # in the integrator (free-DOF) and are scattered back to the full DOF layout
 # before reshaping to (3, num_nodes).
 function _clamped_full_field(sim, sym::Symbol)
-    asm = sim.integrator.asm
-    n_total = length(sim.params.field.data)
+    # Norma-shape integrator state: ig.U/V/A are full-DOF.  BC slots are
+    # written each step by predict! → FEC.update_field_dirichlet_bcs!, so
+    # they already carry the prescribed values.  For homogeneous clamped
+    # BCs g(t)=g'(t)=g''(t)≡0, so this is numerically the same as the old
+    # "scatter free-DOF, leave BC = 0" path, but correct in general.
     if sym === :displacement
         return Vector(sim.params.field.data)
+    elseif sym === :velocity
+        return Vector(sim.integrator.V)
     else
-        src = sym === :velocity ? sim.integrator.V : sim.integrator.A
-        full = zeros(n_total)
-        full[Vector(asm.dof.unknown_dofs)] = Vector(src)
-        return full
+        return Vector(sim.integrator.A)
     end
 end
 

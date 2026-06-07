@@ -84,7 +84,11 @@ function _apply_initial_velocity_ics!(integrator::_DynamicIntegrator, mesh, asm_
             V_full[full_dof] = Base.invokelatest(func, coords, t0)
         end
     end
-    copyto!(integrator.V, V_full[dof.unknown_dofs])
+    # integrator.V is full-DOF in the Norma-shape integrator state; write
+    # only the free slice from the IC values.  BC slots get g'(t_0)
+    # populated separately at the start of the time loop via
+    # FEC.update_field_dirichlet_bcs! in predict!.
+    @views integrator.V[dof.unknown_dofs] .= V_full[dof.unknown_dofs]
 end
 
 # No-op for integrators that do not support initial velocity ICs.
@@ -103,13 +107,14 @@ function _compute_initial_acceleration!(integrator::NewmarkIntegrator, asm_cpu, 
     _carina_log(0, :acceleration, "Computing Initial Acceleration...")
     t_start = time()
 
-    U_cpu = Vector{Float64}(integrator.U)
-    n     = length(U_cpu)
+    # integrator.U is full-DOF; assembly expects the free-DOF slice as Uu.
+    free = asm_cpu.dof.unknown_dofs
+    Uu_cpu = Vector{Float64}(view(integrator.U, free))
 
     # Assemble residual at initial displacement U₀: R = F_int(U₀) − F_ext
-    FEC.assemble_vector!(asm_cpu, FEC.residual, U_cpu, p_cpu)
-    FEC.assemble_vector_neumann_bc!(asm_cpu, U_cpu, p_cpu)
-    FEC.assemble_vector_source!(asm_cpu, U_cpu, p_cpu)
+    FEC.assemble_vector!(asm_cpu, FEC.residual, Uu_cpu, p_cpu)
+    FEC.assemble_vector_neumann_bc!(asm_cpu, Uu_cpu, p_cpu)
+    FEC.assemble_vector_source!(asm_cpu, Uu_cpu, p_cpu)
     rhs = -copy(FEC.residual(asm_cpu))   # F_ext − F_int(U₀)
     _apply_point_loads!(rhs, FEC.current_time(p_cpu.times))
 
@@ -120,8 +125,9 @@ function _compute_initial_acceleration!(integrator::NewmarkIntegrator, asm_cpu, 
         return nothing
     end
 
-    # Solve M·A₀ = rhs using CG (M is SPD)
-    FEC.assemble_mass!(asm_cpu, FEC.mass, U_cpu, p_cpu)
+    # Solve M·A₀ = rhs using CG (M is SPD).  M is the free-DOF reduced
+    # consistent mass; A₀ is free-DOF.
+    FEC.assemble_mass!(asm_cpu, FEC.mass, Uu_cpu, p_cpu)
     M = FEC.mass(asm_cpu)
     A0, stats = Krylov.cg(M, rhs; atol=0.0, rtol=1e-12, verbose=0)
 
@@ -130,7 +136,10 @@ function _compute_initial_acceleration!(integrator::NewmarkIntegrator, asm_cpu, 
         "Initial Acceleration: |A₀| = %.2e, CG iters = %d (%s)",
         sqrt(sum(abs2, A0)), stats.niter, format_time(elapsed))
 
-    copyto!(integrator.A, A0)
+    # Write into the free slice of the full-DOF integrator.A buffer.
+    # BC slots will be populated by predict! at the first time step
+    # via FEC.update_field_dirichlet_bcs!.
+    @views integrator.A[free] .= A0
     return nothing
 end
 
@@ -138,13 +147,13 @@ function _compute_initial_acceleration!(integrator::CentralDifferenceIntegrator,
     _carina_log(0, :acceleration, "Computing Initial Acceleration...")
     t_start = time()
 
-    U_cpu = Vector{Float64}(integrator.U)
-    n     = length(U_cpu)
+    free = asm_cpu.dof.unknown_dofs
+    Uu_cpu = Vector{Float64}(view(integrator.U, free))
 
     # A₀ = M_lumped⁻¹ · (F_ext − F_int(U₀))
-    FEC.assemble_vector!(asm_cpu, FEC.residual, U_cpu, p_cpu)
-    FEC.assemble_vector_neumann_bc!(asm_cpu, U_cpu, p_cpu)
-    FEC.assemble_vector_source!(asm_cpu, U_cpu, p_cpu)
+    FEC.assemble_vector!(asm_cpu, FEC.residual, Uu_cpu, p_cpu)
+    FEC.assemble_vector_neumann_bc!(asm_cpu, Uu_cpu, p_cpu)
+    FEC.assemble_vector_source!(asm_cpu, Uu_cpu, p_cpu)
     rhs = -copy(FEC.residual(asm_cpu))   # F_ext − F_int(U₀)
     _apply_point_loads!(rhs, FEC.current_time(p_cpu.times))
 
@@ -155,7 +164,8 @@ function _compute_initial_acceleration!(integrator::CentralDifferenceIntegrator,
         return nothing
     end
 
-    # Lumped mass is already on CPU (computed during integrator construction)
+    # Lumped mass is already on CPU (computed during integrator construction).
+    # Both m_lumped and A₀ are free-DOF.
     m_cpu = Vector{Float64}(integrator.m_lumped)
     A0 = rhs ./ m_cpu
 
@@ -164,7 +174,7 @@ function _compute_initial_acceleration!(integrator::CentralDifferenceIntegrator,
         "Initial Acceleration: |A₀| = %.2e (%s)",
         sqrt(sum(abs2, A0)), format_time(elapsed))
 
-    copyto!(integrator.A, A0)
+    @views integrator.A[free] .= A0
     return nothing
 end
 

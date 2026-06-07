@@ -37,15 +37,14 @@ const _adj_h   = 1.0e-3   # mesh node spacing in z
 @inline _adj_gpp(t) = ((t - _adj_tc)^2 / _adj_tau^4 - 1 / _adj_tau^2) * _adj_g(t)
 
 function _adj_full(sim, sym::Symbol)
-    asm = sim.integrator.asm
-    n_total = length(sim.params.field.data)
+    # ig.U/V/A are full-DOF in the Norma-shape integrator state; BC slots
+    # carry g, g', g'' at the current time.
     if sym === :displacement
         return Vector(sim.params.field.data)
+    elseif sym === :velocity
+        return Vector(sim.integrator.V)
     else
-        src = sym === :velocity ? sim.integrator.V : sim.integrator.A
-        full = zeros(n_total)
-        full[Vector(asm.dof.unknown_dofs)] = Vector(src)
-        return full
+        return Vector(sim.integrator.A)
     end
 end
 

@@ -202,6 +202,13 @@ function create_simulation(dict::Dict{String,Any}, basedir::String="";
         _apply_initial_velocity_ics!(integrator, mesh, asm_cpu, p_cpu,
                                       _parse_velocity_ics(dict), t0)
         _compute_initial_acceleration!(integrator, asm_cpu, p_cpu)
+        # Propagate g(t_0), g'(t_0), g''(t_0) into the BC slots of the
+        # full-DOF integrator state so the t=0 output and any subsequent
+        # read of integrator.V[BC] / integrator.A[BC] see the prescribed
+        # values rather than the zero-init buffer.  No-op for the
+        # quasi-static integrator (no V/A).  Subsequent steps re-do this
+        # inside predict! using bc_cache values at t_{n+1}.
+        _propagate_dirichlet_bcs_to_state!(integrator, p)
     end
     @carina_timed "Initial equilibrium" _compute_initial_equilibrium!(integrator, p)
 

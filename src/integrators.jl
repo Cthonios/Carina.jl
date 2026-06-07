@@ -144,12 +144,30 @@ mutable struct NewmarkIntegrator{NS <: AbstractNonlinearSolver, Asm, Vec}
     β                ::Float64
     γ                ::Float64
     α_hht            ::Float64
+    # ---- Norma-shape full-DOF integrator state ----
+    # U, V, A are full-DOF (length n_total = length(asm.dof)):
+    #   free DOFs  carry the Newmark-evolved displacement/velocity/
+    #              acceleration.  Updated each step by predict!/correct!/
+    #              apply_increment!.
+    #   BC   DOFs  carry the prescribed values g(t), g'(t), g''(t) from
+    #              p.dirichlet_bcs.bc_cache, written each step by
+    #              predict! via FEC.update_field_dirichlet_bcs!(U, V, A,
+    #              bcs).  This mirrors Norma.jl's apply_bc, which writes
+    #              all three quantities at every step.
+    # The full-DOF representation is what makes the inertial residual
+    # M·A naturally include the M_{f,BC}·g''(t) cross-term: the
+    # element kernel reads u_el and v_el from full-DOF fields populated
+    # with merged free+BC content, and produces the action with both
+    # blocks correctly coupled.  Free-DOF storage cannot express the
+    # BC state at all, so V[BC] / A[BC] would silently be zero — wrong
+    # for any consumer that reads them (output, energy, analytical
+    # comparison).
     U   ::Vec; V   ::Vec; A   ::Vec
     U_prev::Vec; V_prev::Vec; A_prev::Vec
     U_pred ::Vec
-    dU     ::Vec   # U − U_pred (Newton/Krylov paths)
-    R_eff  ::Vec   # effective residual (Newton/Krylov paths; unused in LBFGS)
-    F_int_n::Vec   # HHT-α: F_int at t_n (zeroed when α_hht=0)
+    dU     ::Vec   # full-DOF: U − U_pred. dU[BC] = g''(t)/c_M, see predict!
+    R_eff  ::Vec   # free-DOF Newton residual
+    F_int_n::Vec   # free-DOF: F_int at t_n (HHT-α; zeroed when α_hht=0)
     c_M    ::Float64  # 1/(β·Δt²), updated by predict!
     time_step        ::Float64
     min_time_step    ::Float64
@@ -158,19 +176,6 @@ mutable struct NewmarkIntegrator{NS <: AbstractNonlinearSolver, Asm, Vec}
     increase_factor  ::Float64
     failed           ::Base.RefValue{Bool}
     U_save::Vec; V_save::Vec; A_save::Vec
-    # ---- Full-DOF mirror buffers for the BC-aware mass action ----
-    # Populated in evaluate! each Newton iteration:
-    #   U_full[free]  = ig.U
-    #   U_full[BC]    = g(t_{n+1})           (from bc_cache.vals)
-    #   dU_full[free] = ig.dU                (= U − U_pred)
-    #   dU_full[BC]   = g''(t_{n+1}) / c_M   (Newmark relation A = c_M·dU,
-    #                                         with A_BC prescribed analytically)
-    # The inertial residual is then c_M · M · dU_full evaluated via
-    # FEC.assemble_matrix_free_action_full!, which carries the
-    # M_{f,BC}·g''(t_{n+1}) cross-term that the free-DOF action drops.
-    # Mirrors Norma's full-DOF `model.mass * integrator.acceleration` product.
-    U_full ::Vec
-    dU_full::Vec
 end
 
 function NewmarkIntegrator(ns::NS, asm, β::Float64, γ::Float64, template::Vec;
@@ -180,18 +185,18 @@ function NewmarkIntegrator(ns::NS, asm, β::Float64, γ::Float64, template::Vec;
                             max_time_step::Float64=0.0,
                             decrease_factor::Float64=1.0,
                             increase_factor::Float64=1.0) where {NS, Vec}
-    T  = eltype(template)
-    mk() = (v = similar(template); fill!(v, zero(T)); v)
+    T = eltype(template)
     n_full = length(asm.dof)
     mk_full() = (v = similar(template, n_full); fill!(v, zero(T)); v)
+    mk_free() = (v = similar(template);         fill!(v, zero(T)); v)
 
-    U, V, A             = mk(), mk(), mk()
-    U_prev, V_prev, A_prev = mk(), mk(), mk()
-    U_pred, dU, R_eff   = mk(), mk(), mk()
-    F_int_n             = mk()
-    U_save, V_save, A_save = mk(), mk(), mk()
-    U_full              = mk_full()
-    dU_full             = mk_full()
+    U, V, A                  = mk_full(), mk_full(), mk_full()
+    U_prev, V_prev, A_prev   = mk_full(), mk_full(), mk_full()
+    U_pred                   = mk_full()
+    dU                       = mk_full()
+    R_eff                    = mk_free()
+    F_int_n                  = mk_free()
+    U_save, V_save, A_save   = mk_full(), mk_full(), mk_full()
 
     return NewmarkIntegrator(ns, asm, β, γ, α_hht,
                               U, V, A, U_prev, V_prev, A_prev,
@@ -200,8 +205,7 @@ function NewmarkIntegrator(ns::NS, asm, β::Float64, γ::Float64, template::Vec;
                               time_step, min_time_step, max_time_step,
                               decrease_factor, increase_factor,
                               Ref(false),
-                              U_save, V_save, A_save,
-                              U_full, dU_full)
+                              U_save, V_save, A_save)
 end
 
 # --------------------------------------------------------------------------- #
@@ -211,9 +215,16 @@ end
 mutable struct CentralDifferenceIntegrator{Asm, Vec}
     γ::Float64
     asm::Asm
+    # ---- Norma-shape full-DOF integrator state ----
+    # See the matching comment on NewmarkIntegrator.U/V/A above for why
+    # all three are full-DOF.  Even though M is lumped here and the
+    # M_{f,BC} cross-term is structurally zero, V/A still need to carry
+    # the prescribed g'(t)/g''(t) at BC nodes so that output, energy
+    # accounting and post-processing at the boundary read the correct
+    # values rather than silent zeros.
     U::Vec; V::Vec; A::Vec
-    m_lumped::Vec
-    R_eff   ::Vec   # effective residual = -R_int
+    m_lumped::Vec   # free-DOF lumped mass (a = R_eff/m_lumped uses free slice)
+    R_eff   ::Vec   # free-DOF effective residual = -R_int
     # Adaptive time stepping
     time_step       ::Float64
     min_time_step   ::Float64
@@ -225,7 +236,7 @@ mutable struct CentralDifferenceIntegrator{Asm, Vec}
     stable_dt_interval ::Int      # steps between recomputation (0 = init only)
     stable_dt_counter  ::Int      # steps since last recomputation
     failed             ::Base.RefValue{Bool}
-    # Rollback state
+    # Rollback state (full-DOF)
     U_save::Vec; V_save::Vec; A_save::Vec
 end
 
@@ -237,11 +248,13 @@ function CentralDifferenceIntegrator(γ::Float64, asm, m_lumped::Vec;
                                       increase_factor::Float64=1.0,
                                       CFL::Float64=0.0,
                                       stable_dt_interval::Int=0) where {Vec}
-    T  = eltype(m_lumped)
-    mk() = (v = similar(m_lumped); fill!(v, zero(T)); v)
-    U, V, A = mk(), mk(), mk()
-    R_eff   = mk()
-    U_save, V_save, A_save = mk(), mk(), mk()
+    T = eltype(m_lumped)
+    n_full = length(asm.dof)
+    mk_full() = (v = similar(m_lumped, n_full); fill!(v, zero(T)); v)
+    mk_free() = (v = similar(m_lumped);         fill!(v, zero(T)); v)
+    U, V, A                = mk_full(), mk_full(), mk_full()
+    R_eff                  = mk_free()
+    U_save, V_save, A_save = mk_full(), mk_full(), mk_full()
     return CentralDifferenceIntegrator(
         γ, asm, U, V, A, m_lumped, R_eff,
         time_step, min_time_step, max_time_step, decrease_factor, increase_factor,
@@ -264,18 +277,46 @@ function predict!(ig::NewmarkIntegrator, p)
     (; β, γ, U, V, A, U_prev, V_prev, A_prev, U_pred, dU) = ig
     Δt    = FEC.time_step(p.times)
     ig.c_M = 1.0 / (β * Δt^2)
+    free  = ig.asm.dof.unknown_dofs
+    # Save full-DOF previous state (free + BC at t_n) before mutating.
     copyto!(U_prev, U); copyto!(V_prev, V); copyto!(A_prev, A)
-    @. U = U_prev + Δt * V_prev + Δt^2 * (0.5 - β) * A_prev
-    @. V = V_prev + Δt * (1.0 - γ) * A_prev
+    # Newmark predict on free slots only.
+    @views @. U[free] = U_prev[free] + Δt * V_prev[free] +
+                         Δt^2 * (0.5 - β) * A_prev[free]
+    @views @. V[free] = V_prev[free] + Δt * (1.0 - γ) * A_prev[free]
+    # Apply Dirichlet BCs at t_{n+1}:
+    #   U[BC] = g(t_{n+1}),  V[BC] = g'(t_{n+1}),  A[BC] = g''(t_{n+1}).
+    # bc_cache was already advanced to t_{n+1} in evolve!.
+    FEC.update_field_dirichlet_bcs!(U, V, A, p.dirichlet_bcs)
+    # Build full-DOF predictor.  Free slots: the Newmark predictor we
+    # just computed (a[free] = 0 implies U[free] = U_pred[free] at the
+    # start of Newton).  BC slots: engineered so that the corrector
+    # relation A = c_M·(U − U_pred) yields A[BC] = g''(t_{n+1}) exactly,
+    # i.e., U_pred[BC] = U[BC] − g''(t_{n+1})/c_M.  Then dU[BC] =
+    # g''(t_{n+1})/c_M and the inertial term c_M·M·dU evaluated at the
+    # full-DOF v_full agrees with Norma's `M · integrator.acceleration`
+    # on every row.
     copyto!(U_pred, U)
+    c_M_inv = 1.0 / ig.c_M
+    cache = p.dirichlet_bcs.bc_cache
+    FEC.fec_foreach(cache.dofs) do I
+        d = cache.dofs[I]
+        U_pred[d] = U[d] - c_M_inv * cache.vals_dot_dot[I]
+    end
     fill!(dU, zero(eltype(dU)))
     return nothing
 end
 
 function predict!(ig::CentralDifferenceIntegrator, p)
-    Δt = FEC.time_step(p.times)
-    @. ig.U += Δt * ig.V + 0.5 * Δt^2 * ig.A
-    @. ig.V += (1.0 - ig.γ) * Δt * ig.A
+    Δt   = FEC.time_step(p.times)
+    free = ig.asm.dof.unknown_dofs
+    # Standard CD predict on free slots only.
+    @views @. ig.U[free] += Δt * ig.V[free] + 0.5 * Δt^2 * ig.A[free]
+    @views @. ig.V[free] += (1.0 - ig.γ) * Δt * ig.A[free]
+    # Apply prescribed BC values at t_{n+1} so subsequent assembly and
+    # post-processing see g(t)/g'(t)/g''(t) at constrained nodes.
+    FEC.update_field_dirichlet_bcs!(ig.U, ig.V, ig.A, p.dirichlet_bcs)
+    return nothing
 end
 
 # ---- evaluate! ----
@@ -300,14 +341,22 @@ end
 
 function evaluate!(ig::NewmarkIntegrator, p)
     (; asm, U, U_pred, dU, R_eff, c_M, α_hht, F_int_n) = ig
+    Uu = view(U, asm.dof.unknown_dofs)
+    # dU is full-DOF: dU[free] = U[free] − U_pred[free] (Newmark corrector
+    # increment, = β·Δt²·A[free]), and dU[BC] = g''(t_{n+1})/c_M from the
+    # U_pred construction in predict!.  So c_M·dU = A everywhere.
     @. dU = U - U_pred
     try
-        FEC.assemble_vector!(asm, FEC.residual, U, p)
-        FEC.assemble_vector_neumann_bc!(asm, U, p)
-        FEC.assemble_vector_source!(asm, U, p)
-        _build_full_dof_mass_action_inputs!(ig, p)
+        FEC.assemble_vector!(asm, FEC.residual, Uu, p)
+        FEC.assemble_vector_neumann_bc!(asm, Uu, p)
+        FEC.assemble_vector_source!(asm, Uu, p)
+        # Inertial residual: M · A on free rows, evaluated via M · (c_M·dU)
+        # with full-DOF dU.  The full-DOF action carries M_{f,BC}·dU_BC
+        # = M_{f,BC}·g''(t_{n+1})/c_M, so c_M times the result includes
+        # the M_{f,BC}·g''(t_{n+1}) cross-term that mirrors Norma's
+        # `model.mass * integrator.acceleration` on the free rows.
         FEC.assemble_matrix_free_action_full!(
-            asm, FEC.mass_action, ig.U_full, ig.dU_full, p
+            asm, FEC.mass_action, U, dU, p
         )
     catch e
         e isa _MATH_ERRORS || rethrow()
@@ -315,47 +364,19 @@ function evaluate!(ig::NewmarkIntegrator, p)
         return false
     end
     R_int = FEC.residual(asm)
-    M_dU  = FEC.hvp(asm, dU)
+    M_dU  = FEC.hvp(asm, Uu)
     @. R_eff = -((1 + α_hht) * R_int + c_M * M_dU - α_hht * F_int_n)
     _apply_point_loads!(R_eff, FEC.current_time(p.times))
     return isfinite(sqrt(sum(abs2, R_eff)))
 end
 
-# Populate ig.U_full and ig.dU_full from ig.U / ig.dU (free DOFs) and the
-# Dirichlet bc_cache (BC DOFs).  Called inside evaluate! for Newmark.
-#
-#   U_full[free]  = ig.U                            (current Newton iterate)
-#   U_full[BC]    = bc_cache.vals                   (= g(t_{n+1}))
-#   dU_full[free] = ig.dU                           (= U − U_pred, free part)
-#   dU_full[BC]   = bc_cache.vals_dot_dot / c_M     (= g''(t_{n+1})/c_M)
-#
-# The BC slice of dU_full is engineered so that c_M·dU_full = A_full
-# everywhere — Newmark's corrector relation on free DOFs and the
-# prescribed analytical second derivative on BC DOFs.  Then
-# c_M · M_full · dU_full on free rows equals M·A on those rows
-# (Norma's `model.mass * integrator.acceleration`), restoring the
-# M_{f,BC}·g''(t_{n+1}) cross-term that the free-DOF action drops.
-function _build_full_dof_mass_action_inputs!(ig::NewmarkIntegrator, p)
-    asm = ig.asm
-    free = asm.dof.unknown_dofs
-    @views ig.U_full[free]  .= ig.U
-    @views ig.dU_full[free] .= ig.dU
-    cache = p.dirichlet_bcs.bc_cache
-    c_M_inv = 1.0 / ig.c_M
-    FEC.fec_foreach(cache.dofs) do I
-        d = cache.dofs[I]
-        ig.U_full[d]  = cache.vals[I]
-        ig.dU_full[d] = c_M_inv * cache.vals_dot_dot[I]
-    end
-    return nothing
-end
-
 function evaluate!(ig::CentralDifferenceIntegrator, p)
-    asm = ig.asm; U = ig.U
+    asm = ig.asm
+    Uu = view(ig.U, asm.dof.unknown_dofs)
     try
-        FEC.assemble_vector!(asm, FEC.residual, U, p)
-        FEC.assemble_vector_neumann_bc!(asm, U, p)
-        FEC.assemble_vector_source!(asm, U, p)
+        FEC.assemble_vector!(asm, FEC.residual, Uu, p)
+        FEC.assemble_vector_neumann_bc!(asm, Uu, p)
+        FEC.assemble_vector_source!(asm, Uu, p)
     catch e
         e isa _MATH_ERRORS || rethrow()
         _carina_logf(4, :solve, "evaluate!: caught %s during assembly", typeof(e))
@@ -381,9 +402,9 @@ function setup_jacobian!(ig::QuasiStaticIntegrator{<:NewtonSolver{DirectLinearSo
 end
 
 function setup_jacobian!(ig::NewmarkIntegrator{<:NewtonSolver{DirectLinearSolver}}, p)
-    asm = ig.asm; U = ig.U; c_M = ig.c_M; af = _asm_flags
+    asm = ig.asm; Uu = _displacement(ig); c_M = ig.c_M; af = _asm_flags
     if af.compute_stiffness
-        FEC.assemble_stiffness!(asm, FEC.stiffness, U, p)
+        FEC.assemble_stiffness!(asm, FEC.stiffness, Uu, p)
         if af.is_linear
             copyto!(_K_cache, asm.stiffness_storage)
             af.compute_stiffness = false
@@ -393,7 +414,7 @@ function setup_jacobian!(ig::NewmarkIntegrator{<:NewtonSolver{DirectLinearSolver
         copyto!(asm.stiffness_storage, _K_cache)
     end
     if af.compute_mass
-        FEC.assemble_mass!(asm, FEC.mass, U, p)
+        FEC.assemble_mass!(asm, FEC.mass, Uu, p)
         copyto!(_M_cache, asm.mass_storage)
         af.compute_mass = false
         af.compute_factorization = true
@@ -433,12 +454,13 @@ function setup_jacobian!(ig::QuasiStaticIntegrator{<:NewtonSolver{<:KrylovLinear
 end
 
 function setup_jacobian!(ig::NewmarkIntegrator{<:NewtonSolver{<:KrylovLinearSolver}}, p)
-    ls = ig.nonlinear_solver.linear_solver; asm = ig.asm; U = ig.U; c_M = ig.c_M
+    ls = ig.nonlinear_solver.linear_solver; asm = ig.asm
+    Uu = _displacement(ig); c_M = ig.c_M
     af = _asm_flags
     if ls.assembled
         try
             if af.compute_stiffness
-                FEC.assemble_stiffness!(asm, FEC.stiffness, U, p)
+                FEC.assemble_stiffness!(asm, FEC.stiffness, Uu, p)
                 if af.is_linear
                     copyto!(_K_cache, asm.stiffness_storage)
                     af.compute_stiffness = false
@@ -448,7 +470,7 @@ function setup_jacobian!(ig::NewmarkIntegrator{<:NewtonSolver{<:KrylovLinearSolv
                 copyto!(asm.stiffness_storage, _K_cache)
             end
             if af.compute_mass
-                FEC.assemble_mass!(asm, FEC.mass, U, p)
+                FEC.assemble_mass!(asm, FEC.mass, Uu, p)
                 copyto!(_M_cache, asm.mass_storage)
                 af.compute_mass = false
                 af.compute_factorization = true
@@ -472,8 +494,8 @@ function setup_jacobian!(ig::NewmarkIntegrator{<:NewtonSolver{<:KrylovLinearSolv
         # Matrix-free path: update from true diag(K_eff) via diagonal kernel.
         # For linear elastic with constant dt, cache after first call.
         if !af.is_linear || af.compute_factorization
-            _update_jacobi_precond_eff!(ls.precond, asm, U, ls.ones_v, c_M, p, ls.scratch)
-            _update_chebyshev_precond_eff!(ls.precond, asm, U, c_M, p, ls.scratch)
+            _update_jacobi_precond_eff!(ls.precond, asm, Uu, ls.ones_v, c_M, p, ls.scratch)
+            _update_chebyshev_precond_eff!(ls.precond, asm, Uu, c_M, p, ls.scratch)
             af.is_linear && (af.compute_factorization = false)
         end
     end
@@ -496,8 +518,17 @@ function apply_increment!(ig, ΔU, p)
 end
 
 # ---- _displacement ----
+# For QuasiStaticIntegrator: ig.U is free-DOF, return it as-is.
+# For dynamic integrators (Newmark, CD): ig.U is full-DOF, return a
+# free-DOF view via dof.unknown_dofs.  Downstream FEC assembly calls
+# (assemble_vector!, assemble_stiffness!, ...) want Uu sized n_unknown
+# so they can scatter into p.field via _update_for_assembly!.
 
-_displacement(ig) = ig.U
+_displacement(ig::QuasiStaticIntegrator) = ig.U
+_displacement(ig::NewmarkIntegrator)           =
+    view(ig.U, ig.asm.dof.unknown_dofs)
+_displacement(ig::CentralDifferenceIntegrator) =
+    view(ig.U, ig.asm.dof.unknown_dofs)
 
 # ---- residual accessor ----
 
@@ -507,16 +538,25 @@ residual(ig) = ig.R_eff
 
 correct!(::QuasiStaticIntegrator, p) = nothing
 
+# Free-DOF corrector for dynamic integrators.  BC slots of V, A are
+# already correct (set by predict! via FEC.update_field_dirichlet_bcs!
+# to g'(t_{n+1}) and g''(t_{n+1})); leaving them alone preserves the
+# prescribed values exactly, whereas applying the Newmark formula to
+# BC slots would re-derive them through `c_M·(U[BC] − U_pred[BC])` and
+# pick up a 1-ULP discrepancy from the engineered U_pred[BC].
 function correct!(ig::NewmarkIntegrator, p)
     Δt = FEC.time_step(p.times)
-    @. ig.A = ig.c_M * (ig.U - ig.U_pred)
-    @. ig.V += Δt * ig.γ * ig.A
+    free = ig.asm.dof.unknown_dofs
+    @views @. ig.A[free] = ig.c_M * (ig.U[free] - ig.U_pred[free])
+    @views @. ig.V[free] += Δt * ig.γ * ig.A[free]
     return nothing
 end
 
 function correct!(ig::CentralDifferenceIntegrator, p)
     Δt = FEC.time_step(p.times)
-    @. ig.V += ig.γ * Δt * ig.A
+    free = ig.asm.dof.unknown_dofs
+    @views @. ig.V[free] += ig.γ * Δt * ig.A[free]
+    return nothing
 end
 
 # ---- _finalize_step! ----
@@ -529,11 +569,12 @@ function _finalize_step!(ig, p)
 end
 
 function _finalize_step!(ig::NewmarkIntegrator, p)
-    FEC._update_for_assembly!(p, ig.asm.dof, ig.U)
+    Uu = _displacement(ig)
+    FEC._update_for_assembly!(p, ig.asm.dof, Uu)
     p.field_old.data .= p.field.data
     p.state_old.data .= p.state_new.data
     if ig.α_hht != 0.0 && !ig.failed[]
-        FEC.assemble_vector!(ig.asm, FEC.residual, ig.U, p)
+        FEC.assemble_vector!(ig.asm, FEC.residual, Uu, p)
         copyto!(ig.F_int_n, FEC.residual(ig.asm))
     end
 end
@@ -553,6 +594,17 @@ _mark_failed_on_nonconvergence(::NewmarkIntegrator)     = true
 # --------------------------------------------------------------------------- #
 
 const _DynamicIntegrator = Union{NewmarkIntegrator, CentralDifferenceIntegrator}
+
+# Write g(t), g'(t), g''(t) (from the current bc_cache state) into the
+# BC slots of the integrator's full-DOF U / V / A.  Called once at
+# initialization (in simulation.jl) so the t=0 output has the right
+# values at constrained nodes; subsequently called inside predict! at
+# each step.  No-op for QuasiStaticIntegrator (no V/A).
+_propagate_dirichlet_bcs_to_state!(::QuasiStaticIntegrator, p) = nothing
+function _propagate_dirichlet_bcs_to_state!(ig::_DynamicIntegrator, p)
+    FEC.update_field_dirichlet_bcs!(ig.U, ig.V, ig.A, p.dirichlet_bcs)
+    return nothing
+end
 
 # --------------------------------------------------------------------------- #
 # Generic FEC.evolve! — works for ALL integrators
@@ -596,7 +648,7 @@ function _restore_state!(ig::_DynamicIntegrator, p)
     copyto!(ig.U, ig.U_save)
     copyto!(ig.V, ig.V_save)
     copyto!(ig.A, ig.A_save)
-    FEC._update_for_assembly!(p, ig.asm.dof, ig.U)
+    FEC._update_for_assembly!(p, ig.asm.dof, _displacement(ig))
     p.field_old.data .= p.field.data
     p.state_new.data .= p.state_old.data
 end
