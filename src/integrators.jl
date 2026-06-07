@@ -158,6 +158,19 @@ mutable struct NewmarkIntegrator{NS <: AbstractNonlinearSolver, Asm, Vec}
     increase_factor  ::Float64
     failed           ::Base.RefValue{Bool}
     U_save::Vec; V_save::Vec; A_save::Vec
+    # ---- Full-DOF mirror buffers for the BC-aware mass action ----
+    # Populated in evaluate! each Newton iteration:
+    #   U_full[free]  = ig.U
+    #   U_full[BC]    = g(t_{n+1})           (from bc_cache.vals)
+    #   dU_full[free] = ig.dU                (= U − U_pred)
+    #   dU_full[BC]   = g''(t_{n+1}) / c_M   (Newmark relation A = c_M·dU,
+    #                                         with A_BC prescribed analytically)
+    # The inertial residual is then c_M · M · dU_full evaluated via
+    # FEC.assemble_matrix_free_action_full!, which carries the
+    # M_{f,BC}·g''(t_{n+1}) cross-term that the free-DOF action drops.
+    # Mirrors Norma's full-DOF `model.mass * integrator.acceleration` product.
+    U_full ::Vec
+    dU_full::Vec
 end
 
 function NewmarkIntegrator(ns::NS, asm, β::Float64, γ::Float64, template::Vec;
@@ -169,12 +182,16 @@ function NewmarkIntegrator(ns::NS, asm, β::Float64, γ::Float64, template::Vec;
                             increase_factor::Float64=1.0) where {NS, Vec}
     T  = eltype(template)
     mk() = (v = similar(template); fill!(v, zero(T)); v)
+    n_full = length(asm.dof)
+    mk_full() = (v = similar(template, n_full); fill!(v, zero(T)); v)
 
     U, V, A             = mk(), mk(), mk()
     U_prev, V_prev, A_prev = mk(), mk(), mk()
     U_pred, dU, R_eff   = mk(), mk(), mk()
     F_int_n             = mk()
     U_save, V_save, A_save = mk(), mk(), mk()
+    U_full              = mk_full()
+    dU_full             = mk_full()
 
     return NewmarkIntegrator(ns, asm, β, γ, α_hht,
                               U, V, A, U_prev, V_prev, A_prev,
@@ -183,7 +200,8 @@ function NewmarkIntegrator(ns::NS, asm, β::Float64, γ::Float64, template::Vec;
                               time_step, min_time_step, max_time_step,
                               decrease_factor, increase_factor,
                               Ref(false),
-                              U_save, V_save, A_save)
+                              U_save, V_save, A_save,
+                              U_full, dU_full)
 end
 
 # --------------------------------------------------------------------------- #
@@ -287,7 +305,10 @@ function evaluate!(ig::NewmarkIntegrator, p)
         FEC.assemble_vector!(asm, FEC.residual, U, p)
         FEC.assemble_vector_neumann_bc!(asm, U, p)
         FEC.assemble_vector_source!(asm, U, p)
-        FEC.assemble_matrix_free_action!(asm, FEC.mass_action, U, dU, p)
+        _build_full_dof_mass_action_inputs!(ig, p)
+        FEC.assemble_matrix_free_action_full!(
+            asm, FEC.mass_action, ig.U_full, ig.dU_full, p
+        )
     catch e
         e isa _MATH_ERRORS || rethrow()
         _carina_logf(4, :solve, "evaluate!: caught %s during assembly", typeof(e))
@@ -298,6 +319,35 @@ function evaluate!(ig::NewmarkIntegrator, p)
     @. R_eff = -((1 + α_hht) * R_int + c_M * M_dU - α_hht * F_int_n)
     _apply_point_loads!(R_eff, FEC.current_time(p.times))
     return isfinite(sqrt(sum(abs2, R_eff)))
+end
+
+# Populate ig.U_full and ig.dU_full from ig.U / ig.dU (free DOFs) and the
+# Dirichlet bc_cache (BC DOFs).  Called inside evaluate! for Newmark.
+#
+#   U_full[free]  = ig.U                            (current Newton iterate)
+#   U_full[BC]    = bc_cache.vals                   (= g(t_{n+1}))
+#   dU_full[free] = ig.dU                           (= U − U_pred, free part)
+#   dU_full[BC]   = bc_cache.vals_dot_dot / c_M     (= g''(t_{n+1})/c_M)
+#
+# The BC slice of dU_full is engineered so that c_M·dU_full = A_full
+# everywhere — Newmark's corrector relation on free DOFs and the
+# prescribed analytical second derivative on BC DOFs.  Then
+# c_M · M_full · dU_full on free rows equals M·A on those rows
+# (Norma's `model.mass * integrator.acceleration`), restoring the
+# M_{f,BC}·g''(t_{n+1}) cross-term that the free-DOF action drops.
+function _build_full_dof_mass_action_inputs!(ig::NewmarkIntegrator, p)
+    asm = ig.asm
+    free = asm.dof.unknown_dofs
+    @views ig.U_full[free]  .= ig.U
+    @views ig.dU_full[free] .= ig.dU
+    cache = p.dirichlet_bcs.bc_cache
+    c_M_inv = 1.0 / ig.c_M
+    FEC.fec_foreach(cache.dofs) do I
+        d = cache.dofs[I]
+        ig.U_full[d]  = cache.vals[I]
+        ig.dU_full[d] = c_M_inv * cache.vals_dot_dot[I]
+    end
+    return nothing
 end
 
 function evaluate!(ig::CentralDifferenceIntegrator, p)

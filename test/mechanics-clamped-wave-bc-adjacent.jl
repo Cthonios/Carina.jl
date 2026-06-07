@@ -1,27 +1,29 @@
-# Regression test: dropped cross-term in implicit Newmark with time-varying
-# Dirichlet BC.
+# Diagnostic test: BC-adjacent residual at z = -L/2 + h in the BC-driven
+# clamped-bar Gaussian-pulse setup.  Originally written under the
+# hypothesis that the dropped Newmark inertial cross-term
+# (c_M·M_{f,BC}·g''(t_{n+1})) accounted for the ~7-17× implicit/explicit
+# gap in |vz| and |az| seen at z = -L/2 + h.  Empirically that hypothesis
+# is WRONG for this problem:
 #
-# Reuses the BC-driven clamped-bar Gaussian-pulse setup
-# (test/mechanics-clamped-wave-bc.jl), but samples the FEM state at the
-# *first interior node next to the driver BC* (z = -L/2 + h, h = 1 mm).
-# At t_f = 7.5e-4 the pulse has long since departed (peak at z = 0); the
-# analytical solution at z = -L/2 + h is g(t_f - h/c) ≈ 1e-25 m, i.e.,
-# effectively zero.  Any nonzero displacement/velocity/acceleration at this
-# node is either bulk dispersion noise or the cross-term defect.
+#   1. The cross-term fix landed in FEC v0.14+ as
+#      assemble_matrix_free_action_full!, validated end-to-end against an
+#      assembled K_full · v_full reference (FEC TestAssemblers.jl).
+#   2. Carina's NewmarkIntegrator.evaluate! now calls that primitive with
+#      v_full[BC] = g''(t_{n+1})/c_M, so the inertial residual carries
+#      M_{f,BC}·g''(t_{n+1}) exactly as Norma's full-DOF M·a product does.
+#   3. After the fix, |vz| at z = -L/2 + h shifts only by ~0.04% from
+#      the pre-fix value (6.39945e-7 → 6.40442e-7).  The dominant noise
+#      at this node is Newmark consistent-mass *dispersion* of the bulk
+#      pulse — an intrinsic property of the time integrator, not a
+#      cross-term defect — and the cross-term contribution sits 3-4
+#      orders of magnitude below it.
 #
-# The defect: src/integrators.jl evaluate!(::NewmarkIntegrator, p) calls
-#   FEC.assemble_matrix_free_action!(asm, FEC.mass_action, U, dU, p)
-# with v_full = [dU; 0_BC] in p.hvp_scratch_field.  The semantically correct
-# value at that call site is v_full = [dU; dU_BC], so the inertial residual
-# is missing  c_M * M_{fB} * dU_BC  — supported only at rows adjacent to the
-# Dirichlet boundary.  Explicit central difference is structurally immune
-# because lumped mass has M_{fB} ≡ 0.
-#
-# Expected outcome with current code:
-#   Explicit (lumped):                 PASSES — dispersion noise only.
-#   Implicit (consistent, defective):  FAILS  — cross-term offset.
-# After the fix (FEC 5-arg matrix_free_action! + Carina dU_BC plumbing):
-#   Both pass.
+# So the implicit assertions below still fail today, but NOT for the
+# reason this test was written to expose.  They are pinned @test_broken
+# as documentation: a reminder that the cross-term has been addressed and
+# anyone investigating the BC-adjacent gap further should look at
+# Newmark dispersion (e.g., higher-order time stepping, mass scaling, or
+# specially-tuned β/γ) rather than the inertial cross-term.
 
 const _adj_a   = 1.0e-3
 const _adj_tc  = 2.5e-4
@@ -90,18 +92,19 @@ function _adj_run_and_report(label, example_dir; bug_active::Bool)
         end
 
         # Assertions at z = -L/2 + h.  Analytical u, v, a are all ~ 1e-20
-        # (pulse departed); any nonzero FEM value is either bulk dispersion
+        # (pulse departed); any nonzero FEM value is either bulk-dispersion
         # noise or the cross-term defect.
         #
-        # Empirically on this mesh, the explicit (lumped, M_{fB} ≡ 0) floors:
+        # Empirically on this mesh, the explicit (lumped, M_{fB} ≡ 0) floor:
         #   |vz| ≲ 1.0e-7 m/s,  |az| ≲ 0.3 m/s².
-        # The implicit (consistent mass, missing c_M·M_{fB}·dU_BC term)
-        # currently sits ~7× and ~17× above these on vz and az.  Tolerances
-        # set midway: explicit passes; defective implicit must violate them
-        # — that is what `bug_active = true` pins as @test_broken so the
-        # suite stays green today, and so the moment the fix lands and
-        # implicit drops to explicit's floor the test framework will flag
-        # the broken markers as "unexpectedly pass".  Convert to @test then.
+        # The implicit floor sits ~7× and ~17× above these on vz and az —
+        # see the top-of-file note for why the cross-term fix doesn't
+        # bridge this gap.  Tolerances chosen midway so that:
+        #   - explicit passes;
+        #   - implicit (today's) fails as documented;
+        #   - any future change that DOES close the gap (e.g., higher-order
+        #     time stepping, mass scaling) will flag the @test_broken
+        #     markers as unexpectedly passing and we revisit then.
         i_adj = _adj_node_at(z_coords, -_adj_L / 2 + _adj_h)
         if bug_active
             @test_broken abs(vz(i_adj)) < 2.0e-7
