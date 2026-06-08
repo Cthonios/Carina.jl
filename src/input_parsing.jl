@@ -985,24 +985,57 @@ function _component_to_string(comp::String)
     error("Unknown component \"$comp\". Expected x, y, or z.")
 end
 
-# Turn a TOML function string into a Julia (coords, t) -> value closure.
-# Supported variables in the expression: t, x, y, z (node coordinates).
+# Variable namespace used by every TOML expression Carina builds.
+# Convention (matches FEC.Expressions.differentiate): time is the LAST
+# variable, so the time-derivative index is `num_vars == 4`.
+const _CARINA_EXPR_VARS = ["x", "y", "z", "t"]
+
+# Inline `name=value;` bindings into a final expression so FEC's parser
+# (which does not understand assignment) sees only the substituted form.
 #
-# Uses @eval to create a compiled anonymous function that is isbits
-# (GPU-compatible as a kernel argument). The function is defined at the
-# current top-level scope, so callers in the time loop must use
-# Base.invokelatest to see it.
+# Example
+# -------
+# `"a=1.0e-3; tc=2.5e-4; a*exp(-(t-tc)^2/...)"` becomes
+# `"(1.0e-3)*exp(-(t-(2.5e-4))^2/...)"`.
+#
+# Word-boundary regex keeps `tc` from matching the leading `t` of e.g.
+# `tc*t`.  Each binding's RHS is itself expanded against earlier bindings
+# so `tau=tc/2` is legal.
+function _inline_expr_bindings(expr_str::String)
+    parts = strip.(split(expr_str, ';'))
+    isempty(parts) && return expr_str
+    length(parts) == 1 && return String(parts[1])
+    bindings = Pair{String,String}[]
+    for p in @view parts[1:end-1]
+        isempty(p) && continue
+        eq = findfirst('=', p)
+        eq === nothing && error("Expected `name=value` in expression binding fragment: \"$p\"")
+        name  = strip(p[1:prevind(p, eq)])
+        value = strip(p[nextind(p, eq):end])
+        # Expand earlier bindings inside this value.
+        for (prev_name, prev_value) in bindings
+            value = replace(value, Regex("\\b" * prev_name * "\\b") => "(" * prev_value * ")")
+        end
+        push!(bindings, String(name) => String(value))
+    end
+    expr = String(parts[end])
+    for (name, value) in bindings
+        expr = replace(expr, Regex("\\b" * name * "\\b") => "(" * value * ")")
+    end
+    return expr
+end
+
+# Turn a TOML expression string into an isbits, juliac-safe scalar
+# function over (x, y, z, t).  FEC's flat-form ScalarExpressionFunction
+# satisfies both KA kernel-argument requirements (isbits) and juliac
+# trim-mode constraints (no @eval, no runtime-defined methods), so a
+# single value type replaces the per-expression @eval closures used
+# previously — and the world-age `Base.invokelatest` shielding the
+# downstream call sites is no longer needed.
 function _make_function(expr_str::String)
-    body = Meta.parse(expr_str)
-    # Multi-statement strings like "a=8000; expr" parse as Expr(:toplevel,...),
-    # which is invalid inside a function body; convert to Expr(:block,...).
-    if body isa Expr && body.head === :toplevel
-        body = Expr(:block, body.args...)
-    end
-    return @eval (coords, t) -> begin
-        x = coords[1]; y = coords[2]; z = coords[3]
-        $body
-    end
+    return FEC.Expressions.ScalarExpressionFunction{Float64}(
+        _inline_expr_bindings(expr_str), _CARINA_EXPR_VARS
+    )
 end
 
 # ---- initial conditions ----

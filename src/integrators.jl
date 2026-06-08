@@ -21,6 +21,7 @@
 
 import FiniteElementContainers as FEC
 using LinearAlgebra
+using StaticArrays
 
 # --------------------------------------------------------------------------- #
 # Assembly caching — module-level state to avoid changing integrator struct
@@ -92,8 +93,8 @@ function _apply_point_loads!(R_eff, t::Float64)
     X = _point_load_coords[]
     for pl in _point_loads
         pl.unk_idx == 0 && continue   # constrained DOF, skip
-        coords = @view X[(pl.node-1)*3+1 : (pl.node-1)*3+3]
-        R_eff[pl.unk_idx] += Base.invokelatest(pl.func, coords, t)
+        coords = SVector{3, Float64}(X[(pl.node-1)*3+1], X[(pl.node-1)*3+2], X[(pl.node-1)*3+3])
+        R_eff[pl.unk_idx] += pl.func(coords, t)
     end
     return nothing
 end

@@ -68,7 +68,7 @@ end
 struct PointLoad
     unk_idx ::Int           # index into the unknown DOF vector (0 = constrained, skip)
     node    ::Int           # node index (for coordinate lookup)
-    func    ::Function      # (coords, t) → scalar force value
+    func    ::FEC.Expressions.ScalarExpressionFunction{Float64}  # (coords, t) → scalar force value
 end
 
 # ---------------------------------------------------------------------------

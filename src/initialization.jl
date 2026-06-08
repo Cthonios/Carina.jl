@@ -6,6 +6,7 @@
 import FiniteElementContainers as FEC
 import Krylov
 using LinearAlgebra
+using StaticArrays
 
 # ---------------------------------------------------------------------------
 # Initial displacement ICs
@@ -35,8 +36,8 @@ function _apply_initial_displacement_ics!(integrator, mesh, asm_cpu, p, p_cpu,
         for (full_dof, node) in zip(bk.dofs, bk.nodes)
             unk_idx = inv_map[full_dof]
             unk_idx == 0 && continue
-            coords = @view X[(node-1)*3+1 : (node-1)*3+3]
-            U_full[full_dof] = Base.invokelatest(func, coords, t0)
+            coords = SVector{3, Float64}(X[(node-1)*3+1], X[(node-1)*3+2], X[(node-1)*3+3])
+            U_full[full_dof] = func(coords, t0)
         end
     end
     # Extract unknown DOFs into integrator's reduced vector
@@ -80,15 +81,21 @@ function _apply_initial_velocity_ics!(integrator::_DynamicIntegrator, mesh, asm_
         for (full_dof, node) in zip(bk.dofs, bk.nodes)
             unk_idx = inv_map[full_dof]
             unk_idx == 0 && continue   # skip constrained DOFs
-            coords = @view X[(node-1)*3+1 : (node-1)*3+3]
-            V_full[full_dof] = Base.invokelatest(func, coords, t0)
+            coords = SVector{3, Float64}(X[(node-1)*3+1], X[(node-1)*3+2], X[(node-1)*3+3])
+            V_full[full_dof] = func(coords, t0)
         end
     end
     # integrator.V is full-DOF in the Norma-shape integrator state; write
     # only the free slice from the IC values.  BC slots get g'(t_0)
     # populated separately at the start of the time loop via
     # FEC.update_field_dirichlet_bcs! in predict!.
-    @views integrator.V[dof.unknown_dofs] .= V_full[dof.unknown_dofs]
+    #
+    # IC values live on the CPU (the parser walks CPU coords and evaluates
+    # CPU expression functions); `integrator.V` may live on GPU.  `copyto!`
+    # handles the CPU→GPU sync; a broadcasted `.=` would build a CPU view
+    # and pass it through a GPU kernel, which fails as non-bitstype.
+    V_unk = V_full[dof.unknown_dofs]
+    copyto!(view(integrator.V, dof.unknown_dofs), V_unk)
 end
 
 # No-op for integrators that do not support initial velocity ICs.
@@ -138,8 +145,9 @@ function _compute_initial_acceleration!(integrator::NewmarkIntegrator, asm_cpu, 
 
     # Write into the free slice of the full-DOF integrator.A buffer.
     # BC slots will be populated by predict! at the first time step
-    # via FEC.update_field_dirichlet_bcs!.
-    @views integrator.A[free] .= A0
+    # via FEC.update_field_dirichlet_bcs!.  copyto! handles the CPU→GPU
+    # transfer when integrator.A lives on a GPU backend.
+    copyto!(view(integrator.A, free), A0)
     return nothing
 end
 
@@ -174,7 +182,7 @@ function _compute_initial_acceleration!(integrator::CentralDifferenceIntegrator,
         "Initial Acceleration: |A₀| = %.2e (%s)",
         sqrt(sum(abs2, A0)), format_time(elapsed))
 
-    @views integrator.A[free] .= A0
+    copyto!(view(integrator.A, free), A0)
     return nothing
 end
 
@@ -194,7 +202,7 @@ function _compute_initial_equilibrium!(integrator::QuasiStaticIntegrator, p)
     # Solve R(U) = 0 at t₀ without advancing time.
     # BC values are already set at t₀ by the preceding FEC.update_bc_values!(p_cpu).
     # We call evaluate! + solve! directly (not FEC.evolve! which advances time).
-    Base.invokelatest(solve!, nonlinear_solver(integrator), integrator, p)
+    solve!(nonlinear_solver(integrator), integrator, p)
 
     elapsed = time() - t_start
     if integrator.failed[]

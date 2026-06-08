@@ -52,7 +52,7 @@ function run(input_file::String; backend::KA.Backend=KA.CPU())
         if sim_type == "single"
             sim = create_simulation(dict, dirname(abspath(input_file));
                                     backend=backend)
-            Base.invokelatest(evolve!, sim)
+            evolve!(sim)
             FEC.close(sim.post_processor)
         else
             error("Simulation type \"$sim_type\" not yet supported. Only \"single\" is implemented.")
@@ -193,7 +193,7 @@ function create_simulation(dict::Dict{String,Any}, basedir::String="";
     # Evaluate Dirichlet BC values at t=0 so _update_for_assembly! can set
     # constrained DOFs correctly before IC application and initial acceleration.
     # Only CPU parameters needed — GPU field is synced via _update_for_assembly!.
-    Base.invokelatest(FEC.update_bc_values!, p_cpu, asm_cpu)
+    FEC.update_bc_values!(p_cpu, asm_cpu)
 
     t0 = controller.initial_time
     @carina_timed "Initial conditions" begin
@@ -336,7 +336,7 @@ function _advance_one_step!(sim)
         # models and returns false (→ flag path).  This outer catch handles
         # the same errors if they escape from any other point in evolve!.
         try
-            Base.invokelatest(FEC.evolve!, integrator, params)
+            FEC.evolve!(integrator, params)
         catch e
             e isa _MATH_ERRORS || rethrow()
             _carina_logf(4, :solve, "Caught %s during evolve! — treating as step failure",
