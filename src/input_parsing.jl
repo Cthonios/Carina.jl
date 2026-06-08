@@ -104,6 +104,9 @@ const _DBC_ENTRY_KEYS = Set(["side_set", "node_set", "component", "function"])
 const _NBC_ENTRY_KEYS = Set(["side_set", "node_set", "component", "function"])
 const _BF_ENTRY_KEYS  = Set(["block", "component", "function"])
 const _IC_ENTRY_KEYS  = Set(["node_set", "component", "function"])
+const _TW_IC_ENTRY_KEYS = Set([
+    "node_set", "component", "displacement", "direction", "wave_speed",
+])
 
 const _OUTPUT_KEYS = Set([
     "velocity", "acceleration", "stress", "deformation_gradient",
@@ -1054,4 +1057,42 @@ function _parse_velocity_ics(dict)
     vel_ics = get(ic_dict, "velocity", Any[])
     vel_ics isa Vector || error("initial_conditions.velocity must be a list.")
     return vel_ics
+end
+
+# Traveling-wave IC: the user supplies the initial displacement profile
+# u₀(x, y, z), a propagation axis ("x" / "y" / "z"), and a wave speed c.
+# The kinematic relation `u(x, t) = f(s − c t)` (with `s` the coordinate
+# along the propagation axis) implies `v(x, 0) = −c · ∂u₀/∂s`; Carina
+# derives that velocity field symbolically via `FEC.Expressions.differentiate`
+# so the user never writes a derivative by hand.  `wave_speed` is signed —
+# the sign picks the direction of travel along the axis.
+function _parse_traveling_wave_ics(dict)
+    ic_dict = get(dict, "initial_conditions", nothing)
+    ic_dict === nothing && return Any[]
+    tw_ics = get(ic_dict, "traveling_wave", Any[])
+    tw_ics isa Vector || error("initial_conditions.traveling_wave must be a list.")
+    for (i, entry) in enumerate(tw_ics)
+        _validate_keys(entry, _TW_IC_ENTRY_KEYS, "traveling_wave IC entry $i")
+        for key in ("node_set", "component", "displacement", "direction", "wave_speed")
+            haskey(entry, key) || error(
+                "traveling_wave IC entry $i missing required key \"$key\". " *
+                "Need: node_set, component, displacement, direction, wave_speed."
+            )
+        end
+        dir = lowercase(strip(String(entry["direction"])))
+        dir in ("x", "y", "z") || error(
+            "traveling_wave IC entry $i: direction \"$dir\" must be x, y, or z."
+        )
+    end
+    return tw_ics
+end
+
+# Map a direction label ("x"/"y"/"z") to its variable index in the
+# Carina expression namespace `["x", "y", "z", "t"]`.
+function _direction_to_idx(dir::String)
+    d = lowercase(strip(dir))
+    d == "x" && return 1
+    d == "y" && return 2
+    d == "z" && return 3
+    error("Unknown direction \"$dir\". Expected x, y, or z.")
 end

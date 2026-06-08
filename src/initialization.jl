@@ -104,6 +104,75 @@ function _apply_initial_velocity_ics!(integrator, mesh, asm_cpu, p_cpu, vel_ics,
 end
 
 # ---------------------------------------------------------------------------
+# Traveling-wave initial conditions
+#
+# For a propagating wave u(x, t) = f(s − c·t) along axis s ∈ {x, y, z},
+# the initial conditions are
+#
+#     u₀(x) = f(s)            (user-supplied displacement profile)
+#     v₀(x) = −c · ∂u₀/∂s     (derived symbolically)
+#
+# A user can write the displacement profile in the TOML and Carina
+# derives the velocity field via [`FEC.Expressions.differentiate`](@ref) —
+# no hand-coded derivatives, no ForwardDiff at IC time.
+# ---------------------------------------------------------------------------
+function _apply_initial_traveling_wave_ics!(integrator::_DynamicIntegrator, mesh, asm_cpu,
+                                              p, p_cpu, tw_ics, backend, t0::Float64)
+    isempty(tw_ics) && return
+    dof = asm_cpu.dof
+    X   = p_cpu.coords.data
+
+    inv_map = zeros(Int, length(dof))
+    for (i, fd) in enumerate(dof.unknown_dofs)
+        inv_map[fd] = i
+    end
+
+    U_full = zeros(Float64, length(dof))
+    V_full = zeros(Float64, length(dof))
+    touched_displacement = false
+
+    for entry in tw_ics
+        var_sym  = _component_to_string(entry["component"])
+        u_str    = _inline_expr_bindings(String(entry["displacement"]))
+        u_expr   = FEC.Expressions.ScalarExpressionFunction{Float64}(
+                       u_str, _CARINA_EXPR_VARS)
+        dir_idx  = _direction_to_idx(String(entry["direction"]))
+        c        = _f64(entry["wave_speed"])
+        du_ds    = FEC.Expressions.differentiate(u_expr, dir_idx)
+        nset_sym = entry["node_set"]
+        bk       = FEC.BCBookKeeping(mesh, dof, var_sym; nset_name=nset_sym)
+
+        touched_displacement = true
+        for (full_dof, node) in zip(bk.dofs, bk.nodes)
+            unk_idx = inv_map[full_dof]
+            unk_idx == 0 && continue
+            coords = SVector{3, Float64}(X[(node-1)*3+1], X[(node-1)*3+2], X[(node-1)*3+3])
+            U_full[full_dof] = u_expr(coords, t0)
+            V_full[full_dof] = -c * du_ds(coords, t0)
+        end
+    end
+
+    if touched_displacement
+        U_unk = U_full[dof.unknown_dofs]
+        copyto!(_displacement(integrator), U_unk)
+        FEC._update_for_assembly!(p_cpu, asm_cpu.dof, U_unk)
+        if !(backend isa KA.CPU)
+            copyto!(p.field.data, p_cpu.field.data)
+        end
+    end
+
+    V_unk = V_full[dof.unknown_dofs]
+    copyto!(view(integrator.V, dof.unknown_dofs), V_unk)
+end
+
+# No-op for integrators that do not carry a velocity state.
+function _apply_initial_traveling_wave_ics!(integrator, mesh, asm_cpu, p, p_cpu,
+                                              tw_ics, backend, t0::Float64)
+    isempty(tw_ics) || _carina_log(0, :warning,
+        "Traveling-wave initial conditions ignored for non-dynamic integrator.")
+end
+
+# ---------------------------------------------------------------------------
 # Initial acceleration (dynamic integrators)
 # ---------------------------------------------------------------------------
 

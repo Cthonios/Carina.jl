@@ -201,6 +201,11 @@ function create_simulation(dict::Dict{String,Any}, basedir::String="";
                                           _parse_displacement_ics(dict), backend, t0)
         _apply_initial_velocity_ics!(integrator, mesh, asm_cpu, p_cpu,
                                       _parse_velocity_ics(dict), t0)
+        # Traveling-wave entries come after the explicit u/v ICs so that, on
+        # the union of touched DOFs, the symbolic v₀ = −c·∂u₀/∂s overrides any
+        # zero-velocity default the explicit lists may have left in place.
+        _apply_initial_traveling_wave_ics!(integrator, mesh, asm_cpu, p, p_cpu,
+                                            _parse_traveling_wave_ics(dict), backend, t0)
         _compute_initial_acceleration!(integrator, asm_cpu, p_cpu)
         # Propagate g(t_0), g'(t_0), g''(t_0) into the BC slots of the
         # full-DOF integrator state so the t=0 output and any subsequent
