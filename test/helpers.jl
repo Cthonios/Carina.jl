@@ -1,6 +1,6 @@
 using Statistics
 
-# GPU vendor packages are test-only extras (Project.toml [targets].test):
+# GPU vendor packages are test-only extras (Project.yaml [targets].test):
 # present under `Pkg.test()`, absent under a plain `julia --project=. test/runtests.jl`.
 # Load them when available so the GPU verification can run; otherwise CPU-only.
 try; @eval import CUDA;   catch; end

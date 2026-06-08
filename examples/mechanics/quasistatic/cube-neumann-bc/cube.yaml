@@ -1,0 +1,42 @@
+"output mesh file": "cube.e"
+"input mesh file": "cube.g"
+model:
+  material:
+    "linear elastic":
+      "elastic modulus": 1.0e9
+      density: 1000.0
+      "Poisson's ratio": 0.25
+    blocks:
+      cube: "linear elastic"
+  type: "solid mechanics"
+"boundary conditions":
+  neumann:
+    - function: "1.0e+09 * t"
+      "side set": "ssz+"
+      component: "z"
+  dirichlet:
+    - function: "0.0"
+      "side set": "ssx-"
+      component: "x"
+    - function: "0.0"
+      "side set": "ssy-"
+      component: "y"
+    - function: "0.0"
+      "side set": "ssz-"
+      component: "z"
+"time integrator":
+  "time step": 0.1
+  "final time": 1.0
+  "initial time": 0.0
+  type: "quasi static"
+solver:
+  "linear solver":
+    type: "direct"
+  termination:
+    "fail when any":
+      - "maximum iterations": 16
+    "converge when any":
+      - "absolute residual": 1.0e-8
+      - "relative residual": 1.0e-14
+  type: "newton"
+type: "single"

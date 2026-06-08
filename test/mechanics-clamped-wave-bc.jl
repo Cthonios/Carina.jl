@@ -49,8 +49,8 @@ end
                            "explicit-dynamic", "clamped-bc")
     mktempdir() do dir
         cp_example(joinpath(example_dir, "clamped-bc.g"),    joinpath(dir, "clamped-bc.g"))
-        cp_example(joinpath(example_dir, "clamped-bc.toml"), joinpath(dir, "clamped-bc.toml"))
-        sim = Carina.run(joinpath(dir, "clamped-bc.toml"))
+        cp_example(joinpath(example_dir, "clamped-bc.yaml"), joinpath(dir, "clamped-bc.yaml"))
+        sim = Carina.run(joinpath(dir, "clamped-bc.yaml"))
 
         a = 1.0e-3
         τ = 5.0e-5
@@ -94,8 +94,8 @@ end
                            "implicit-dynamic", "clamped-bc")
     mktempdir() do dir
         cp_example(joinpath(example_dir, "clamped-bc.g"),    joinpath(dir, "clamped-bc.g"))
-        cp_example(joinpath(example_dir, "clamped-bc.toml"), joinpath(dir, "clamped-bc.toml"))
-        sim = Carina.run(joinpath(dir, "clamped-bc.toml"))
+        cp_example(joinpath(example_dir, "clamped-bc.yaml"), joinpath(dir, "clamped-bc.yaml"))
+        sim = Carina.run(joinpath(dir, "clamped-bc.yaml"))
 
         a = 1.0e-3
         τ = 5.0e-5

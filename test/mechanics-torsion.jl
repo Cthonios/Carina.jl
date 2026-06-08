@@ -30,8 +30,8 @@
     @testset "Explicit central difference (reference)" begin
         mktempdir() do dir
             cp_example(joinpath(explicit_dir, "torsion.g"),          joinpath(dir, "torsion.g"))
-            cp_example(joinpath(explicit_dir, "torsion_explicit.toml"), joinpath(dir, "torsion_explicit.toml"))
-            sim = Carina.run(joinpath(dir, "torsion_explicit.toml"); backend=backend)
+            cp_example(joinpath(explicit_dir, "torsion_explicit.yaml"), joinpath(dir, "torsion_explicit.yaml"))
+            sim = Carina.run(joinpath(dir, "torsion_explicit.yaml"); backend=backend)
 
             mx  = maximum_components(sim)
             mag = maximum_magnitude(sim)
@@ -54,8 +54,8 @@
     @testset "Implicit Newmark L-BFGS vs explicit" begin
         mktempdir() do dir
             cp_example(joinpath(implicit_dir, "torsion.g"),        joinpath(dir, "torsion.g"))
-            cp_example(joinpath(implicit_dir, "torsion_lbfgs.toml"), joinpath(dir, "torsion_lbfgs.toml"))
-            sim = Carina.run(joinpath(dir, "torsion_lbfgs.toml"); backend=backend)
+            cp_example(joinpath(implicit_dir, "torsion_lbfgs.yaml"), joinpath(dir, "torsion_lbfgs.yaml"))
+            sim = Carina.run(joinpath(dir, "torsion_lbfgs.yaml"); backend=backend)
 
             mx  = maximum_components(sim)
             mag = maximum_magnitude(sim)

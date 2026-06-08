@@ -27,8 +27,8 @@
     cpu_mag = 0.0
     mktempdir() do dir
         cp_example(joinpath(example_dir, "sphere.g"),             joinpath(dir, "sphere.g"))
-        cp_example(joinpath(example_dir, "sphere_explicit.toml"), joinpath(dir, "sphere_explicit.toml"))
-        sim = Carina.run(joinpath(dir, "sphere_explicit.toml"); backend=Carina.KA.CPU())
+        cp_example(joinpath(example_dir, "sphere_explicit.yaml"), joinpath(dir, "sphere_explicit.yaml"))
+        sim = Carina.run(joinpath(dir, "sphere_explicit.yaml"); backend=Carina.KA.CPU())
         @test sim.backend isa Carina.KA.CPU
         cpu_mag = maximum_magnitude(sim)
     end
@@ -38,8 +38,8 @@
         @testset "GPU runs on $backend" begin
             mktempdir() do dir
                 cp_example(joinpath(example_dir, "sphere.g"),             joinpath(dir, "sphere.g"))
-                cp_example(joinpath(example_dir, "sphere_explicit.toml"), joinpath(dir, "sphere_explicit.toml"))
-                sim = Carina.run(joinpath(dir, "sphere_explicit.toml"); backend=backend)
+                cp_example(joinpath(example_dir, "sphere_explicit.yaml"), joinpath(dir, "sphere_explicit.yaml"))
+                sim = Carina.run(joinpath(dir, "sphere_explicit.yaml"); backend=backend)
 
                 # Confirm the simulation actually ran on the GPU backend
                 @test !(sim.backend isa Carina.KA.CPU)

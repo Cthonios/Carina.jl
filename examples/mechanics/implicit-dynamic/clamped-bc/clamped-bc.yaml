@@ -1,0 +1,52 @@
+"output mesh file": "clamped-bc.e"
+"input mesh file": "clamped-bc.g"
+model:
+  material:
+    "linear elastic":
+      "elastic modulus": 1.0e9
+      density: 1000.0
+      "Poisson's ratio": 0.0
+    blocks:
+      clamped: "linear elastic"
+  type: "solid mechanics"
+"boundary conditions":
+  dirichlet:
+    - "node set": "nsx-"
+      function: "0.0"
+      component: "x"
+    - "node set": "nsx+"
+      function: "0.0"
+      component: "x"
+    - "node set": "nsy-"
+      function: "0.0"
+      component: "y"
+    - "node set": "nsy+"
+      function: "0.0"
+      component: "y"
+    - "node set": "nsz-"
+      function: "a=1.0e-3; tc=2.5e-4; tau=5.0e-5; a*exp(-(t-tc)*(t-tc)/tau/tau/2)"
+      component: "z"
+    - "node set": "nsz+"
+      function: "0.0"
+      component: "z"
+"time integrator":
+  "time step": 2.0e-6
+  gamma: 0.5
+  "final time": 0.00075
+  "initial time": 0.0
+  type: "newmark"
+  beta: 0.25
+"output interval": 5.0e-5
+solver:
+  "linear solver":
+    type: "direct"
+  termination:
+    "fail when any":
+      - "maximum iterations": 4
+    "converge when all":
+      - "minimum iterations": 0
+      - any:
+          - "absolute residual": 1.0e-6
+          - "relative residual": 1.0e-10
+  type: "newton"
+type: "single"

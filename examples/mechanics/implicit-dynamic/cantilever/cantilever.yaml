@@ -1,0 +1,45 @@
+"output mesh file": "cantilever.e"
+"input mesh file": "cantilever.g"
+model:
+  material:
+    "linear elastic":
+      "elastic modulus": 6.895e9
+      density: 2768.0
+      "Poisson's ratio": 0.25
+    blocks:
+      cantilever: "linear elastic"
+  type: "solid mechanics"
+"boundary conditions":
+  dirichlet:
+    - "node set": "nsx-"
+      function: "0.0"
+      component: "x"
+    - "node set": "nsx-"
+      function: "0.0"
+      component: "y"
+    - "node set": "nsx-"
+      function: "0.0"
+      component: "z"
+"time integrator":
+  "time step": 1.0e-6
+  gamma: 0.5
+  "final time": 3.0e-6
+  "initial time": 0.0
+  type: "newmark"
+  beta: 0.25
+solver:
+  "linear solver":
+    type: "direct"
+  termination:
+    "fail when any":
+      - "maximum iterations": 16
+    "converge when any":
+      - "absolute residual": 2.54e-8
+      - "relative residual": 1.0e-10
+  type: "newton"
+"initial conditions":
+  displacement:
+    - "node set": "nsall"
+      function: "0.393701 * x * x"
+      component: "y"
+type: "single"

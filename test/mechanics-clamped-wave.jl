@@ -89,8 +89,8 @@ end
 function _clamped_run_and_assert(example_dir, rtol)
     mktempdir() do dir
         cp_example(joinpath(example_dir, "clamped.g"),    joinpath(dir, "clamped.g"))
-        cp_example(joinpath(example_dir, "clamped.toml"), joinpath(dir, "clamped.toml"))
-        sim = Carina.run(joinpath(dir, "clamped.toml"))
+        cp_example(joinpath(example_dir, "clamped.yaml"), joinpath(dir, "clamped.yaml"))
+        sim = Carina.run(joinpath(dir, "clamped.yaml"))
 
         coords = reshape(Vector(sim.params_cpu.coords.data), 3, :)
         t_final = sim.controller.time

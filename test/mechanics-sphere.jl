@@ -32,8 +32,8 @@
     @testset "Explicit central difference (reference)" begin
         mktempdir() do dir
             cp_example(joinpath(explicit_dir, "sphere.g"),             joinpath(dir, "sphere.g"))
-            cp_example(joinpath(explicit_dir, "sphere_explicit.toml"), joinpath(dir, "sphere_explicit.toml"))
-            sim = Carina.run(joinpath(dir, "sphere_explicit.toml"); backend=Carina.KA.CPU())
+            cp_example(joinpath(explicit_dir, "sphere_explicit.yaml"), joinpath(dir, "sphere_explicit.yaml"))
+            sim = Carina.run(joinpath(dir, "sphere_explicit.yaml"); backend=Carina.KA.CPU())
 
             mag = maximum_magnitude(sim)
 
@@ -50,8 +50,8 @@
     @testset "Implicit Newmark direct vs explicit" begin
         mktempdir() do dir
             cp_example(joinpath(implicit_dir, "sphere.g"),             joinpath(dir, "sphere.g"))
-            cp_example(joinpath(implicit_dir, "sphere_implicit.toml"), joinpath(dir, "sphere_implicit.toml"))
-            sim = Carina.run(joinpath(dir, "sphere_implicit.toml"); backend=Carina.KA.CPU())
+            cp_example(joinpath(implicit_dir, "sphere_implicit.yaml"), joinpath(dir, "sphere_implicit.yaml"))
+            sim = Carina.run(joinpath(dir, "sphere_implicit.yaml"); backend=Carina.KA.CPU())
 
             mag = maximum_magnitude(sim)
 

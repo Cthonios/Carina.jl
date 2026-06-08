@@ -1,7 +1,7 @@
 # Exodus output helpers for Carina simulations.
 #
 # Responsibilities:
-#   _parse_output_spec        — parse [output] section → OutputSpec
+#   _parse_output_spec        — parse YAML output: section → OutputSpec
 #   _is_dynamic_integrator    — true for Newmark / central difference
 #   _build_nodal_vars         — VectorFunction list for PostProcessor
 #   _element_var_names        — element variable names to register upfront
@@ -29,8 +29,8 @@ function _parse_output_spec(dict::Dict{String,Any})
         Bool(get(out, "velocity",              false)),
         Bool(get(out, "acceleration",          false)),
         Bool(get(out, "stress",                true)),
-        Bool(get(out, "deformation_gradient",  true)),
-        Bool(get(out, "internal_variables",    false)),
+        Bool(get(out, "deformation gradient",  true)),
+        Bool(get(out, "internal variables",    false)),
         recovery,
     )
 end
@@ -40,10 +40,10 @@ end
 # ---------------------------------------------------------------------------
 
 function _is_dynamic_integrator(dict::Dict{String,Any})
-    ti  = get(dict, "time_integrator", Dict{String,Any}())
-    typ = lowercase(get(ti, "type", "quasi_static"))
-    return typ in ("central_difference", "centraldifference", "cd",
-                   "newmark", "newmark_beta")
+    ti  = get(dict, "time integrator", Dict{String,Any}())
+    typ = lowercase(get(ti, "type", "quasi static"))
+    return typ in ("central difference", "centraldifference", "cd",
+                   "newmark", "newmark-beta")
 end
 
 # ---------------------------------------------------------------------------

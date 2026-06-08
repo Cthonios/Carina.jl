@@ -31,7 +31,7 @@ function _apply_initial_displacement_ics!(integrator, mesh, asm_cpu, p, p_cpu,
     for entry in disp_ics
         var_sym  = _component_to_string(entry["component"])
         func     = _make_function(entry["function"])
-        nset_sym = entry["node_set"]
+        nset_sym = entry["node set"]
         bk       = FEC.BCBookKeeping(mesh, dof, var_sym; nset_name=nset_sym)
         for (full_dof, node) in zip(bk.dofs, bk.nodes)
             unk_idx = inv_map[full_dof]
@@ -76,7 +76,7 @@ function _apply_initial_velocity_ics!(integrator::_DynamicIntegrator, mesh, asm_
     for entry in vel_ics
         var_sym  = _component_to_string(entry["component"])
         func     = _make_function(entry["function"])
-        nset_sym = entry["node_set"]
+        nset_sym = entry["node set"]
         bk       = FEC.BCBookKeeping(mesh, dof, var_sym; nset_name=nset_sym)
         for (full_dof, node) in zip(bk.dofs, bk.nodes)
             unk_idx = inv_map[full_dof]
@@ -112,7 +112,7 @@ end
 #     u₀(x) = f(s)            (user-supplied displacement profile)
 #     v₀(x) = −c · ∂u₀/∂s     (derived symbolically)
 #
-# A user can write the displacement profile in the TOML and Carina
+# A user can write the displacement profile in the YAML and Carina
 # derives the velocity field via [`FEC.Expressions.differentiate`](@ref) —
 # no hand-coded derivatives, no ForwardDiff at IC time.
 # ---------------------------------------------------------------------------
@@ -137,9 +137,9 @@ function _apply_initial_traveling_wave_ics!(integrator::_DynamicIntegrator, mesh
         u_expr   = FEC.Expressions.ScalarExpressionFunction{Float64}(
                        u_str, _CARINA_EXPR_VARS)
         dir_idx  = _direction_to_idx(String(entry["direction"]))
-        c        = _f64(entry["wave_speed"])
+        c        = _f64(entry["wave speed"])
         du_ds    = FEC.Expressions.differentiate(u_expr, dir_idx)
-        nset_sym = entry["node_set"]
+        nset_sym = entry["node set"]
         bk       = FEC.BCBookKeeping(mesh, dof, var_sym; nset_name=nset_sym)
 
         touched_displacement = true

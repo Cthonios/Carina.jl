@@ -1,0 +1,25 @@
+"output mesh file": "cube_gpu.e"
+"input mesh file": "cube.g"
+device: "rocm"
+model:
+  material:
+    blocks:
+      cube: "neohookean"
+    neohookean:
+      "elastic modulus": 1000.0
+      density: 1000.0
+      "Poisson's ratio": 0.25
+  type: "solid mechanics"
+"output interval": 0.1
+"time integrator":
+  "time step": 0.01
+  gamma: 0.5
+  "final time": 1.0
+  "initial time": 0.0
+  type: "central difference"
+"initial conditions":
+  velocity:
+    - "node set": "nsall"
+      function: "1.0"
+      component: "z"
+type: "single"

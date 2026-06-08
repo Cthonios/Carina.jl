@@ -43,7 +43,7 @@
 #     julia --project -e 'include("studies/clamped-wave-dt-refinement.jl"); main()'
 
 using Carina
-using TOML
+using YAML
 using Printf
 
 # -------------- analytical solution (eqs. from mechanics-clamped-wave.jl) -----
@@ -81,22 +81,20 @@ function _l2_error(sim)
     return sqrt(err2 / ref2)
 end
 
-# -------------- run one Carina simulation with a per-Δt toml -----------------
-function _run_at_dt(template_dir::String, template_toml::String, dt::Float64)
-    dict = TOML.parsefile(joinpath(template_dir, template_toml))
-    dict["time_integrator"]["time_step"] = dt
+# -------------- run one Carina simulation with a per-Δt yaml -----------------
+function _run_at_dt(template_dir::String, template_yaml::String, dt::Float64)
+    dict = YAML.load_file(joinpath(template_dir, template_yaml); dicttype=Dict{String,Any})
+    dict["time integrator"]["time step"] = dt
     # Coarsen the output cadence so we don't write 80+ frames for the
     # finest Δt.  We only need the final state.
-    dict["output_interval"] = dict["time_integrator"]["final_time"]
+    dict["output interval"] = dict["time integrator"]["final time"]
     mktempdir() do dir
         # Example mesh files are symlinks into examples/meshes/; resolve.
-        src_mesh = realpath(joinpath(template_dir, dict["input_mesh_file"]))
-        cp(src_mesh, joinpath(dir, dict["input_mesh_file"]))
-        toml_path = joinpath(dir, "case.toml")
-        open(toml_path, "w") do io
-            TOML.print(io, dict)
-        end
-        sim = Carina.run(toml_path)
+        src_mesh = realpath(joinpath(template_dir, dict["input mesh file"]))
+        cp(src_mesh, joinpath(dir, dict["input mesh file"]))
+        yaml_path = joinpath(dir, "case.yaml")
+        YAML.write_file(yaml_path, dict)
+        sim = Carina.run(yaml_path)
         return _l2_error(sim)
     end
 end
@@ -134,7 +132,7 @@ function main()
     impl_errs = Float64[]
     for dt in impl_dts
         @info "implicit  dt = $dt"
-        push!(impl_errs, _run_at_dt(impl_dir, "clamped.toml", dt))
+        push!(impl_errs, _run_at_dt(impl_dir, "clamped.yaml", dt))
     end
     _print_table("Implicit Newmark (γ=0.5, β=0.25)  —  consistent mass",
                  impl_dts, impl_errs)
@@ -143,13 +141,13 @@ function main()
     expl_dir  = joinpath(repo_root, "examples", "mechanics",
                          "explicit-dynamic", "clamped")
     # CFL = c·Δt/h ≤ 1, so Δt ≤ 1e-6.  Top of the sweep is 2e-7 (matches the
-    # checked-in toml).  Going below 2.5e-8 burns wall time for diminishing
+    # checked-in yaml).  Going below 2.5e-8 burns wall time for diminishing
     # returns.
     expl_dts  = [2.0e-7, 1.0e-7, 5.0e-8, 2.5e-8]
     expl_errs = Float64[]
     for dt in expl_dts
         @info "explicit  dt = $dt"
-        push!(expl_errs, _run_at_dt(expl_dir, "clamped.toml", dt))
+        push!(expl_errs, _run_at_dt(expl_dir, "clamped.yaml", dt))
     end
     _print_table("Central difference  —  lumped mass",
                  expl_dts, expl_errs)

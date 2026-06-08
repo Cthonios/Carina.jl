@@ -1,0 +1,51 @@
+"output mesh file": "tension-specimen.e"
+"input mesh file": "tension-specimen.g"
+model:
+  material:
+    blocks:
+      tension: "neohookean"
+    neohookean:
+      "elastic modulus": 7.0e10
+      density: 2700.0
+      "Poisson's ratio": 0.36
+  type: "solid mechanics"
+"boundary conditions":
+  dirichlet:
+    - "node set": "sym_y"
+      function: "0.0"
+      component: "y"
+    - "node set": "sym_x"
+      function: "0.0"
+      component: "x"
+    - "node set": "sym_z"
+      function: "0.0"
+      component: "z"
+    - "node set": "top_y"
+      function: "0.005 * t"
+      component: "y"
+"time integrator":
+  "time step": 0.01
+  "increase factor": 1.5
+  "decrease factor": 0.5
+  "maximum time step": 0.05
+  "final time": 1.0
+  "initial time": 0.0
+  type: "quasi static"
+  "minimum time step": 0.001
+solver:
+  "linear solver":
+    preconditioner:
+      type: "jacobi"
+    "maximum iterations": 1000
+    type: "cg"
+    tolerance: 1.0e-8
+  termination:
+    "fail when any":
+      - "maximum iterations": 16
+    "converge when all":
+      - "minimum iterations": 0
+      - any:
+          - "absolute residual": 1.0e-8
+          - "relative residual": 1.0e-12
+  type: "newton"
+type: "single"

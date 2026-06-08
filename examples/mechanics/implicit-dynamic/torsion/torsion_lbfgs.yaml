@@ -1,0 +1,42 @@
+"output mesh file": "torsion_lbfgs.e"
+"input mesh file": "torsion.g"
+device: "cpu"
+model:
+  material:
+    blocks:
+      torsion: "neohookean"
+    neohookean:
+      "elastic modulus": 1.0e9
+      density: 1000.0
+      "Poisson's ratio": 0.25
+  type: "solid mechanics"
+"time integrator":
+  "time step": 2.0e-6
+  gamma: 0.5
+  "final time": 2.0e-6
+  "initial time": 0.0
+  type: "newmark"
+  beta: 0.25
+solver:
+  "linear solver":
+    "history size": 10
+    type: "lbfgs"
+  termination:
+    "fail when any":
+      - "maximum iterations": 200
+    "converge when any":
+      - "absolute residual": 1.0e-6
+      - "relative residual": 1.0e-10
+  type: "newton"
+"initial conditions":
+  velocity:
+    - "node set": "nsall"
+      function: "a=8000; -a*y*z"
+      component: "x"
+    - "node set": "nsall"
+      function: "a=8000; a*x*z"
+      component: "y"
+    - "node set": "nsall"
+      function: "0.0"
+      component: "z"
+type: "single"

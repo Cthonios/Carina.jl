@@ -7,11 +7,11 @@
 #     u(x, t) = f(s − c·t)  ⇒  v(x, 0) = −c · ∂u₀/∂s
 #
 # where s ∈ {x, y, z} is the propagation axis.  This test exercises the
-# pieces that wire that derivation together — TOML binding inlining, the
+# pieces that wire that derivation together — YAML binding inlining, the
 # parser front-end, and FEC's symbolic differentiator — by checking the
 # evaluated derivative against the closed form at a grid of sample points.
 # The integration into the full simulation pipeline is covered by the
-# existing dynamics tests once a real TOML invokes the new IC type.
+# existing dynamics tests once a real YAML invokes the new IC type.
 
 @testset "Traveling-wave IC parser + symbolic derivatives" begin
     # ---------------------------------------------------------------------- #
@@ -49,31 +49,31 @@
         @test Carina._parse_traveling_wave_ics(Dict{String,Any}()) == Any[]
 
         good = Dict{String,Any}(
-            "initial_conditions" => Dict{String,Any}(
-                "traveling_wave" => Any[
+            "initial conditions" => Dict{String,Any}(
+                "traveling wave" => Any[
                     Dict{String,Any}(
-                        "node_set"    => "nsall",
+                        "node set"    => "nsall",
                         "component"   => "z",
                         "displacement"=> "a=0.01; s=0.02; a*exp(-z*z/s/s/2)",
                         "direction"   => "z",
-                        "wave_speed"  => 1000.0,
+                        "wave speed"  => 1000.0,
                     ),
                 ],
             ),
         )
         out = Carina._parse_traveling_wave_ics(good)
         @test length(out) == 1
-        @test out[1]["wave_speed"] == 1000.0
+        @test out[1]["wave speed"] == 1000.0
         @test out[1]["direction"]  == "z"
 
         missing_dir = Dict{String,Any}(
-            "initial_conditions" => Dict{String,Any}(
-                "traveling_wave" => Any[
+            "initial conditions" => Dict{String,Any}(
+                "traveling wave" => Any[
                     Dict{String,Any}(
-                        "node_set"    => "ns",
+                        "node set"    => "ns",
                         "component"   => "z",
                         "displacement"=> "0.0",
-                        "wave_speed"  => 1.0,
+                        "wave speed"  => 1.0,
                     ),
                 ],
             ),
@@ -81,14 +81,14 @@
         @test_throws ErrorException Carina._parse_traveling_wave_ics(missing_dir)
 
         bad_dir = Dict{String,Any}(
-            "initial_conditions" => Dict{String,Any}(
-                "traveling_wave" => Any[
+            "initial conditions" => Dict{String,Any}(
+                "traveling wave" => Any[
                     Dict{String,Any}(
-                        "node_set"    => "ns",
+                        "node set"    => "ns",
                         "component"   => "z",
                         "displacement"=> "0.0",
                         "direction"   => "w",
-                        "wave_speed"  => 1.0,
+                        "wave speed"  => 1.0,
                     ),
                 ],
             ),

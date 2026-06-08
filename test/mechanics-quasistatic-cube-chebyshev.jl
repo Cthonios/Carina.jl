@@ -9,79 +9,69 @@
     mktempdir() do dir
         cp_example(joinpath(example_dir, "cube.g"), joinpath(dir, "cube.g"))
 
-        # Write a TOML config with iterative solver + Chebyshev preconditioner.
-        toml_path = joinpath(dir, "cube_chebyshev.toml")
-        open(toml_path, "w") do io
+        # Write a YAML config with iterative solver + Chebyshev preconditioner.
+        yaml_path = joinpath(dir, "cube_chebyshev.yaml")
+        open(yaml_path, "w") do io
             write(io, """
-type = "single"
+type: single
 
-input_mesh_file = "cube.g"
-output_mesh_file = "cube_chebyshev.e"
+input mesh file: cube.g
+output mesh file: cube_chebyshev.e
 
-[model]
-type = "solid_mechanics"
+model:
+  type: solid mechanics
+  material:
+    blocks:
+      cube: neohookean
+    neohookean:
+      elastic modulus: 10.0e9
+      Poisson's ratio: 0.25
+      density: 1000.0
 
-[model.material.blocks]
-cube = "neohookean"
+time integrator:
+  type: quasi static
+  initial time: 0.0
+  final time: 1.0
+  time step: 0.1
 
-[model.material.neohookean]
-elastic_modulus = 10.0e9
-poissons_ratio = 0.25
-density = 1000.0
+boundary conditions:
+  dirichlet:
+    - side set: ssx-
+      component: x
+      function: "0.0"
+    - side set: ssy-
+      component: y
+      function: "0.0"
+    - side set: ssz-
+      component: z
+      function: "0.0"
+    - side set: ssz+
+      component: z
+      function: "1.0e-3 * t"
 
-[time_integrator]
-type = "quasi_static"
-initial_time = 0.0
-final_time = 1.0
-time_step = 0.1
-
-[[boundary_conditions.dirichlet]]
-side_set = "ssx-"
-component = "x"
-function = "0.0"
-
-[[boundary_conditions.dirichlet]]
-side_set = "ssy-"
-component = "y"
-function = "0.0"
-
-[[boundary_conditions.dirichlet]]
-side_set = "ssz-"
-component = "z"
-function = "0.0"
-
-[[boundary_conditions.dirichlet]]
-side_set = "ssz+"
-component = "z"
-function = "1.0e-3 * t"
-
-[solver]
-type = "newton"
-
-[[solver.termination]]
-type = "combo"
-combo = "or"
-tests = [
-    { type = "absolute_residual", tolerance = 1.0e-6 },
-    { type = "relative_residual", tolerance = 1.0e-10 },
-]
-
-[[solver.termination]]
-type = "maximum_iterations"
-value = 16
-
-[solver.linear_solver]
-type = "iterative"
-tolerance = 1.0e-10
-maximum_iterations = 500
-
-[solver.linear_solver.preconditioner]
-type = "chebyshev"
-degree = 5
+solver:
+  type: newton
+  termination:
+    - type: combo
+      combo: or
+      tests:
+        - type: absolute residual
+          tolerance: 1.0e-6
+        - type: relative residual
+          tolerance: 1.0e-10
+    - type: maximum iterations
+      value: 16
+  linear solver:
+    type: iterative
+    tolerance: 1.0e-10
+    maximum iterations: 500
+    preconditioner:
+      type: chebyshev
+      degree: 5
 """)
         end
 
-        sim = Carina.run(toml_path)
+        sim = Carina.run(yaml_path)
         avg = average_components(sim)
         mx  = maximum_components(sim)
 
