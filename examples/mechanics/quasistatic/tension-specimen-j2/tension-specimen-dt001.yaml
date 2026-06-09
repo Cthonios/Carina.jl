@@ -1,50 +1,50 @@
-"output mesh file": "tension-specimen-dt001.e"
-"input mesh file": "tension-specimen.g"
+type: single
+input mesh file: tension-specimen.g
+output mesh file: tension-specimen-dt001.e
+output interval: 0.01
 output:
   stress: true
-  "internal variables": true
+  internal variables: true
 model:
+  type: solid mechanics
   material:
-    "j2 plasticity":
-      "elastic modulus": 7.0e10
+    j2 plasticity:
+      elastic modulus: 7.0e10
       density: 2700.0
-      "Poisson's ratio": 0.36
-      "hardening modulus": 7.0e8
-      "yield stress": 2.5e8
+      Poisson's ratio: 0.36
+      hardening modulus: 7.0e8
+      yield stress: 2.5e8
     blocks:
-      tension: "j2 plasticity"
-  type: "solid mechanics"
-"boundary conditions":
+      tension: j2 plasticity
+time integrator:
+  type: quasi static
+  time step: 0.01
+  final time: 1.0
+  initial time: 0.0
+boundary conditions:
   dirichlet:
-    - "node set": "sym_y"
+    - node set: sym_y
       function: "0.0"
-      component: "y"
-    - "node set": "sym_x"
+      component: y
+    - node set: sym_x
       function: "0.0"
-      component: "x"
-    - "node set": "sym_z"
+      component: x
+    - node set: sym_z
       function: "0.0"
-      component: "z"
-    - "node set": "top_y"
+      component: z
+    - node set: top_y
       function: "0.005 * t"
-      component: "y"
-"output interval": 0.01
-"time integrator":
-  "time step": 0.01
-  "final time": 1.0
-  "initial time": 0.0
-  type: "quasi static"
+      component: y
 solver:
-  "use line search": true
-  "linear solver":
-    type: "direct"
+  type: newton
+  use line search: true
+  linear solver:
+    type: direct
   termination:
-    "fail when any":
-      - "maximum iterations": 16
-    "converge when all":
-      - "minimum iterations": 0
+    fail when any:
+      - maximum iterations: 16
+    converge when all:
+      - minimum iterations: 0
       - any:
-          - "absolute residual": 1.0e-8
-          - "relative residual": 1.0e-12
-  type: "newton"
-type: "single"
+          - absolute residual: 1.0e-8
+          - relative residual: 1.0e-12

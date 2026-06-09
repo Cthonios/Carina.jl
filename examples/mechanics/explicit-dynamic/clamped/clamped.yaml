@@ -1,44 +1,44 @@
-"output mesh file": "clamped.e"
-"input mesh file": "clamped.g"
+type: single
+input mesh file: clamped.g
+output mesh file: clamped.e
+output interval: 1.0e-6
 model:
+  type: solid mechanics
   material:
-    "linear elastic":
-      "elastic modulus": 1.0e9
+    linear elastic:
+      elastic modulus: 1.0e9
       density: 1000.0
-      "Poisson's ratio": 0.0
+      Poisson's ratio: 0.0
     blocks:
-      clamped: "linear elastic"
-  type: "solid mechanics"
-"boundary conditions":
-  dirichlet:
-    - "node set": "nsx-"
-      function: "0.0"
-      component: "x"
-    - "node set": "nsx+"
-      function: "0.0"
-      component: "x"
-    - "node set": "nsy-"
-      function: "0.0"
-      component: "y"
-    - "node set": "nsy+"
-      function: "0.0"
-      component: "y"
-    - "node set": "nsz-"
-      function: "0.0"
-      component: "z"
-    - "node set": "nsz+"
-      function: "0.0"
-      component: "z"
-"time integrator":
-  "time step": 1.0e-7
+      clamped: linear elastic
+time integrator:
+  type: central difference
+  time step: 1.0e-7
   gamma: 0.5
-  "final time": 1.0e-5
-  "initial time": 0.0
-  type: "central difference"
-"output interval": 1.0e-6
-"initial conditions":
+  final time: 1.0e-5
+  initial time: 0.0
+initial conditions:
   displacement:
-    - "node set": "nsall"
+    - node set: nsall
       function: "a=0.01; s=0.02; a*exp(-z*z/s/s/2)"
-      component: "z"
-type: "single"
+      component: z
+boundary conditions:
+  dirichlet:
+    - node set: nsx-
+      function: "0.0"
+      component: x
+    - node set: nsx+
+      function: "0.0"
+      component: x
+    - node set: nsy-
+      function: "0.0"
+      component: y
+    - node set: nsy+
+      function: "0.0"
+      component: y
+    - node set: nsz-
+      function: "0.0"
+      component: z
+    - node set: nsz+
+      function: "0.0"
+      component: z

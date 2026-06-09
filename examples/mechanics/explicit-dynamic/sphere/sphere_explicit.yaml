@@ -1,30 +1,30 @@
-"output mesh file": "sphere_explicit.e"
-"input mesh file": "sphere.g"
-device: "cpu"
+type: single
+input mesh file: sphere.g
+output mesh file: sphere_explicit.e
 model:
+  type: solid mechanics
   material:
     blocks:
-      sphere: "neohookean"
+      sphere: neohookean
     neohookean:
-      "elastic modulus": 10000.0
+      elastic modulus: 10000.0
       density: 1000.0
-      "Poisson's ratio": 0.33
-  type: "solid mechanics"
-"time integrator":
-  "time step": 0.01
+      Poisson's ratio: 0.33
+time integrator:
+  type: central difference
+  time step: 0.01
   gamma: 0.5
-  "final time": 0.01
-  "initial time": 0.0
-  type: "central difference"
-"initial conditions":
+  final time: 0.01
+  initial time: 0.0
+initial conditions:
   velocity:
-    - "node set": "sphere_surf"
+    - node set: sphere_surf
       function: "a=10.0; -a*y*z"
-      component: "x"
-    - "node set": "sphere_surf"
+      component: x
+    - node set: sphere_surf
       function: "a=10.0; a*x*z"
-      component: "y"
-    - "node set": "sphere_surf"
+      component: y
+    - node set: sphere_surf
       function: "0.0"
-      component: "z"
-type: "single"
+      component: z
+device: cpu

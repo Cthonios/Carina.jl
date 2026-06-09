@@ -1,45 +1,45 @@
-"output mesh file": "tension-specimen.e"
-"input mesh file": "tension-specimen.g"
+type: single
+input mesh file: tension-specimen.g
+output mesh file: tension-specimen.e
 model:
+  type: solid mechanics
   material:
     blocks:
-      tension: "neohookean"
+      tension: neohookean
     neohookean:
-      "elastic modulus": 1.0e9
+      elastic modulus: 1.0e9
       density: 1000.0
-      "Poisson's ratio": 0.25
-  type: "solid mechanics"
-"boundary conditions":
-  dirichlet:
-    - "node set": "sym_y"
-      function: "0.0"
-      component: "y"
-    - "node set": "sym_x"
-      function: "0.0"
-      component: "x"
-    - "node set": "sym_z"
-      function: "0.0"
-      component: "z"
-    - "node set": "top_y"
-      function: "0.005 * 0.5 * (1.0 - cos(pi*t))"
-      component: "y"
-"time integrator":
-  "time step": 0.01
+      Poisson's ratio: 0.25
+time integrator:
+  type: newmark
+  time step: 0.01
   gamma: 0.5
-  "final time": 1.0
-  "initial time": 0.0
-  type: "newmark"
+  final time: 1.0
+  initial time: 0.0
   beta: 0.25
+boundary conditions:
+  dirichlet:
+    - node set: sym_y
+      function: "0.0"
+      component: y
+    - node set: sym_x
+      function: "0.0"
+      component: x
+    - node set: sym_z
+      function: "0.0"
+      component: z
+    - node set: top_y
+      function: "0.005 * 0.5 * (1.0 - cos(pi*t))"
+      component: y
 solver:
-  "linear solver":
-    type: "direct"
+  type: newton
+  linear solver:
+    type: direct
   termination:
-    "fail when any":
-      - "maximum iterations": 16
-    "converge when all":
-      - "minimum iterations": 0
+    fail when any:
+      - maximum iterations: 16
+    converge when all:
+      - minimum iterations: 0
       - any:
-          - "absolute residual": 1.0e-5
-          - "relative residual": 1.0e-7
-  type: "newton"
-type: "single"
+          - absolute residual: 1.0e-5
+          - relative residual: 1.0e-7

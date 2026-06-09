@@ -1,43 +1,43 @@
-"output mesh file": "cube_nlcg.e"
-"input mesh file": "cube.g"
+type: single
+input mesh file: cube.g
+output mesh file: cube_nlcg.e
 model:
+  type: solid mechanics
   material:
-    "linear elastic":
-      "elastic modulus": 1.0e10
+    linear elastic:
+      elastic modulus: 1.0e10
       density: 1000.0
-      "Poisson's ratio": 0.25
+      Poisson's ratio: 0.25
     blocks:
-      cube: "linear elastic"
-  type: "solid mechanics"
-"boundary conditions":
+      cube: linear elastic
+time integrator:
+  type: quasi static
+  time step: 0.1
+  final time: 1.0
+  initial time: 0.0
+boundary conditions:
   dirichlet:
     - function: "0.0"
-      "side set": "ssx-"
-      component: "x"
+      side set: ssx-
+      component: x
     - function: "0.0"
-      "side set": "ssy-"
-      component: "y"
+      side set: ssy-
+      component: y
     - function: "0.0"
-      "side set": "ssz-"
-      component: "z"
+      side set: ssz-
+      component: z
     - function: "1.0e-3 * t"
-      "side set": "ssz+"
-      component: "z"
-"time integrator":
-  "time step": 0.1
-  "final time": 1.0
-  "initial time": 0.0
-  type: "quasi static"
+      side set: ssz+
+      component: z
 solver:
+  type: nonlinear cg
   preconditioner:
-    type: "jacobi"
-  "line search maximum iterations": 30
-  "use line search": true
+    type: jacobi
+  line search maximum iterations: 30
+  use line search: true
   termination:
-    "fail when any":
-      - "maximum iterations": 200
-    "converge when any":
-      - "absolute residual": 1.0e-8
-      - "relative residual": 1.0e-14
-  type: "nonlinear cg"
-type: "single"
+    fail when any:
+      - maximum iterations: 200
+    converge when any:
+      - absolute residual: 1.0e-8
+      - relative residual: 1.0e-14

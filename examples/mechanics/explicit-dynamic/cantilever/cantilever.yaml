@@ -1,35 +1,35 @@
-"output mesh file": "cantilever.e"
-"input mesh file": "cantilever.g"
+type: single
+input mesh file: cantilever.g
+output mesh file: cantilever.e
 model:
+  type: solid mechanics
   material:
-    "linear elastic":
-      "elastic modulus": 6.895e9
+    linear elastic:
+      elastic modulus: 6.895e9
       density: 2768.0
-      "Poisson's ratio": 0.25
+      Poisson's ratio: 0.25
     blocks:
-      cantilever: "linear elastic"
-  type: "solid mechanics"
-"boundary conditions":
-  dirichlet:
-    - "node set": "nsx-"
-      function: "0.0"
-      component: "x"
-    - "node set": "nsx-"
-      function: "0.0"
-      component: "y"
-    - "node set": "nsx-"
-      function: "0.0"
-      component: "z"
-"time integrator":
-  "time step": 1.0e-6
+      cantilever: linear elastic
+time integrator:
+  type: central difference
+  time step: 1.0e-6
   cfl: 0.2
   gamma: 0.5
-  "final time": 3.0e-6
-  "initial time": 0.0
-  type: "central difference"
-"initial conditions":
+  final time: 3.0e-6
+  initial time: 0.0
+initial conditions:
   displacement:
-    - "node set": "nsall"
+    - node set: nsall
       function: "0.393701 * x * x"
-      component: "y"
-type: "single"
+      component: y
+boundary conditions:
+  dirichlet:
+    - node set: nsx-
+      function: "0.0"
+      component: x
+    - node set: nsx-
+      function: "0.0"
+      component: y
+    - node set: nsx-
+      function: "0.0"
+      component: z

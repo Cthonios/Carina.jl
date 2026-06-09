@@ -1,48 +1,48 @@
-"output mesh file": "cube.e"
-"input mesh file": "cube.g"
+type: single
+input mesh file: cube.g
+output mesh file: cube.e
 model:
+  type: solid mechanics
   material:
-    "linear elastic":
-      "elastic modulus": 1.0e9
+    linear elastic:
+      elastic modulus: 1.0e9
       density: 1000.0
-      "Poisson's ratio": 0.0
+      Poisson's ratio: 0.0
     blocks:
-      cube: "linear elastic"
-  type: "solid mechanics"
-"boundary conditions":
+      cube: linear elastic
+time integrator:
+  type: quasi static
+  time step: 1.0
+  final time: 1.0
+  initial time: 0.0
+boundary conditions:
   dirichlet:
     - function: "0.0"
-      "side set": "ssz-"
-      component: "z"
+      side set: ssz-
+      component: z
     - function: "0.0"
-      "side set": "ssx-"
-      component: "x"
+      side set: ssx-
+      component: x
     - function: "0.0"
-      "side set": "ssx+"
-      component: "x"
+      side set: ssx+
+      component: x
     - function: "0.0"
-      "side set": "ssy-"
-      component: "y"
+      side set: ssy-
+      component: y
     - function: "0.0"
-      "side set": "ssy+"
-      component: "y"
-"time integrator":
-  "time step": 1.0
-  "final time": 1.0
-  "initial time": 0.0
-  type: "quasi static"
+      side set: ssy+
+      component: y
 solver:
-  "linear solver":
-    type: "direct"
+  type: newton
+  linear solver:
+    type: direct
   termination:
-    "fail when any":
-      - "maximum iterations": 16
-    "converge when any":
-      - "absolute residual": 1.0e-8
-      - "relative residual": 1.0e-14
-  type: "newton"
-"body forces":
+    fail when any:
+      - maximum iterations: 16
+    converge when any:
+      - absolute residual: 1.0e-8
+      - relative residual: 1.0e-14
+body forces:
   - function: "-9810.0"
-    component: "z"
-    block: "cube"
-type: "single"
+    component: z
+    block: cube

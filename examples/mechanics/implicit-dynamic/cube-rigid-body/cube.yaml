@@ -1,34 +1,34 @@
-"output mesh file": "cube.e"
-"input mesh file": "cube.g"
+type: single
+input mesh file: cube.g
+output mesh file: cube.e
 model:
+  type: solid mechanics
   material:
-    "linear elastic":
-      "elastic modulus": 1.0e9
+    linear elastic:
+      elastic modulus: 1.0e9
       density: 1000.0
-      "Poisson's ratio": 0.25
+      Poisson's ratio: 0.25
     blocks:
-      cube: "linear elastic"
-  type: "solid mechanics"
-"time integrator":
-  "time step": 0.1
+      cube: linear elastic
+time integrator:
+  type: newmark
+  time step: 0.1
   gamma: 0.5
-  "final time": 1.0
-  "initial time": 0.0
-  type: "newmark"
+  final time: 1.0
+  initial time: 0.0
   beta: 0.25
-solver:
-  "linear solver":
-    type: "direct"
-  termination:
-    "fail when any":
-      - "maximum iterations": 16
-    "converge when any":
-      - "absolute residual": 1.0e-6
-      - "relative residual": 1.0e-10
-  type: "newton"
-"initial conditions":
+initial conditions:
   velocity:
-    - "node set": "nsall"
+    - node set: nsall
       function: "1.0"
-      component: "z"
-type: "single"
+      component: z
+solver:
+  type: newton
+  linear solver:
+    type: direct
+  termination:
+    fail when any:
+      - maximum iterations: 16
+    converge when any:
+      - absolute residual: 1.0e-6
+      - relative residual: 1.0e-10

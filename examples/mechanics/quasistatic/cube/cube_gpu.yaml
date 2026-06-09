@@ -1,42 +1,42 @@
-"output mesh file": "cube.e"
-"input mesh file": "cube.g"
-device: "rocm"
+type: single
+input mesh file: cube.g
+output mesh file: cube.e
 model:
+  type: solid mechanics
   material:
     blocks:
-      cube: "neohookean"
+      cube: neohookean
     neohookean:
-      "elastic modulus": 1.0e10
+      elastic modulus: 1.0e10
       density: 1000.0
-      "Poisson's ratio": 0.25
-  type: "solid mechanics"
-"boundary conditions":
+      Poisson's ratio: 0.25
+time integrator:
+  type: quasi static
+  time step: 0.1
+  final time: 1.0
+  initial time: 0.0
+boundary conditions:
   dirichlet:
     - function: "0.0"
-      "side set": "ssx-"
-      component: "x"
+      side set: ssx-
+      component: x
     - function: "0.0"
-      "side set": "ssy-"
-      component: "y"
+      side set: ssy-
+      component: y
     - function: "0.0"
-      "side set": "ssz-"
-      component: "z"
+      side set: ssz-
+      component: z
     - function: "1.0e-3 * t"
-      "side set": "ssz+"
-      component: "z"
-"time integrator":
-  "time step": 0.1
-  "final time": 1.0
-  "initial time": 0.0
-  type: "quasi static"
+      side set: ssz+
+      component: z
 solver:
-  "linear solver":
-    type: "iterative"
+  type: newton
+  linear solver:
+    type: iterative
   termination:
-    "fail when any":
-      - "maximum iterations": 16
-    "converge when any":
-      - "absolute residual": 1.0e-6
-      - "relative residual": 1.0e-10
-  type: "newton"
-type: "single"
+    fail when any:
+      - maximum iterations: 16
+    converge when any:
+      - absolute residual: 1.0e-6
+      - relative residual: 1.0e-10
+device: rocm
