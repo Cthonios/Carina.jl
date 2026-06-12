@@ -430,6 +430,12 @@ end
 # Characteristic element length kernel (for stable time step estimation).
 # Returns a scalar per QP — all QPs in an element give the same value.
 # Uses current (deformed) coordinates: X + u.
+#
+# h = minimum distance between any pair of element nodes.  Equals the
+# shortest edge for well-shaped elements (face/body diagonals are longer),
+# is conservative for distorted ones, and for higher-order elements gives
+# the node spacing, which is the relevant length for CFL stability.
+# Needs no edge connectivity, so it works for any element topology.
 # --------------------------------------------------------------------------- #
 
 function element_char_length(
@@ -441,19 +447,17 @@ function element_char_length(
     ndim = 3
     nnpe = length(x_cur) ÷ ndim
     T = eltype(x_cur)
-    cx = cy = cz = zero(T)
-    for i in 1:nnpe
-        cx += x_cur[(i-1)*ndim + 1]
-        cy += x_cur[(i-1)*ndim + 2]
-        cz += x_cur[(i-1)*ndim + 3]
+    h2 = typemax(T)
+    for i in 1:(nnpe - 1)
+        xi = x_cur[(i-1)*ndim + 1]
+        yi = x_cur[(i-1)*ndim + 2]
+        zi = x_cur[(i-1)*ndim + 3]
+        for j in (i+1):nnpe
+            dx = x_cur[(j-1)*ndim + 1] - xi
+            dy = x_cur[(j-1)*ndim + 2] - yi
+            dz = x_cur[(j-1)*ndim + 3] - zi
+            h2 = min(h2, dx*dx + dy*dy + dz*dz)
+        end
     end
-    cx /= nnpe; cy /= nnpe; cz /= nnpe
-    total = zero(T)
-    for i in 1:nnpe
-        dx = x_cur[(i-1)*ndim + 1] - cx
-        dy = x_cur[(i-1)*ndim + 2] - cy
-        dz = x_cur[(i-1)*ndim + 3] - cz
-        total += sqrt(dx*dx + dy*dy + dz*dz)
-    end
-    return 2 * total / nnpe
+    return sqrt(h2)
 end

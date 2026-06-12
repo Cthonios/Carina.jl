@@ -31,6 +31,7 @@ const indexed_test_files = [
     (14, "mechanics-gpu-device.jl"),
     (15, "mechanics-quasistatic-cube-chebyshev.jl"),
     (18, "initial-conditions-traveling-wave.jl"),
+    (19, "element-char-length.jl"),
 ]
 
 # ---------------------------------------------------------------------------
