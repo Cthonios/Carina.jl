@@ -232,7 +232,8 @@ function _write_recovered_fields!(sim, step)
         end
     end
 
-    # Apply lumped mass inverse
+    # Convert the assembled RHS b into nodal values: lumped divides by the
+    # diagonal mass; consistent solves M σ_nodal = b with the cached factor.
     if recovery_data isa LumpedRecovery
         for node in 1:n_nodes
             inv_m = recovery_data.inv_m_lumped[node]
@@ -245,6 +246,17 @@ function _write_recovered_fields!(sim, step)
                 for s in 1:NS
                     iv_nodal[s, node] *= inv_m
                 end
+            end
+        end
+    elseif recovery_data isa ConsistentRecovery
+        if need_stress
+            for c in 1:6
+                stress_nodal[c, :] .= recovery_data.M_factor \ stress_nodal[c, :]
+            end
+        end
+        if NS > 0
+            for s in 1:NS
+                iv_nodal[s, :] .= recovery_data.M_factor \ iv_nodal[s, :]
             end
         end
     end

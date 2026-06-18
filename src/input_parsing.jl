@@ -414,9 +414,39 @@ function _build_recovery_data(recovery::Symbol, asm_cpu, p_cpu)
         return LumpedRecovery(inv_vol)
 
     elseif recovery == :consistent
-        # TODO: assemble and factor scalar mass matrix
-        _carina_log(0, :warning, "Consistent L2 recovery not yet implemented, falling back to lumped")
-        return _build_recovery_data(:lumped, asm_cpu, p_cpu)
+        # Assemble the scalar consistent mass matrix M_ij = Σ_e Σ_q N_i N_j |J| w_q
+        # (geometry-only / density-free, same basis as the lumped volume above)
+        # and cache its Cholesky factor.  L2 projection then solves
+        # σ_nodal = M⁻¹ b with b_i = Σ_e Σ_q N_i σ(ξ_q) |J| w_q (assembled in io.jl).
+        fspace = FEC.function_space(asm_cpu.dof)
+        n_nodes = size(p_cpu.coords, 2)
+        conns = fspace.elem_conns
+        rows = Int[]; cols = Int[]; vals = Float64[]
+
+        for (b, ref_fe) in enumerate(fspace.ref_fes)
+            nelem = conns.nelems[b]
+            coffset = conns.offsets[b]
+            for e in 1:nelem
+                conn = FEC.connectivity(ref_fe, conns.data, e, coffset)
+                x_el = FEC._element_level_fields_flat(p_cpu.coords, ref_fe, conn)
+                nnpe = RFE.num_cell_dofs(ref_fe)
+                for q in 1:RFE.num_cell_quadrature_points(ref_fe)
+                    interps = FEC._cell_interpolants(ref_fe, q)
+                    cell = FEC.map_interpolants(interps, x_el)
+                    N = RFE.cell_shape_function_value(ref_fe, q)
+                    JxW = cell.JxW
+                    for i in 1:nnpe, j in 1:nnpe
+                        push!(rows, conn[i]); push!(cols, conn[j])
+                        push!(vals, N[i] * N[j] * JxW)
+                    end
+                end
+            end
+        end
+
+        M = SparseArrays.sparse(rows, cols, vals, n_nodes, n_nodes)
+        M_factor = cholesky(Symmetric(M))
+        _carina_log(0, :setup, "L2 consistent recovery initialized")
+        return ConsistentRecovery(M_factor)
     else
         return NoRecovery()
     end
