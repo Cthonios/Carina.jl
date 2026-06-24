@@ -4,6 +4,7 @@ module Carina
 # Dependencies
 # ---------------------------------------------------------------------------
 import Adapt
+import AlgebraicMultigrid as AMG
 import ConstitutiveModels as CM
 import Exodus
 import FiniteElementContainers as FEC

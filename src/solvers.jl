@@ -90,6 +90,34 @@ struct ChebyshevPreconditioner{V} <: Preconditioner
 end
 
 # --------------------------------------------------------------------------- #
+# Smoothed-aggregation AMG preconditioner (CPU assembled path only)
+#
+# Multilevel preconditioner with rigid-body-mode near-nullspace — the only
+# preconditioner here whose CG iteration count is (nearly) independent of
+# the Newmark Δt.  Hierarchy setup is expensive (~seconds at 500k DOF), so
+# it is lagged: built once, then rebuilt only when c_M changes (time-step
+# change) or when CG iteration growth shows the hierarchy has gone stale.
+#
+# The near-nullspace (6 rigid-body modes) is rebuilt from the CURRENT nodal
+# coordinates X + u at every hierarchy build, not frozen at the reference
+# configuration.  At finite deformation the true near-null space of K(U) is
+# the rigid-body modes about the deformed configuration; a frozen reference
+# near-nullspace degrades AMG badly once the body rotates substantially
+# (observed: 17 → >1000 CG iters at peak twist of the torsion bar).
+# --------------------------------------------------------------------------- #
+
+mutable struct AMGPreconditioner <: Preconditioner
+    udofs      ::Vector{Int}      # unknown (free) DOF indices, into the 3*nn vector
+    P          ::Any              # AMG.Preconditioner (V-cycle apply); nothing until built
+    built_c_M  ::Float64          # c_M at last hierarchy build
+    base_iters ::Int              # CG iters on first solve after build (0 = unset)
+    rebuild    ::Bool             # request hierarchy rebuild at next setup
+    nbuilds    ::Int
+end
+
+AMGPreconditioner(udofs::Vector{Int}) = AMGPreconditioner(udofs, nothing, -1.0, 0, false, 0)
+
+# --------------------------------------------------------------------------- #
 # Abstract solver types
 # --------------------------------------------------------------------------- #
 

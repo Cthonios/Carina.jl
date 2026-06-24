@@ -485,6 +485,7 @@ function setup_jacobian!(ig::NewmarkIntegrator{<:NewtonSolver{<:KrylovLinearSolv
             @. asm.stiffness_storage += c_M * asm.mass_storage
             _update_jacobi_precond_assembled!(ls.precond, FEC.stiffness(asm))
             _update_chebyshev_precond_assembled!(ls.precond, FEC.stiffness(asm))
+            _update_amg_precond_assembled!(ls.precond, FEC.stiffness(asm), c_M, _current_coords(p))
         catch e
             e isa _MATH_ERRORS || rethrow()
             _carina_logf(4, :solve, "setup_jacobian!: caught %s", typeof(e))

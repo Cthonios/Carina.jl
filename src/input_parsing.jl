@@ -254,7 +254,8 @@ function _parse_integrator(dict, asm, asm_cpu, p_cpu, controller, backend=KA.CPU
         init_eq = Bool(get(ti_dict, "initial equilibrium", false))
 
         make_precond = () -> _compute_stiffness_jacobi_precond(asm_cpu, p_cpu, template)
-        ls = _parse_linear_solver(ls_dict, template, backend, make_precond)
+        make_amg     = () -> _compute_amg_precond(asm_cpu, p_cpu)
+        ls = _parse_linear_solver(ls_dict, template, backend, make_precond, make_amg)
         ns = _parse_nonlinear_solver(sol_dict, ls; template=template, make_precond=make_precond)
         _parse_and_store_termination!(sol_dict)
         return QuasiStaticIntegrator(ns, asm, template;
@@ -275,8 +276,9 @@ function _parse_integrator(dict, asm, asm_cpu, p_cpu, controller, backend=KA.CPU
         min_dt, max_dt, dec, inc = _parse_adaptive_stepping(ti_dict, dt)
 
         make_precond = () -> _compute_jacobi_precond(β, dt, asm_cpu, p_cpu, template)
+        make_amg     = () -> _compute_amg_precond(asm_cpu, p_cpu)
         ls = @carina_timed "  Linear solver (builds precond #1)" _parse_linear_solver(
-                 ls_dict, template, backend, make_precond)
+                 ls_dict, template, backend, make_precond, make_amg)
         ns = @carina_timed "  Nonlinear solver (builds precond #2)" _parse_nonlinear_solver(
                  sol_dict, ls; template=template, make_precond=make_precond)
         _parse_and_store_termination!(sol_dict)
@@ -346,6 +348,15 @@ function _compute_jacobi_precond(β, Δt, asm_cpu, p_cpu, ΔUu_template)
     eff_diag = k_diag .+ c_M .* m_diag
     inv_diag_cpu = 1.0 ./ max.(abs.(eff_diag), eps(Float64))
     return JacobiPreconditioner(_to_device(inv_diag_cpu, ΔUu_template))
+end
+
+# AMG preconditioner: record the free-DOF index set.  The near-nullspace
+# (rigid-body modes) and the hierarchy are built lazily at each assembled
+# solve from the CURRENT configuration (see _rigid_body_modes /
+# _update_amg_precond_assembled!), so nothing coordinate-dependent is frozen
+# here.
+function _compute_amg_precond(asm_cpu, p_cpu)
+    return AMGPreconditioner(collect(asm_cpu.dof.unknown_dofs))
 end
 
 # Jacobi preconditioner for quasi-static: diag(K(U=0))⁻¹.
@@ -727,7 +738,9 @@ end
 
 # --------------------------------------------------------------------------- #
 
-function _parse_linear_solver(ls_dict, template, backend, make_precond::Function)
+function _parse_linear_solver(ls_dict, template, backend, make_precond::Function,
+                               make_amg_precond::Function = () -> error(
+                                   "amg preconditioner not available for this integrator."))
     _validate_keys(ls_dict, _LINEAR_SOLVER_KEYS, "linear solver")
     ls_type = lowercase(ls_dict["type"])
     T  = eltype(template)
@@ -755,6 +768,11 @@ function _parse_linear_solver(ls_dict, template, backend, make_precond::Function
             degree = Int(get(precond_dict, "degree", 5))
             mk_s() = (v = similar(template); fill!(v, zero(T)); v)
             ChebyshevPreconditioner(degree, Ref(0.0), Ref(0.0), mk_s(), mk_s(), mk_s())
+        elseif precond_type in ("amg", "algebraic multigrid", "multigrid")
+            backend isa KA.CPU || error(
+                "preconditioner.type = \"amg\" requires the CPU assembled path " *
+                "(GPU AMG not yet implemented).")
+            make_amg_precond()
         else
             NoPreconditioner()
         end
@@ -802,8 +820,14 @@ function _parse_nonlinear_solver(sol_dict, ls::AbstractLinearSolver;
     max_iters = tree_max > 0 ? tree_max : Int(get(sol_dict, "maximum iterations", 20))
     abs_tol   = Float64(get(sol_dict, "absolute tolerance", 1e-10))
     rel_tol   = Float64(get(sol_dict, "relative tolerance", 1e-14))
-    # Line search parameters
-    use_ls     = Bool(get(sol_dict, "use line search", false))
+    # Line search parameters.
+    # Default ON: implicit Newton (Newmark / quasi-static) at large Δt or load
+    # increments can take element-inverting full steps from a far predictor;
+    # Armijo backtracking on ½‖R‖² guards against that.  Costs ~one extra
+    # residual evaluation per iteration when the full step is already good
+    # (α = 1 accepted immediately).  Flows only to NewtonSolver — NLCG /
+    # steepest-descent carry their own line search.
+    use_ls     = Bool(get(sol_dict, "use line search", true))
     ls_back    = Float64(get(sol_dict, "line search backtrack factor", 0.5))
     ls_dec     = Float64(get(sol_dict, "line search decrease factor", 1e-4))
     ls_max     = Int(get(sol_dict, "line search maximum iterations", 10))

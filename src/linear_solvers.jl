@@ -55,9 +55,77 @@ function _update_jacobi_precond_assembled!(precond::JacobiPreconditioner, K_eff)
     @. precond.inv_diag = 1.0 / max(abs(d), eps(Float64))
     return nothing
 end
-_update_jacobi_precond_assembled!(::NoPreconditioner, _) = nothing
-_update_jacobi_precond_assembled!(::ICPreconditioner, _) = nothing  # IC built in _linear_solve!
-_update_jacobi_precond_assembled!(::ChebyshevPreconditioner, _) = nothing  # bounds below
+_update_jacobi_precond_assembled!(::Preconditioner, _) = nothing  # IC/Chebyshev/AMG built elsewhere
+
+# Current nodal coordinates X + u (full, interleaved 3*nn) from the params:
+# p.coords is the reference field, p.field the current displacement field
+# (BCs + unknowns synced before assembly).  Same layout the DOF map indexes.
+_current_coords(p) = vec(p.coords.data) .+ vec(p.field.data)
+
+# Rigid-body-mode near-nullspace (6 columns: 3 translations + 3 rotations
+# about the centroid) from nodal coords `X` (length 3*nn, interleaved),
+# restricted to the free DOFs `udofs`.  Passing CURRENT coordinates makes the
+# rotational modes track the deformed configuration's near-null space.
+function _rigid_body_modes(X::AbstractVector{<:Real}, udofs::AbstractVector{Int})
+    nn = length(X) ÷ 3
+    cx = cy = cz = 0.0
+    for a in 1:nn
+        i = 3 * (a - 1)
+        cx += X[i+1]; cy += X[i+2]; cz += X[i+3]
+    end
+    cx /= nn; cy /= nn; cz /= nn
+    B = zeros(3 * nn, 6)
+    for a in 1:nn
+        i = 3 * (a - 1)
+        x = X[i+1] - cx; y = X[i+2] - cy; z = X[i+3] - cz
+        B[i+1, 1] = 1.0
+        B[i+2, 2] = 1.0
+        B[i+3, 3] = 1.0
+        B[i+2, 4] = -z; B[i+3, 4] =  y   # rotation about x
+        B[i+1, 5] =  z; B[i+3, 5] = -x   # rotation about y
+        B[i+1, 6] = -y; B[i+2, 6] =  x   # rotation about z
+    end
+    return B[udofs, :]
+end
+
+# AMG hierarchy build/rebuild on the assembled path.  Lagged: built once,
+# then rebuilt only when c_M changes (Δt change via adaptive stepping) or
+# when _amg_track_iters! has flagged staleness from CG iteration growth.
+# `x_cur` is the current full nodal coordinate vector (X + u); the
+# near-nullspace is recomputed from it each build.
+function _update_amg_precond_assembled!(precond::AMGPreconditioner, K_eff_raw, c_M, x_cur)
+    # c_M comparison is tolerant: the controller's substep Δt varies in the
+    # last bits when landing on output stops, and sub-percent c_M drift does
+    # not degrade the preconditioner.  Adaptive-stepping changes (≥ ~2×) and
+    # the Newmark→QS distinction are far outside this tolerance.
+    c_M_changed = abs(c_M - precond.built_c_M) > 1e-3 * abs(c_M)
+    stale = precond.P === nothing || precond.rebuild || c_M_changed
+    stale || return nothing
+    A = (K_eff_raw + K_eff_raw') / 2   # exact symmetry for the SA setup
+    t = @elapsed begin
+        B = _rigid_body_modes(x_cur, precond.udofs)
+        ml = AMG.smoothed_aggregation(A; B = B)
+        precond.P = AMG.aspreconditioner(ml)
+    end
+    precond.built_c_M  = c_M
+    precond.base_iters = 0
+    precond.rebuild    = false
+    precond.nbuilds   += 1
+    _carina_logf(4, :solve, "    AMG hierarchy build #%d (%s)", precond.nbuilds, format_time(t))
+    return nothing
+end
+_update_amg_precond_assembled!(::Preconditioner, _, _, _) = nothing
+
+# Staleness detector: remember the iteration count right after a build;
+# flag a rebuild when the count grows past 3× that baseline (and ≥ 30).
+function _amg_track_iters!(precond::AMGPreconditioner, iters::Int)
+    if precond.base_iters == 0
+        precond.base_iters = iters
+    elseif iters > max(3 * precond.base_iters, 30)
+        precond.rebuild = true
+    end
+    return nothing
+end
 
 # Compute (K + c_M·M)·v via matrix-free actions, storing result in asm storage.
 function _apply_eff_stiffness!(asm, U, v, c_M, p, scratch)
@@ -372,13 +440,15 @@ function _linear_solve!(::DirectLinearSolver, ig, p, _ops)
     return ΔU, t
 end
 
-function _build_precond_op(::NoPreconditioner, K_sparse, n)
+# x_cur (current nodal coordinates) is consumed only by the AMG method, which
+# rebuilds its near-nullspace from it; the other preconditioners ignore it.
+function _build_precond_op(::NoPreconditioner, K_sparse, n, x_cur)
     return nothing
 end
-function _build_precond_op(precond::JacobiPreconditioner, K_sparse, n)
+function _build_precond_op(precond::JacobiPreconditioner, K_sparse, n, x_cur)
     return _jacobi_precond_op(precond, n)
 end
-function _build_precond_op(::ICPreconditioner, K_sparse, n)
+function _build_precond_op(::ICPreconditioner, K_sparse, n, x_cur)
     # Incomplete LDLᵀ factorization.
     # K_sparse is already Symmetric from the symmetrization in _linear_solve!.
     # α > 0 adds a diagonal shift to guarantee positive definiteness
@@ -387,11 +457,21 @@ function _build_precond_op(::ICPreconditioner, K_sparse, n)
     return LinearOperator(Float64, n, n, true, true,
         (y, v) -> ldiv!(y, F_ic, v))
 end
+# AMG on the quasi-static assembled path.  K_sparse arrives as a Symmetric
+# wrapper; SA setup needs a plain CSC matrix.  The internal lazy guard in
+# the build (P === nothing || rebuild) makes the per-Newton calls cheap;
+# c_M = 0 since there is no mass term in the quasi-static tangent.
+function _build_precond_op(precond::AMGPreconditioner, K_sparse, n, x_cur)
+    _update_amg_precond_assembled!(precond, sparse(K_sparse), 0.0, x_cur)
+    P = precond.P
+    return LinearOperator(Float64, n, n, true, true,
+        (y, v) -> ldiv!(y, P, v))
+end
 # Chebyshev-Jacobi on assembled path: polynomial on the symmetrically
 # scaled system S = D⁻¹/²AD⁻¹/².  Penalty BCs create eigenvalues ~1e15
 # in A but only ~1 in S, making the polynomial effective.
 # Preconditioner: M = D⁻¹/² p_k(S)² D⁻¹/²  ≈ A⁻¹, and M is SPD.
-function _build_precond_op(precond::ChebyshevPreconditioner, K_sparse, n)
+function _build_precond_op(precond::ChebyshevPreconditioner, K_sparse, n, x_cur)
     d = diag(K_sparse)
     inv_diag = similar(d)
     @. inv_diag = 1.0 / max(abs(d), eps(Float64))
@@ -433,7 +513,8 @@ function _linear_solve!(ls::KrylovLinearSolver, ig::QuasiStaticIntegrator, p, op
             K_raw = FEC.stiffness(asm)
             K_sparse = Symmetric((K_raw + K_raw') / 2, :L)
             if af.compute_factorization
-                M_op_asm = _build_precond_op(ls.precond, K_sparse, n)
+                x_cur = ls.precond isa AMGPreconditioner ? _current_coords(p) : nothing
+                M_op_asm = _build_precond_op(ls.precond, K_sparse, n, x_cur)
                 if af.is_linear
                     _precond_op_cache[] = M_op_asm
                     af.compute_factorization = false
@@ -501,6 +582,11 @@ function _linear_solve!(ls::KrylovLinearSolver, ig::NewmarkIntegrator, p, ops)
                     end
                     ΔU_vec, cg_hist = IterativeSolvers.cg(K_eff_sparse, R;
                         Pl=F_ic, abstol=0.0, reltol=ls.rtol, log=true)
+                elseif ls.precond isa AMGPreconditioner
+                    ΔU_vec, cg_hist = IterativeSolvers.cg(K_eff_sparse, R;
+                        Pl=ls.precond.P, abstol=0.0, reltol=ls.rtol,
+                        maxiter=ls.itmax, log=true)
+                    _amg_track_iters!(ls.precond, length(cg_hist.data[:resnorm]))
                 else
                     ΔU_vec, cg_hist = IterativeSolvers.cg(K_eff_sparse, R;
                         abstol=0.0, reltol=ls.rtol, log=true)

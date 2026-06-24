@@ -32,6 +32,7 @@ const indexed_test_files = [
     (15, "mechanics-quasistatic-cube-chebyshev.jl"),
     (18, "initial-conditions-traveling-wave.jl"),
     (19, "element-char-length.jl"),
+    (20, "mechanics-implicit-dynamic-cube-amg.jl"),
 ]
 
 # ---------------------------------------------------------------------------
