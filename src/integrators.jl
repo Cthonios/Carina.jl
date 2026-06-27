@@ -572,8 +572,16 @@ end
 
 function correct!(ig::CentralDifferenceIntegrator, p)
     Δt = FEC.time_step(p.times)
-    free = ig.asm.dof.unknown_dofs
-    @views @. ig.V[free] += ig.γ * Δt * ig.A[free]
+    # Full-array corrector (see predict! note).  The fancy-index form
+    # `@. V[free] += γΔt*A[free]` has THREE index-array operands and
+    # materializes a GPU temporary every step (~0.35 vector/step) that the
+    # host-pressure GC does not reclaim between output syncs — the single
+    # largest contributor to the VRAM creep that OOM-faults large meshes.
+    # Update the full contiguous V, then restore the prescribed BC slots
+    # (re-applying g'(t_{n+1}) reproduces exactly what predict! set, so the
+    # result is identical to the free-only update).
+    @. ig.V += ig.γ * Δt * ig.A
+    FEC.update_field_dirichlet_bcs!(ig.U, ig.V, ig.A, p.dirichlet_bcs)
     return nothing
 end
 

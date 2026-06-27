@@ -391,6 +391,18 @@ end
 
 # ---- ExplicitSolver ----
 
+# Scatter the free-DOF acceleration a = R/m into the full-DOF A at the
+# unknown-DOF positions.  An explicit KA kernel is used rather than the
+# broadcast `@views @. A[free] = R/m`: the latter materializes a GPU
+# temporary every step (GPUArrays cannot fuse a broadcast into a fancy-index
+# destination), which the host-pressure GC fails to reclaim between output
+# syncs and which OOM-faults large meshes.  The kernel writes in place with
+# zero allocation (measured) and runs on every KA backend (CPU included).
+KA.@kernel function _accel_scatter_kernel!(A, free, R, m)
+    i = KA.@index(Global, Linear)
+    @inbounds A[free[i]] = R[i] / m[i]
+end
+
 function solve!(::ExplicitSolver, ig::CentralDifferenceIntegrator, p)
     evaluate!(ig, p) || (ig.failed[] = true; return)
     R_eff = residual(ig)
@@ -399,6 +411,17 @@ function solve!(::ExplicitSolver, ig::CentralDifferenceIntegrator, p)
     # FEC.update_field_dirichlet_bcs!) and must not be overwritten by the
     # explicit update.  m_lumped and R_eff are free-DOF sized.
     free = ig.asm.dof.unknown_dofs
-    @views @. ig.A[free] = R_eff / ig.m_lumped
+    backend = KA.get_backend(ig.A)
+    if backend isa KA.CPU
+        # CPU: the broadcast is allocation-free in practice and KA's CPU
+        # backend is unreliable for hand-written kernels (FEC keeps separate
+        # CPU paths for the same reason).
+        @views @. ig.A[free] = R_eff / ig.m_lumped
+    else
+        # GPU: the fancy-index broadcast leaks a temporary per step; the
+        # explicit scatter kernel writes in place with zero allocation.
+        _accel_scatter_kernel!(backend)(ig.A, free, R_eff, ig.m_lumped;
+                                        ndrange = length(free))
+    end
     ig.failed[] = false
 end
