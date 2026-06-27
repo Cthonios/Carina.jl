@@ -278,13 +278,18 @@ function predict!(ig::NewmarkIntegrator, p)
     (; β, γ, U, V, A, U_prev, V_prev, A_prev, U_pred, dU) = ig
     Δt    = FEC.time_step(p.times)
     ig.c_M = 1.0 / (β * Δt^2)
-    free  = ig.asm.dof.unknown_dofs
     # Save full-DOF previous state (free + BC at t_n) before mutating.
     copyto!(U_prev, U); copyto!(V_prev, V); copyto!(A_prev, A)
-    # Newmark predict on free slots only.
-    @views @. U[free] = U_prev[free] + Δt * V_prev[free] +
-                         Δt^2 * (0.5 - β) * A_prev[free]
-    @views @. V[free] = V_prev[free] + Δt * (1.0 - γ) * A_prev[free]
+    # Newmark predict.  We update the FULL contiguous U/V arrays rather than
+    # the free slices.  The BC slots receive garbage here, but
+    # `update_field_dirichlet_bcs!` below immediately overwrites them with
+    # g(t_{n+1}) / g'(t_{n+1}), so the result is identical to a free-only
+    # update — while avoiding a fancy-index gather.  A 3-operand fused
+    # broadcast over index-array views materializes a full-DOF GPU temporary
+    # every Newton step that Julia's (host-pressure) GC does not reclaim;
+    # over many steps those pile up and exhaust VRAM (see CD predict! above).
+    @. U = U_prev + Δt * V_prev + Δt^2 * (0.5 - β) * A_prev
+    @. V = V_prev + Δt * (1.0 - γ) * A_prev
     # Apply Dirichlet BCs at t_{n+1}:
     #   U[BC] = g(t_{n+1}),  V[BC] = g'(t_{n+1}),  A[BC] = g''(t_{n+1}).
     # bc_cache was already advanced to t_{n+1} in evolve!.
@@ -310,10 +315,21 @@ end
 
 function predict!(ig::CentralDifferenceIntegrator, p)
     Δt   = FEC.time_step(p.times)
-    free = ig.asm.dof.unknown_dofs
-    # Standard CD predict on free slots only.
-    @views @. ig.U[free] += Δt * ig.V[free] + 0.5 * Δt^2 * ig.A[free]
-    @views @. ig.V[free] += (1.0 - ig.γ) * Δt * ig.A[free]
+    # Standard CD predict.  We update the FULL contiguous U/V arrays rather
+    # than the free slices `U[free] .= …`.  The BC slots receive garbage
+    # here, but `update_field_dirichlet_bcs!` below immediately overwrites
+    # them with g(t_{n+1}) / g'(t_{n+1}), so the result is identical to a
+    # free-only update — while avoiding a fancy-index gather.
+    #
+    # Why this matters on the GPU: a 3-operand fused broadcast over
+    # index-array views (`@. U[free] += Δt*V[free] + 0.5Δt²*A[free]`)
+    # materializes a full-DOF temporary every step (~1 vector/step).  Across
+    # a long output interval those temporaries pile up faster than Julia's
+    # GC notices (the host handles are tiny), exhausting VRAM and surfacing
+    # as a spurious BoundsError from the next bounds-checked kernel.  The
+    # contiguous full-array form fuses with zero allocation.
+    @. ig.U += Δt * ig.V + 0.5 * Δt^2 * ig.A
+    @. ig.V += (1.0 - ig.γ) * Δt * ig.A
     # Apply prescribed BC values at t_{n+1} so subsequent assembly and
     # post-processing see g(t)/g'(t)/g''(t) at constrained nodes.
     FEC.update_field_dirichlet_bcs!(ig.U, ig.V, ig.A, p.dirichlet_bcs)
