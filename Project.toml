@@ -30,7 +30,7 @@ ReferenceFiniteElements = {path = "../ReferenceFiniteElements.jl"}
 
 [compat]
 AlgebraicMultigrid = "1.2.0"
-Exodus = "0.14"
+Exodus = "0.14, 0.15"
 IterativeSolvers = "0.9"
 KernelAbstractions = "0.9"
 Krylov = "0.10"
