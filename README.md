@@ -1,3 +1,7 @@
+[![CI](https://github.com/Cthonios/Carina.jl/actions/workflows/ci.yml/badge.svg)](https://github.com/Cthonios/Carina.jl/actions/workflows/ci.yml)
+[![docs](https://img.shields.io/badge/docs-dev-blue.svg)](https://cthonios.github.io/Carina.jl/dev/)
+[![License: BSD 3-Clause](https://img.shields.io/badge/license-BSD%203--Clause-blue.svg)](LICENSE)
+
 # Carina.jl
 
 **Carina.jl** is a finite element framework for **coupling and multiphysics
@@ -20,79 +24,65 @@ complete twist-and-return sequences before the animation loops.
 
 | Displacement magnitude | Velocity magnitude |
 |:---:|:---:|
-| ![Displacement magnitude](docs/torsion_disp.gif) | ![Velocity magnitude](docs/torsion_velo.gif) |
+| ![Displacement magnitude](docs/src/assets/torsion_disp.gif) | ![Velocity magnitude](docs/src/assets/torsion_velo.gif) |
 
 *Neo-Hookean solid (E = 1 GPa, ν = 0.25, ρ = 1000 kg/m³).
 160,000 hexahedral elements (~177,000 nodes).
 Explicit central difference, Δt = 500 ns, ~14,000 steps, 5.95 ms simulated.
-Wall time: 227 s on an AMD Radeon RX 7600 (ROCm).
-Left: displacement magnitude [0, 71 mm].
-Right: velocity magnitude [0, 141 m/s].
-Rainbow Uniform colormap; geometry warped by actual displacements.*
-
----
+Wall time: 227 s on an AMD Radeon RX 7600 (ROCm).*
 
 ### Sphere torsion — implicit Newmark on CPU
 
 A free unit neo-Hookean sphere is given an initial angular velocity field
 that twists the top and bottom hemispheres in opposite directions,
-launching torsional waves into the interior.  The sphere undergoes large
-torsional deformation as wave energy accumulates, reaching peak displacements
-of ~2.1 m before the restoring force reverses the motion.
+launching torsional waves into the interior.
 
 | Displacement magnitude | Velocity magnitude |
 |:---:|:---:|
-| ![Displacement magnitude](docs/sphere_disp.gif) | ![Velocity magnitude](docs/sphere_velo.gif) |
+| ![Displacement magnitude](docs/src/assets/sphere_disp.gif) | ![Velocity magnitude](docs/src/assets/sphere_velo.gif) |
 
 *Neo-Hookean solid (E = 10 kPa, ν = 0.33, ρ = 1000 kg/m³).
 864 hexahedral elements (997 nodes).
 Implicit Newmark-β (β = 0.49, γ = 0.9) with CG + Jacobi preconditioner,
-Δt = 10 ms, 400 steps, 4.0 s simulated.
-Left: displacement magnitude [0, 0.8 m].
-Right: velocity magnitude [0, 4.5 m/s].
-Rainbow Uniform colormap; geometry warped by actual displacements.*
-
----
+Δt = 10 ms, 400 steps, 4.0 s simulated.*
 
 ### Elastic wave propagation — clamped beam
 
-A 1 m linear elastic beam (1 mm × 1 mm cross section) clamped at both ends
-is given a Gaussian displacement pulse centered at the midpoint.  The pulse
-splits into two counter-propagating waves that reflect off the clamped
-boundaries and return to form the mirror image of the initial condition at
-t = T = L/c = 1 ms.  The computed solution (red) is overlaid on the closed-form
-analytical solution (black).
+A 1 m linear elastic beam clamped at both ends is given a Gaussian
+displacement pulse at the midpoint.  The pulse splits into two
+counter-propagating waves that reflect off the boundaries and reform the
+mirror image of the initial condition at t = L/c = 1 ms.  The computed
+solution (red) is overlaid on the closed-form analytical solution (black).
 
-![Clamped wave](docs/clamped_wave.gif)
+![Clamped wave](docs/src/assets/clamped_wave.gif)
 
 *Linear elastic (E = 1 GPa, ν = 0, ρ = 1000 kg/m³); wave speed c = 1000 m/s.
 1000 hexahedral elements (4004 nodes).
 Explicit central difference, Δt = 100 ns, 10,000 steps, 1 ms simulated.
-Top: z-displacement.  Middle: z-velocity.  Bottom: z-acceleration.
 Analytical solution: Mota, Tezaur & Phlipot, IJNME 123:5036–5071, 2022, eq. 28.*
 
 ---
 
 ## Features
 
-- **GPU-accelerated** kernels via `KernelAbstractions.jl` — runs on CPU, NVIDIA, and AMD GPUs
+- **GPU-accelerated** kernels via `KernelAbstractions.jl` — CPU, NVIDIA, and AMD from one code base
 - **Finite element framework** powered by [ReferenceFiniteElements.jl](https://github.com/Cthonios/ReferenceFiniteElements.jl) and [FiniteElementContainers.jl](https://github.com/Cthonios/FiniteElementContainers.jl)
-- **Material models** via [ConstitutiveModels.jl](https://github.com/Cthonios/ConstitutiveModels.jl) (neo-Hookean, linear elastic, …)
-- **Time integrators**: quasi-static Newton, implicit Newmark-β / HHT-α, explicit central difference, L-BFGS
-- **Exodus I/O**: mesh input and field output compatible with ParaView
+- **Material models** via [ConstitutiveModels.jl](https://github.com/Cthonios/ConstitutiveModels.jl) — neo-Hookean, linear elastic, Hencky, Saint Venant–Kirchhoff, Seth–Hill, and J2 plasticity
+- **Time integrators** — quasi-static Newton, implicit Newmark-β / HHT-α, explicit central difference
+- **Solvers** — Newton, nonlinear CG, steepest descent; direct, CG, and L-BFGS linear solves
+- **Preconditioners** — Jacobi, Chebyshev, incomplete Cholesky, and smoothed-aggregation AMG
+- **Exodus I/O** — mesh input and field output compatible with ParaView
 - **YAML-driven** problem setup — no recompilation needed
-- Designed for extensibility toward **coupling and multiphysics**
+
+See [Features](docs/src/features.md) for the full list, including what is
+planned rather than implemented.
 
 ---
 
 ## Installation
 
-Carina depends on
-[ConstitutiveModels.jl](https://github.com/Cthonios/ConstitutiveModels.jl),
-[FiniteElementContainers.jl](https://github.com/Cthonios/FiniteElementContainers.jl), and
-[ReferenceFiniteElements.jl](https://github.com/Cthonios/ReferenceFiniteElements.jl),
-tracking their `main` branches via relative paths in `Project.toml`.
-Clone all four repos as siblings:
+Carina tracks the `main` branches of three sibling packages via relative paths,
+so all four repositories must be cloned side by side:
 
 ```bash
 git clone git@github.com:Cthonios/ConstitutiveModels.jl.git
@@ -103,7 +93,7 @@ cd Carina.jl
 julia --project=. -e 'using Pkg; Pkg.instantiate()'
 ```
 
-Changes to the sibling repos are picked up immediately after restarting Julia.
+Full details, including GPU setup, in [Installation](docs/src/installation.md).
 
 ---
 
@@ -120,29 +110,17 @@ bin/carina input.yaml --device cuda
 # Multi-threaded (CPU)
 bin/carina input.yaml --threads 8
 
-# Combined
-bin/carina input.yaml --threads 8 --device rocm
-
-# Or directly with julia
+# Or directly with julia (CPU only)
 julia --project=. src/Carina.jl input.yaml
-julia --project=. src/Carina.jl input.yaml --device rocm
 ```
 
-Select the device in the YAML input or via `--device`:
+The device may also be set in the YAML input:
 
 ```yaml
-device: cpu     # default
-device: cuda    # NVIDIA
-device: rocm    # AMD
+device: cpu     # default; also cuda, rocm, or auto
 ```
 
----
-
-## Reference
-
-See [docs/reference.md](docs/reference.md) for full YAML input documentation:
-solver/preconditioner compatibility, material models, boundary conditions,
-time integrators, and output control.
+See [Running Carina](docs/src/running.md).
 
 ---
 
@@ -155,3 +133,29 @@ julia --project=. test/runtests.jl --filter torsion
 julia --project=. test/runtests.jl --list    # show all tests
 julia --project=. test/runtests.jl 1 3 5     # by index
 ```
+
+---
+
+## Documentation
+
+Full documentation lives in [`docs/`](docs/) and is built with
+[Documenter.jl](https://documenter.juliadocs.org/):
+
+```bash
+julia --project=docs -e 'using Pkg; Pkg.instantiate(); include("docs/make.jl")'
+# then open docs/build/index.html
+```
+
+- [Installation](docs/src/installation.md)
+- [Running Carina](docs/src/running.md)
+- [Features](docs/src/features.md)
+- [Testing](docs/src/testing.md)
+- [Examples](docs/src/examples.md)
+- [Troubleshooting](docs/src/troubleshooting.md)
+- **[Input File Reference](docs/src/reference/index.md)** — every section and key of the YAML input file
+
+---
+
+## License
+
+BSD 3-Clause.  See [LICENSE](LICENSE).
