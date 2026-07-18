@@ -9,15 +9,13 @@ skipped, not rejected. This page is ordered by how often that bites.
 immediately on a singular system, or displacements are orders of magnitude too
 large.
 
-**Cause.** The boundary-condition sub-keys are matched exactly and in
-lowercase. `Dirichlet:` or `Neumann:` is not found, and because that section is
-not key-validated there is no warning either.
+**Cause.** Most often a mesh-name mismatch: a `side set` or `node set` that
+does not exist in the Exodus file constrains nothing.
 
-```yaml
-boundary conditions:
-  Dirichlet:      # WRONG — silently ignored
-  dirichlet:      # correct
-```
+Capitalisation of `dirichlet:` / `neumann:` is *not* a cause on current
+versions — those keys are matched case-insensitively and a genuine typo warns.
+On older versions they were matched exactly, so `Dirichlet:` was skipped in
+silence; if you are running an older build, check that first.
 
 **Check.** Confirm the log's DOF line shows constrained DOFs:
 
@@ -44,13 +42,15 @@ Traveling-wave entries *are* validated, so they will tell you what is wrong.
 
 ## Convergence is far slower than expected
 
-**Cause.** An unrecognised preconditioner `type` falls through to *no*
-preconditioner without a warning. A typo like `jacobbi` produces a valid but
-badly conditioned solve.
+**Cause.** Usually no preconditioner where one was intended — either the
+`preconditioner` section was omitted, or `type: none` was left in place. A
+misspelled `type` is now a hard error rather than a silent fallthrough, so it
+will not cause this.
 
 **Check.** Compare CG iteration counts against a known-good configuration. An
 unpreconditioned FEM solve typically takes hundreds to thousands of iterations
-where Jacobi takes tens.
+where Jacobi takes tens. On large CPU problems, `amg` flattens the count
+further; see [Solvers](reference/solvers.md).
 
 ## A material property seems not to apply
 

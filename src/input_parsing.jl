@@ -65,6 +65,41 @@ function _validate_keys(dict::AbstractDict, known_keys::Set{String}, section::St
     end
 end
 
+"""
+Case-insensitive variant of `_validate_keys`, for sections whose sub-keys are
+themselves looked up case-insensitively (see `_get_ci`).
+"""
+function _validate_keys_ci(dict::AbstractDict, known_keys::Set{String}, section::String)
+    for key in keys(dict)
+        key isa String || continue
+        if lowercase(strip(key)) ∉ known_keys
+            suggestion = _suggest(key, known_keys)
+            msg = "Unknown key \"$key\" in $section."
+            if !isempty(suggestion)
+                msg *= " Did you mean \"$suggestion\"?"
+            end
+            _carina_log(0, :warning, msg)
+        end
+    end
+end
+
+"""
+Case-insensitive sub-key lookup.
+
+The input file is parsed with `dicttype=Dict{String,Any}` and no case folding,
+so a plain `get(section, "dirichlet", default)` silently misses a user's
+`Dirichlet:`.  For boundary conditions that failure mode is particularly bad:
+the run proceeds with no constraints at all rather than reporting an error.
+"""
+function _get_ci(dict::AbstractDict, key::String, default=nothing)
+    haskey(dict, key) && return dict[key]
+    lk = lowercase(key)
+    for (k, v) in dict
+        k isa String && lowercase(strip(k)) == lk && return v
+    end
+    return default
+end
+
 # --- Known keys per section ---
 
 const _TOPLEVEL_KEYS = Set([
@@ -99,6 +134,8 @@ const _LINEAR_SOLVER_KEYS = Set([
     "type", "maximum iterations", "tolerance", "history size",
     "preconditioner", "assembled",
 ])
+
+const _BC_SECTION_KEYS = Set(["dirichlet", "neumann"])
 
 const _DBC_ENTRY_KEYS = Set(["side set", "node set", "component", "function"])
 const _NBC_ENTRY_KEYS = Set(["side set", "node set", "component", "function"])
@@ -773,8 +810,17 @@ function _parse_linear_solver(ls_dict, template, backend, make_precond::Function
                 "preconditioner.type = \"amg\" requires the CPU assembled path " *
                 "(GPU AMG not yet implemented).")
             make_amg_precond()
-        else
+        elseif precond_type == "none"
             NoPreconditioner()
+        else
+            # Do not fall through to NoPreconditioner.  An unpreconditioned CG
+            # solve still converges, just far more slowly, so a typo here used
+            # to surface as a mysterious performance problem rather than an
+            # input error.
+            error("Unknown preconditioner.type = \"$precond_type\". " *
+                  "Supported: \"jacobi\", \"ic\" (aliases \"incomplete cholesky\", " *
+                  "\"ildl\", \"incomplete ldlt\"), \"chebyshev\", " *
+                  "\"amg\" (aliases \"algebraic multigrid\", \"multigrid\"), \"none\".")
         end
 
         workspace = Krylov.CgWorkspace(n, n, S)
@@ -885,7 +931,10 @@ _extract_max_iters(::AbstractStatusTest) = 0
 function _parse_dirichlet_bcs(dict)
     bc_section = get(dict, "boundary conditions", nothing)
     bc_section === nothing && return FEC.DirichletBC[]
-    entries = get(bc_section, "dirichlet", FEC.DirichletBC[])
+    # Validated here rather than in _parse_neumann_bcs so the warning is
+    # emitted once; both parsers see the same section.
+    _validate_keys_ci(bc_section, _BC_SECTION_KEYS, "boundary conditions")
+    entries = _get_ci(bc_section, "dirichlet", FEC.DirichletBC[])
     entries isa Vector || error("[[boundary_conditions.dirichlet]] must be a list.")
 
     dbcs = FEC.DirichletBC[]
@@ -912,7 +961,7 @@ end
 function _parse_neumann_bcs(dict)
     bc_section = get(dict, "boundary conditions", nothing)
     bc_section === nothing && return FEC.NeumannBC[], Dict{String,Any}[]
-    entries = get(bc_section, "neumann", nothing)
+    entries = _get_ci(bc_section, "neumann", nothing)
     entries === nothing && return FEC.NeumannBC[], Dict{String,Any}[]
     entries isa Vector || error("[[boundary_conditions.neumann]] must be a list.")
 

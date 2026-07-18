@@ -264,11 +264,16 @@ large Δt on violently dynamic problems the Newmark predictor can overshoot
 into near-inverted configurations whose tangent is indefinite, which breaks CG
 regardless of preconditioner; explicit integration is the right tool there.
 
-!!! warning "Unknown preconditioner types are silently ignored"
-    Any `type` that does not match the table above falls through to *no
-    preconditioner* without a warning. A typo such as `type: jacobbi` produces
-    an unpreconditioned solve that merely converges slowly, which is easy to
-    misread as a physics problem.
+An unrecognised `type` is a hard error listing the supported values:
+
+```
+Unknown preconditioner.type = "jacobbi". Supported: "jacobi", "ic" (aliases
+"incomplete cholesky", "ildl", "incomplete ldlt"), "chebyshev", "amg"
+(aliases "algebraic multigrid", "multigrid"), "none".
+```
+
+Omitting the `preconditioner` section entirely, or writing `type: none`, means
+no preconditioning — that remains a valid, unremarkable choice.
 
 ## Choosing a combination
 

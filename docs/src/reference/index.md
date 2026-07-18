@@ -120,14 +120,17 @@ individual Dirichlet, Neumann, body-force, and traveling-wave entries. It is
 |---|---|
 | `model` | Silently ignored |
 | `quadrature` | Silently ignored |
-| `boundary conditions` sub-keys | `Dirichlet:` instead of `dirichlet:` silently applies **no** boundary conditions |
 | `initial conditions` and its sub-keys | Silently applies no initial condition |
 | `displacement` / `velocity` IC entries | Silently ignored |
 
-The boundary-condition case is the most damaging, because a model with no
-constraints still runs — it just drifts or produces a singular system. When a
-simulation behaves as though a section were absent, check its spelling and
-capitalisation before suspecting the physics.
+The initial-condition case is the one to watch: a run that quietly starts from
+rest looks like a physics result rather than an input error. When a simulation
+behaves as though a section were absent, check its spelling before suspecting
+the physics.
+
+The `boundary conditions` sub-keys `dirichlet` and `neumann` are matched
+**case-insensitively** and are validated, so both `Dirichlet:` and a typo like
+`dirchlet:` are handled — the first works, the second warns.
 
 ## Conventions
 

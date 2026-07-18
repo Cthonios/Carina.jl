@@ -16,16 +16,22 @@ boundary conditions:
       function: "1.0e6 * t"
 ```
 
-!!! warning "`dirichlet` and `neumann` must be lowercase"
-    These two keys are matched exactly, and the input file is parsed without
-    case folding. Writing `Dirichlet:` or `Neumann:` does **not** raise an
-    error — the section is simply not found, and the simulation runs with **no
-    boundary conditions at all**.
+!!! note "`dirichlet` and `neumann` are matched case-insensitively"
+    `dirichlet`, `Dirichlet`, and `DIRICHLET` are all accepted, as are the
+    corresponding spellings of `neumann`. The lowercase form is used
+    throughout this documentation and in every bundled example.
 
-    The failure is silent: the sub-keys of `boundary conditions` are not
-    key-validated, so there is no "unknown key" warning either. A model that
-    drifts as a rigid body, or a quasi-static solve that fails immediately on a
-    singular system, is the usual symptom.
+    A key that is not one of the two — a genuine typo such as `dirchlet:` —
+    produces a warning with a suggestion:
+
+    ```
+    [WARNING] Unknown key "dirchlet" in boundary conditions. Did you mean "dirichlet"?
+    ```
+
+    Carina releases before this behaviour matched the key exactly, so
+    `Dirichlet:` was silently skipped and the run proceeded with no boundary
+    conditions. If you are reading an older input file that behaved oddly,
+    that is the likely cause.
 
 Both lists are optional; omitting the whole section is legal and yields no
 boundary conditions.

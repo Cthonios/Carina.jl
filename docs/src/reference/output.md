@@ -96,12 +96,14 @@ projected to nodes for visualization. Recovered variables take a trailing `_n`.
 | `sigma_xx_n` … `sigma_zz_n` | `recovery` ≠ `none` and `stress: true` |
 | `<name>_n` | `recovery` ≠ `none` and `internal variables: true` |
 
-!!! warning "Two sharp edges in `recovery`"
-    **An unrecognised value silently means `none`.** `recovery: lmped` does not
-    warn — it disables recovery. The value is lowercased first, so `Lumped` and
-    `L2` are fine.
+The value is lowercased and trimmed before matching, so `Lumped` and `L2` are
+fine. An unrecognised value is a hard error naming the supported set:
 
-    **Recovered deformation-gradient names are declared but never written.**
+```
+Unknown output.recovery = "lmped". Supported: "lumped", "consistent" (alias "l2"), "none".
+```
+
+!!! warning "Recovered deformation-gradient names are declared but never written"
     With `deformation gradient: true` and recovery enabled, `F_*_n` variables
     appear in the Exodus file's variable list but are never populated. Use the
     per-quadrature-point `F_*_q` values instead.

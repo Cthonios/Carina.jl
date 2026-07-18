@@ -15,7 +15,7 @@
 function _parse_output_spec(dict::Dict{String,Any})
     out = get(dict, "output", Dict{String,Any}())
     !isempty(out) && _validate_keys(out, _OUTPUT_KEYS, "output")
-    rec_str = lowercase(get(out, "recovery", "lumped"))
+    rec_str = lowercase(strip(get(out, "recovery", "lumped")))
     recovery = if rec_str == "lumped"
         :lumped
     elseif rec_str in ("consistent", "l2")
@@ -23,7 +23,11 @@ function _parse_output_spec(dict::Dict{String,Any})
     elseif rec_str == "none"
         :none
     else
-        :none
+        # Do not fall through to :none.  A typo here used to silently disable
+        # nodal recovery, which looks identical to "recovery is just off" in
+        # the output file.
+        error("Unknown output.recovery = \"$rec_str\". " *
+              "Supported: \"lumped\", \"consistent\" (alias \"l2\"), \"none\".")
     end
     return OutputSpec(
         Bool(get(out, "velocity",              false)),
