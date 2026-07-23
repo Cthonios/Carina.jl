@@ -47,7 +47,7 @@ function run(input_file::String; backend::KA.Backend=KA.CPU())
         _carina_log(0, :setup,  "Reading from $input_file")
 
         dict = YAML.load_file(input_file; dicttype=Dict{String,Any})
-        sim_type = lowercase(get(dict, "type", "single"))
+        sim_type = lowercase(strip(get(dict, "type", "single")))
         if sim_type == "single"
             sim = create_simulation(dict, dirname(abspath(input_file));
                                     backend=backend)
@@ -90,6 +90,15 @@ function create_simulation(dict::Dict{String,Any}, basedir::String="";
     t_setup = time()
 
     block_name, cm, density, props_inputs = _parse_material_section(dict)
+    # A dynamic run needs a mass matrix.  With no density the lumped mass is
+    # zero and every acceleration is 0/0, so the run produces NaN fields rather
+    # than reporting the missing property.  Quasi-static never uses density, so
+    # omitting it there stays legal (`parse_material` already warns).
+    if _is_dynamic_integrator(dict) && iszero(density)
+        error("The material assigned to block \"$block_name\" has density 0.0, but a " *
+              "dynamic time integrator requires a mass matrix. Set `density` in the " *
+              "[model.material] property dict.")
+    end
     props   = create_solid_mechanics_properties(cm, props_inputs)
     physics = SolidMechanics(cm, density)
     cm_name = replace(string(typeof(cm)), r"^.*\." => "")  # strip module prefix
@@ -99,6 +108,14 @@ function create_simulation(dict::Dict{String,Any}, basedir::String="";
     n_nodes = size(mesh.nodal_coords, 2)
     n_elems = sum(size(mesh.element_conns[k], 2) for k in keys(mesh.element_conns))
     _carina_logf(0, :setup, "Mesh:    %d nodes, %d elements", n_nodes, n_elems)
+
+    # Check every block / node set / side set named in the input against the
+    # mesh now, before any of them is used.  Catches typos that would otherwise
+    # be ignored (material block) or raised as a bare KeyError inside FEC.
+    _validate_mesh_names(dict, mesh, block_name)
+    # Warn once on a misspelled `initial conditions` sub-key.  The three IC
+    # parsers each read one sub-key, so none of them can own this check.
+    _validate_ic_section(dict)
 
     q_type, q_order = _parse_quadrature(dict)
     V       = @carina_timed "Function space" FEC.FunctionSpace(

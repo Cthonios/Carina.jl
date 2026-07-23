@@ -45,7 +45,7 @@ end
 
 function _is_dynamic_integrator(dict::Dict{String,Any})
     ti  = get(dict, "time integrator", Dict{String,Any}())
-    typ = lowercase(get(ti, "type", "quasi static"))
+    typ = lowercase(strip(get(ti, "type", "quasi static")))
     return typ in ("central difference", "centraldifference", "cd",
                    "newmark", "newmark-beta")
 end

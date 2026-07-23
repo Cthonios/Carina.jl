@@ -21,7 +21,7 @@ This reference documents every section and key of that file.
 | `time integrator` | **yes** | [Time integrators](time-integrators.md) |
 | `solver` | implicit only | [Solvers](solvers.md). Required for `quasi static` and `newmark`; ignored by `central difference`. |
 | `boundary conditions` | no | [Boundary conditions](boundary-conditions.md) |
-| `body forces` | no | [Boundary conditions](boundary-conditions.md#body-forces) |
+| `body forces` | no | [Boundary conditions](boundary-conditions.md#Body-forces) |
 | `initial conditions` | no | [Initial conditions](initial-conditions.md) |
 | `output` | no | Field selection — [Output fields](output.md) |
 | `quadrature` | no | [Quadrature](quadrature.md) |
@@ -96,11 +96,15 @@ solver:
 
 ## How input errors surface
 
-Carina validates in two different ways, and the difference matters when
-debugging an input file.
+Carina reports input mistakes four different ways, and knowing which to expect
+saves time when debugging a file.
 
-**Unknown keys warn.** Most sections are checked against a set of known keys,
-and an unrecognised key produces a warning with a Levenshtein-based suggestion:
+**Unknown keys warn.** Every section is checked against a set of known keys —
+the top level, `model`, `model.material`, `time integrator`, `solver`,
+`linear solver`, `quadrature`, `output`, `boundary conditions`,
+`initial conditions`, and the individual Dirichlet, Neumann, body-force,
+initial-condition, and traveling-wave entries. An unrecognised key produces a
+warning with a Levenshtein-based suggestion:
 
 ```
 [WARNING] Unknown key "time_step" in time integrator. Did you mean "time step"?
@@ -109,28 +113,32 @@ and an unrecognised key produces a warning with a Levenshtein-based suggestion:
 The run continues, using the default for whatever you meant to set.
 
 **Missing required keys error.** Absent mesh files, model sections, or
-`final time` / `time step` abort at startup.
+`final time` / `time step` abort at startup. So does an entry that omits a
+field it needs — an initial condition without a `node set`, for instance,
+naming the section and the entry index.
 
-**Some sections are not checked at all.** Key validation is applied to the
-top level, `time integrator`, `solver`, `linear solver`, `output`, and
-individual Dirichlet, Neumann, body-force, and traveling-wave entries. It is
-**not** applied to:
+**Unknown *values* error.** Where a key selects behaviour from a fixed set —
+`model.type`, `time integrator.type`, `solver.type`, `linear solver.type`,
+`preconditioner.type`, `quadrature.type`, `output.recovery`, `combo` — an
+unrecognised value aborts with the list of supported spellings. None of these
+fall back to a default. The distinction from the warn-only case is deliberate:
+a key you meant to set but misspelled leaves the default in place, which is
+usually harmless and always visible in the log, whereas a *value* you misspelled
+means you asked for something Carina does not have.
 
-| Section | Consequence of a typo |
-|---|---|
-| `model` | Silently ignored |
-| `quadrature` | Silently ignored |
-| `initial conditions` and its sub-keys | Silently applies no initial condition |
-| `displacement` / `velocity` IC entries | Silently ignored |
+**Mesh names are checked against the mesh.** Every element block, node set, and
+side set named in the input is verified as soon as the mesh is read, before any
+of them is used:
 
-The initial-condition case is the one to watch: a run that quietly starts from
-rest looks like a physics result rather than an input error. When a simulation
-behaves as though a section were absent, check its spelling before suspecting
-the physics.
+```
+Dirichlet BC entry 4 refers to side set "ssz_", which is not in the mesh.
+Did you mean "ssz-"? Available: ssx+, ssx-, ssy+, ssy-, ssz+, ssz-.
+```
 
-The `boundary conditions` sub-keys `dirichlet` and `neumann` are matched
-**case-insensitively** and are validated, so both `Dirichlet:` and a typo like
-`dirchlet:` are handled — the first works, the second warns.
+**Values are matched case-insensitively**, and so are the sub-keys of
+`boundary conditions` (`dirichlet` / `neumann`) and the material property dicts
+under `model.material`. Everything else is matched exactly — but validated, so a
+casing mistake warns rather than passing unnoticed.
 
 ## Conventions
 
@@ -138,7 +146,8 @@ The `boundary conditions` sub-keys `dirichlet` and `neumann` are matched
   modulus`, not `elastic_modulus`. Error messages sometimes render key names
   with underscores; the accepted spelling is the spaced one.
 - **Values are matched case-insensitively**, after trimming. `Newton`,
-  `newton`, and `NEWTON` are the same. Section and key *names* are not — those
-  are exact.
+  `newton`, and `NEWTON` are the same. Section and key *names* are matched
+  exactly, apart from the two exceptions noted above, but every section is
+  validated — so a casing mistake warns.
 - **Quote function expressions** so YAML does not reinterpret them.
 - **Components are `x`, `y`, `z`** everywhere they appear.

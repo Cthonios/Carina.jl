@@ -104,9 +104,12 @@ convergence.
   per-quadrature-point stress, deformation gradient, and constitutive state.
 - **Nodal recovery** of element quantities by lumped or consistent (full L2)
   projection.
-- **Typo detection.** Unknown keys in most sections produce a warning with a
-  Levenshtein-based suggestion. Note the sections this does *not* cover, listed
-  in the [reference overview](reference/index.md#how-input-errors-surface).
+- **Input validation.** Every section is key-checked, with a Levenshtein-based
+  "did you mean" suggestion on unknown keys. Values drawn from a fixed set
+  (solver, integrator, preconditioner, quadrature, recovery) are rejected rather
+  than defaulted, and every element block, node set, and side set named in the
+  input is verified against the mesh before it is used. See
+  [how input errors surface](reference/index.md#How-input-errors-surface).
 
 ## Scale
 

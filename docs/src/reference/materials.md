@@ -22,14 +22,24 @@ capitalisation and surrounding whitespace do not matter.
 
 !!! warning "One material per simulation"
     Carina currently applies a **single** constitutive model and density to the
-    entire mesh. The parser reads only the first entry of `blocks`
-    (`first(blocks_dict)` in `_parse_material_section`) and builds one
-    `SolidMechanics(cm, density)` physics object for the whole domain.
+    entire mesh: one `SolidMechanics(cm, density)` physics object covers the
+    whole domain. `blocks` is a mapping for forward compatibility, but it must
+    hold exactly one entry. Listing more is an error:
 
-    Listing two blocks with different materials does **not** give you two
-    materials — and because `blocks` is an unordered `Dict`, *which* of them
-    wins is hash order, not file order. Do not rely on it. If your mesh has
-    multiple blocks, give them all the same material.
+    ```
+    ERROR: [model.material.blocks] lists 2 blocks (matrix, inclusion), but Carina
+           supports a single material per simulation. The material is applied to
+           the whole mesh; per-block materials are not implemented.
+    ```
+
+    Carina releases before this behaviour took `first(blocks_dict)` and applied
+    it everywhere. Since `blocks` is an unordered `Dict`, *which* material won
+    was hash order rather than file order — so a two-block input ran with an
+    arbitrary one of the two, silently, on both blocks.
+
+    If your mesh has multiple element blocks, that is fine; give them all the
+    same material by naming any one of them in `blocks`. The block you name is
+    checked against the mesh, but the material applies to every block.
 
 ## Material models
 
@@ -76,7 +86,7 @@ expects; keys are matched case-insensitively.
 
 | Key | Required | Default | Notes |
 |---|---|---|---|
-| `density` | effectively yes | `0.0` | Mass density (kg/m³). |
+| `density` | dynamic runs only | `0.0` | Mass density (kg/m³). |
 
 `density` is read from the material dictionary and is **not** passed through
 the elastic-constant alias table. If it is missing or zero, Carina emits a
@@ -86,9 +96,17 @@ warning and continues with `0.0`:
 [WARNING] No density specified for material "neohookean"; using 0.0.
 ```
 
-A zero density is only meaningful for quasi-static runs. Both dynamic
-integrators need mass: it makes the lumped mass matrix singular and the stable
-time-step estimate degenerate.
+That is legal for `quasi static`, which never forms a mass matrix. For
+`newmark` and `central difference` it is a hard error, because a zero density
+makes the lumped mass matrix singular — every acceleration would be `0/0`, and
+the run would fill the output file with `NaN` rather than report the missing
+property:
+
+```
+ERROR: The material assigned to block "cube" has density 0.0, but a dynamic
+       time integrator requires a mass matrix. Set `density` in the
+       [model.material] property dict.
+```
 
 ## Unknown property keys are ignored
 
@@ -102,6 +120,9 @@ alias is dropped with a warning rather than an error:
 This is easy to miss in a long log. If a material behaves as though a property
 were never set, check for this warning first — note the example above uses
 underscores, which are *not* an accepted alias (Carina's keys use spaces).
+
+The one case that cannot be missed is `density`, since misspelling it leaves the
+density at `0.0` and a dynamic run then aborts outright.
 
 ## Example
 

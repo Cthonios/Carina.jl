@@ -28,8 +28,15 @@ The value is lowercased before matching, so `Gauss Legendre` and
 Unknown quadrature.type = "simpson". Supported: "gauss legendre", "gauss lobatto legendre".
 ```
 
-Unlike most of Carina's input, an unrecognised quadrature type stops the run
-rather than warning — the integration rule is too consequential to guess at.
+An unrecognised quadrature type stops the run rather than warning — the
+integration rule is too consequential to guess at.
+
+The section's *keys* are validated too, so a misspelled `order` warns and falls
+back to the default rather than passing unnoticed:
+
+```
+[WARNING] Unknown key "orders" in quadrature. Did you mean "order"?
+```
 
 ## Effect on output
 

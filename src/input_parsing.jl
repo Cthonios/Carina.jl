@@ -100,6 +100,42 @@ function _get_ci(dict::AbstractDict, key::String, default=nothing)
     return default
 end
 
+"""
+Error unless every key in `required` is present in `dict`.
+
+Used for entries whose fields are read with `entry["..."]`.  Without this the
+missing key surfaces as a bare `KeyError` raised several frames deep inside
+FEC, which tells the user nothing about which input entry is at fault.
+"""
+function _require_keys(dict::AbstractDict, required, section::String)
+    for key in required
+        haskey(dict, key) || error(
+            "$section is missing required key \"$key\". Need: $(join(required, ", ")).")
+    end
+end
+
+"""
+Error unless `name` is one of `valid`, with a "did you mean" suggestion.
+
+`valid` is a collection of names read from the mesh (element blocks, node sets,
+side sets).  A mistyped name is otherwise either silently ignored — a material
+assigned to a block that does not exist still runs, on every block — or raised
+as a `KeyError` from deep inside FEC with no indication of which input entry
+produced it.
+"""
+function _check_mesh_name(name::AbstractString, valid, kind::String, section::String)
+    name_str = String(name)
+    name_str in valid && return name_str
+    known = Set{String}(String(v) for v in valid)
+    suggestion = _suggest(name_str, known)
+    msg = "$section refers to $kind \"$name_str\", which is not in the mesh."
+    if !isempty(suggestion)
+        msg *= " Did you mean \"$suggestion\"?"
+    end
+    msg *= " Available: $(join(sort(collect(known)), ", "))."
+    error(msg)
+end
+
 # --- Known keys per section ---
 
 const _TOPLEVEL_KEYS = Set([
@@ -136,6 +172,17 @@ const _LINEAR_SOLVER_KEYS = Set([
 ])
 
 const _BC_SECTION_KEYS = Set(["dirichlet", "neumann"])
+
+const _MODEL_KEYS = Set(["type", "material"])
+
+# Physics declared by `model.type`.  Only solid mechanics is implemented;
+# the key is accepted (and required to name a supported physics) so that a
+# future thermal or coupled model does not silently run as solid mechanics.
+const _MODEL_TYPES = Set(["solid mechanics", "solidmechanics", "mechanics"])
+
+const _QUADRATURE_KEYS = Set(["type", "order"])
+
+const _IC_SECTION_KEYS = Set(["displacement", "velocity", "traveling wave"])
 
 const _DBC_ENTRY_KEYS = Set(["side set", "node set", "component", "function"])
 const _NBC_ENTRY_KEYS = Set(["side set", "node set", "component", "function"])
@@ -178,7 +225,8 @@ function _parse_quadrature(dict)
     if q_section === nothing
         return RFE.GaussLegendre, 2
     end
-    type_str = lowercase(get(q_section, "type", "gauss legendre"))
+    _validate_keys(q_section, _QUADRATURE_KEYS, "quadrature")
+    type_str = lowercase(strip(get(q_section, "type", "gauss legendre")))
     order    = Int(get(q_section, "order", 2))
     if type_str in ("gauss legendre", "gl")
         return RFE.GaussLegendre, order
@@ -196,6 +244,20 @@ function _parse_material_section(dict)
     model_dict_top = get(dict, "model", nothing)
     model_dict_top === nothing && error("Missing [model] section in input.")
 
+    _validate_keys(model_dict_top, _MODEL_KEYS, "model")
+
+    # `model.type` selects the physics.  It is currently informational — there
+    # is only one physics — but it is checked rather than ignored so that
+    # `type: thermal` reports "not supported" instead of quietly running a
+    # solid-mechanics simulation.
+    if haskey(model_dict_top, "type")
+        model_type = lowercase(strip(String(model_dict_top["type"])))
+        model_type in _MODEL_TYPES || error(
+            "Unknown model.type = \"$model_type\". " *
+            "Supported: \"solid mechanics\". " *
+            "Thermal and coupled physics are not implemented.")
+    end
+
     mat_section = get(model_dict_top, "material", nothing)
     mat_section === nothing && error("Missing [model.material] section in input.")
 
@@ -203,16 +265,36 @@ function _parse_material_section(dict)
     blocks = get(mat_section, "blocks", nothing)
     blocks === nothing && error("Missing [model.material.blocks] mapping.")
     blocks_dict = blocks::Dict{String,Any}
-    # Use the first (and for single-domain Phase 1, only) block's model name.
+    isempty(blocks_dict) && error("[model.material.blocks] is empty; assign a material to a block.")
+
+    # One material for the whole mesh.  `blocks` is a mapping for forward
+    # compatibility, but only a single entry can be honoured: the constitutive
+    # model built here is applied to every element block. Taking `first` of a
+    # multi-entry mapping would pick an arbitrary one — `Dict` iteration order
+    # is hash order, not file order — and silently apply it everywhere.
+    length(blocks_dict) == 1 || error(
+        "[model.material.blocks] lists $(length(blocks_dict)) blocks " *
+        "($(join(sort(collect(keys(blocks_dict))), ", "))), but Carina supports a " *
+        "single material per simulation. The material is applied to the whole mesh; " *
+        "per-block materials are not implemented.")
+
     pair = first(blocks_dict)
     block_name = pair.first
     model_name = pair.second::String
 
+    # Everything in `material` other than `blocks` must be a property dict named
+    # after a supported constitutive model.  The legal key set is the model-name
+    # list, matched case-insensitively to agree with the `_get_ci` lookup below.
+    _validate_keys_ci(mat_section, Set{String}(["blocks", _MODEL_NAMES...]), "model.material")
+
     # The model-specific sub-dict (e.g.  neohookean: { elastic_modulus: ... })
-    model_props = get(mat_section, model_name, nothing)
-    model_props === nothing && error(
-        "Material block \"$model_name\" listed in blocks but no property dict found."
-    )
+    model_props = _get_ci(mat_section, model_name, nothing)
+    if model_props === nothing
+        present = sort(String[k for k in keys(mat_section) if k != "blocks"])
+        error("Material model \"$model_name\" is assigned to block \"$block_name\" in " *
+              "[model.material.blocks], but [model.material] has no \"$model_name\" " *
+              "property dict. Property dicts present: $(join(present, ", ")).")
+    end
 
     cm, density, props_inputs = parse_material(model_name, model_props::Dict{String,Any})
     return block_name, cm, density, props_inputs
@@ -226,7 +308,7 @@ end
 function _integrator_is_matrix_free(dict)
     ti_dict = get(dict, "time integrator", nothing)
     ti_dict === nothing && return false
-    type_str = lowercase(get(ti_dict, "type", ""))
+    type_str = lowercase(strip(get(ti_dict, "type", "")))
     return type_str in ("central difference", "centraldifference", "cd")
 end
 
@@ -276,7 +358,7 @@ end
 function _parse_integrator(dict, asm, asm_cpu, p_cpu, controller, backend=KA.CPU())
     ti_dict  = get(dict, "time integrator", nothing)
     ti_dict === nothing && error("Missing `time integrator` section.")
-    type_str = lowercase(get(ti_dict, "type", "quasi static"))
+    type_str = lowercase(strip(get(ti_dict, "type", "quasi static")))
     dt       = Float64(ti_dict["time step"])
 
     # Get a template vector from a DirectLinearSolver built on the device assembler.
@@ -540,6 +622,22 @@ end
 
 # ---- solver ----
 
+# Accepted spellings of each nonlinear solver.  Shared by `_read_solver_dicts`
+# (which gates on them before anything is built) and `_parse_nonlinear_solver`
+# (which dispatches on them), so the two cannot drift apart and let a value
+# through one gate only to have the other reject it -- or, worse, quietly treat
+# it as Newton.  `hessian minimizer` is a Norma-compatibility alias for Newton.
+const _NEWTON_TYPES = ("newton", "newton raphson", "newton-raphson", "hessian minimizer")
+const _NLCG_TYPES   = ("nonlinear cg", "nlcg", "conjugate gradient")
+const _SD_TYPES     = ("steepest descent", "gradient descent", "sd")
+const _SOLVER_TYPES = (_NEWTON_TYPES..., _NLCG_TYPES..., _SD_TYPES...)
+
+const _SOLVER_TYPE_HELP =
+    "Supported: \"newton\" (aliases \"newton raphson\", \"newton-raphson\", " *
+    "\"hessian minimizer\"), \"nonlinear cg\" (aliases \"nlcg\", " *
+    "\"conjugate gradient\"), \"steepest descent\" (aliases \"gradient descent\", " *
+    "\"sd\"). L-BFGS is a linear solver: set solver.linear solver.type = \"lbfgs\"."
+
 # Validate and return the solver and linear-solver sub-dicts.
 # Errors if the required two-level structure is absent.
 function _read_solver_dicts(dict)
@@ -549,16 +647,12 @@ function _read_solver_dicts(dict)
     _validate_keys(sol_dict, _SOLVER_KEYS, "solver")
 
     haskey(sol_dict, "type") ||
-        error("Missing required solver.type. " *
-              "Supported values: \"newton\", \"hessian_minimizer\".")
-    nl_type = lowercase(sol_dict["type"])
-    nl_type in ("newton", "hessian minimizer", "nonlinear cg", "nlcg", "conjugate gradient",
-                 "steepest descent", "gradient descent", "sd") ||
-        error("Unknown solver.type = \"$(sol_dict["type"])\". " *
-              "Supported: \"newton\", \"nonlinear_cg\", \"steepest_descent\".")
+        error("Missing required solver.type. " * _SOLVER_TYPE_HELP)
+    nl_type = lowercase(strip(sol_dict["type"]))
+    nl_type in _SOLVER_TYPES ||
+        error("Unknown solver.type = \"$(sol_dict["type"])\". " * _SOLVER_TYPE_HELP)
 
-    if nl_type in ("nonlinear cg", "nlcg", "conjugate gradient",
-                    "steepest descent", "gradient descent", "sd")
+    if nl_type in (_NLCG_TYPES..., _SD_TYPES...)
         # Matrix-free solvers; linear solver section is optional
         ls_dict = get(sol_dict, "linear solver", Dict{String,Any}("type" => "none"))
     else
@@ -669,7 +763,7 @@ Parse a single termination test entry (legacy syntax).
 Returns an AbstractStatusTest.
 """
 function _parse_termination_test(entry::Dict)
-    test_type = lowercase(get(entry, "type", ""))
+    test_type = lowercase(strip(get(entry, "type", "")))
 
     if test_type in ("absolute residual", "abs_residual", "abs_residual")
         tol = Float64(entry["tolerance"])
@@ -706,7 +800,11 @@ function _parse_termination_test(entry::Dict)
         return StagnationTest(; window, tol)
 
     elseif test_type in ("combo", "combination")
-        combo_type = lowercase(get(entry, "combo", "or"))
+        combo_type = lowercase(strip(get(entry, "combo", "or")))
+        # Anything other than "and"/"or" used to be read as "or", quietly
+        # inverting the meaning of a test group.
+        combo_type in ("and", "or") || error(
+            "Unknown combo = \"$combo_type\" in termination test. Expected \"and\" or \"or\".")
         subtests = AbstractStatusTest[_parse_termination_test(t)
                                       for t in entry["tests"]]
         return combo_type == "and" ? ComboAndTest(subtests) : ComboOrTest(subtests)
@@ -796,7 +894,7 @@ function _parse_linear_solver(ls_dict, template, backend, make_precond::Function
         assembled = backend isa KA.CPU
 
         precond_dict = get(ls_dict, "preconditioner", Dict{String,Any}())
-        precond_type = lowercase(get(precond_dict, "type", "none"))
+        precond_type = lowercase(strip(get(precond_dict, "type", "none")))
         precond = if precond_type == "jacobi"
             make_precond()
         elseif precond_type in ("ic", "incomplete cholesky", "ildl", "incomplete ldlt")
@@ -855,7 +953,7 @@ end
 
 function _parse_nonlinear_solver(sol_dict, ls::AbstractLinearSolver;
                                   template=nothing, make_precond=nothing)
-    solver_type = lowercase(get(sol_dict, "type", "newton"))
+    solver_type = lowercase(strip(get(sol_dict, "type", "newton")))
     T = template !== nothing ? eltype(template) : Float64
     mk() = template !== nothing ?
         (v = similar(template); fill!(v, zero(T)); v) : Float64[]
@@ -878,7 +976,7 @@ function _parse_nonlinear_solver(sol_dict, ls::AbstractLinearSolver;
     ls_dec     = Float64(get(sol_dict, "line search decrease factor", 1e-4))
     ls_max     = Int(get(sol_dict, "line search maximum iterations", 10))
 
-    if solver_type in ("nonlinear cg", "nlcg", "conjugate gradient")
+    if solver_type in _NLCG_TYPES
         orth_tol = Float64(get(sol_dict, "orthogonality tolerance", 0.5))
         restart  = Int(get(sol_dict, "restart interval", 0))
         pc_dict  = get(sol_dict, "preconditioner", nothing)
@@ -892,7 +990,7 @@ function _parse_nonlinear_solver(sol_dict, ls::AbstractLinearSolver;
                           orth_tol, restart, precond,
                           mk(), mk(), mk(), mk())
 
-    elseif solver_type in ("steepest descent", "gradient descent", "sd")
+    elseif solver_type in _SD_TYPES
         pc_dict  = get(sol_dict, "preconditioner", nothing)
         precond  = if pc_dict !== nothing && make_precond !== nothing
             make_precond()
@@ -902,9 +1000,16 @@ function _parse_nonlinear_solver(sol_dict, ls::AbstractLinearSolver;
         return SteepestDescentSolver(min_iters, max_iters, abs_tol, abs_tol, rel_tol,
                                       ls_back, ls_dec, ls_max,
                                       precond, mk(), mk())
-    else
+
+    elseif solver_type in _NEWTON_TYPES
         return NewtonSolver(min_iters, max_iters, abs_tol, abs_tol, rel_tol, ls,
                             use_ls, ls_back, ls_dec, ls_max)
+    else
+        # Do not fall through to Newton.  Newton is the right default when
+        # `type` is absent, but an unrecognised value means the user asked for
+        # something else -- and `lbfgs`, the most likely mistake here, is a
+        # `linear solver` type, not a nonlinear one.
+        error("Unknown solver.type = \"$solver_type\". " * _SOLVER_TYPE_HELP)
     end
 end
 
@@ -940,6 +1045,7 @@ function _parse_dirichlet_bcs(dict)
     dbcs = FEC.DirichletBC[]
     for (i, entry) in enumerate(entries)
         _validate_keys(entry, _DBC_ENTRY_KEYS, "Dirichlet BC entry $i")
+        _require_keys(entry, ("component", "function"), "Dirichlet BC entry $i")
         var_sym  = _component_to_string(entry["component"])
         func     = _make_function(entry["function"])
         # Accept either "side set" or "node set"
@@ -970,6 +1076,7 @@ function _parse_neumann_bcs(dict)
 
     for (i, entry) in enumerate(entries)
         _validate_keys(entry, _NBC_ENTRY_KEYS, "Neumann BC entry $i")
+        _require_keys(entry, ("component", "function"), "Neumann BC entry $i")
 
         if haskey(entry, "side set")
             # Surface traction: integrate over side set (FEC handles this).
@@ -998,6 +1105,77 @@ function _parse_neumann_bcs(dict)
         end
     end
     return nbcs, point_load_entries
+end
+
+# ---------------------------------------------------------------------------
+# Mesh-entity name validation
+# ---------------------------------------------------------------------------
+#
+# Every input key that names an element block, node set, or side set is checked
+# against the mesh once, as soon as the mesh is available.  Two failure modes
+# motivate this:
+#
+#   * A material assigned to a block that does not exist ran silently.  The
+#     block name is only used for the startup log line -- the constitutive model
+#     is applied to the whole mesh -- so `blocks: {cubeTypo: neohookean}`
+#     produced a correct-looking run with a wrong label.
+#   * A mistyped node set or side set reached FEC and raised a bare
+#     `KeyError: key "ssz_" not found` from inside `DirichletBCContainer`,
+#     naming neither the section nor the entry it came from.
+function _validate_mesh_names(dict, mesh, material_block::AbstractString)
+    blocks    = collect(keys(mesh.element_conns))
+    node_sets = collect(keys(mesh.nodeset_nodes))
+    side_sets = collect(keys(mesh.sideset_elems))
+
+    _check_mesh_name(material_block, blocks, "element block", "[model.material.blocks]")
+
+    # Boundary conditions.  Read through `_get_ci` so the casing accepted by
+    # `_parse_dirichlet_bcs` is accepted here too.
+    bc_section = get(dict, "boundary conditions", nothing)
+    if bc_section !== nothing
+        for (kind, key) in (("Dirichlet", "dirichlet"), ("Neumann", "neumann"))
+            entries = _get_ci(bc_section, key, nothing)
+            entries isa Vector || continue
+            for (i, entry) in enumerate(entries)
+                entry isa AbstractDict || continue
+                haskey(entry, "side set") &&
+                    _check_mesh_name(entry["side set"], side_sets, "side set",
+                                     "$kind BC entry $i")
+                haskey(entry, "node set") &&
+                    _check_mesh_name(entry["node set"], node_sets, "node set",
+                                     "$kind BC entry $i")
+            end
+        end
+    end
+
+    # Body forces: `block` is optional and defaults to the whole mesh.
+    bf_section = get(dict, "body forces", nothing)
+    if bf_section !== nothing
+        entries = bf_section isa Vector ? bf_section : [bf_section]
+        for (i, entry) in enumerate(entries)
+            entry isa AbstractDict || continue
+            block = get(entry, "block", "all")
+            String(block) == "all" ||
+                _check_mesh_name(block, blocks, "element block", "body force entry $i")
+        end
+    end
+
+    # Initial conditions: every entry type is node-set based.
+    ic_dict = get(dict, "initial conditions", nothing)
+    if ic_dict !== nothing
+        for kind in ("displacement", "velocity", "traveling wave")
+            entries = get(ic_dict, kind, nothing)
+            entries isa Vector || continue
+            for (i, entry) in enumerate(entries)
+                entry isa AbstractDict || continue
+                haskey(entry, "node set") &&
+                    _check_mesh_name(entry["node set"], node_sets, "node set",
+                                     "$kind IC entry $i")
+            end
+        end
+    end
+
+    return nothing
 end
 
 function _build_point_loads(entries, mesh, dof)
@@ -1032,6 +1210,7 @@ function _parse_body_forces(dict)
     bfs = FEC.Source[]
     for (i, entry) in enumerate(entries)
         _validate_keys(entry, _BF_ENTRY_KEYS, "body force entry $i")
+        _require_keys(entry, ("component", "function"), "body force entry $i")
         var_sym  = _component_to_string(entry["component"])
         comp_idx = var_sym === :displ_x ? 1 : var_sym === :displ_y ? 2 : 3
         scalar   = _make_function(entry["function"])
@@ -1147,20 +1326,49 @@ end
 
 # ---- initial conditions ----
 
+# Validate the keys of the `initial conditions` section itself.
+#
+# Called from `create_simulation` rather than from any one of the three IC
+# parsers: all three read the same section, so validating inside them would
+# either warn three times or make the warning depend on which parser happens to
+# run first.  A misspelled sub-key — `velocities:` for `velocity:` — used to
+# yield an empty list, so the simulation started from rest and looked like a
+# physics result rather than an input error.
+function _validate_ic_section(dict)
+    ic_dict = get(dict, "initial conditions", nothing)
+    ic_dict === nothing && return nothing
+    _validate_keys(ic_dict, _IC_SECTION_KEYS, "initial conditions")
+    return nothing
+end
+
+# Shared entry validation for the `displacement` and `velocity` IC lists.
+# Both are consumed by `_apply_initial_*_ics!`, which indexes `entry[...]`
+# directly; without this a typo surfaces as a bare KeyError from initialization.
+function _validate_ic_entries(entries, kind::String)
+    for (i, entry) in enumerate(entries)
+        entry isa AbstractDict || error(
+            "initial conditions.$kind entry $i must be a mapping with keys: " *
+            "node set, component, function.")
+        _validate_keys(entry, _IC_ENTRY_KEYS, "$kind IC entry $i")
+        _require_keys(entry, ("node set", "component", "function"), "$kind IC entry $i")
+    end
+    return entries
+end
+
 function _parse_displacement_ics(dict)
     ic_dict = get(dict, "initial conditions", nothing)
     ic_dict === nothing && return Any[]
     disp_ics = get(ic_dict, "displacement", Any[])
-    disp_ics isa Vector || error("initial_conditions.displacement must be a list.")
-    return disp_ics
+    disp_ics isa Vector || error("initial conditions.displacement must be a list.")
+    return _validate_ic_entries(disp_ics, "displacement")
 end
 
 function _parse_velocity_ics(dict)
     ic_dict = get(dict, "initial conditions", nothing)
     ic_dict === nothing && return Any[]
     vel_ics = get(ic_dict, "velocity", Any[])
-    vel_ics isa Vector || error("initial_conditions.velocity must be a list.")
-    return vel_ics
+    vel_ics isa Vector || error("initial conditions.velocity must be a list.")
+    return _validate_ic_entries(vel_ics, "velocity")
 end
 
 # Traveling-wave IC: the user supplies the initial displacement profile

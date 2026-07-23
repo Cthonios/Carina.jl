@@ -1,7 +1,14 @@
 # Troubleshooting
 
-Most Carina input problems are *silent* rather than loud — a mistyped section is
-skipped, not rejected. This page is ordered by how often that bites.
+Carina aims to fail loudly: every input section is key-validated, every value
+drawn from a fixed set is checked against it, and every mesh name is verified
+against the mesh file. So start by reading the log from the top — the answer is
+usually a `[WARNING]` line you scrolled past. This page covers what is left.
+
+!!! note "If you are on an older build"
+    Much of this validation is recent. Older versions silently skipped a
+    mistyped section rather than rejecting it, which is why the entries below
+    still describe the silent symptom alongside the message you should now see.
 
 ## The simulation runs but nothing is constrained
 
@@ -9,13 +16,11 @@ skipped, not rejected. This page is ordered by how often that bites.
 immediately on a singular system, or displacements are orders of magnitude too
 large.
 
-**Cause.** Most often a mesh-name mismatch: a `side set` or `node set` that
-does not exist in the Exodus file constrains nothing.
-
-Capitalisation of `dirichlet:` / `neumann:` is *not* a cause on current
-versions — those keys are matched case-insensitively and a genuine typo warns.
-On older versions they were matched exactly, so `Dirichlet:` was skipped in
-silence; if you are running an older build, check that first.
+**Cause.** A `dirichlet:` list that never reached the parser. On current
+versions this is hard to do: `dirichlet` / `neumann` are matched
+case-insensitively, a genuine typo warns, and a `side set` or `node set` that
+is absent from the Exodus file aborts with the available names. On older
+versions all three failed silently.
 
 **Check.** Confirm the log's DOF line shows constrained DOFs:
 
@@ -27,9 +32,11 @@ silence; if you are running an older build, check that first.
 
 ## An initial condition had no effect
 
-**Cause.** Same class of problem. The `initial conditions` section, its
-sub-keys, and `displacement` / `velocity` entries are all unvalidated, so
-`velocities:`, `initial condition:`, or `nodeset:` fail silently.
+**Cause.** On current versions a misspelled list key warns
+(`Unknown key "velocities" in initial conditions`), a misspelled entry key warns
+and then aborts on the missing required field, and an unknown `node set` aborts
+with the mesh's node-set names. All three were silent on older versions, which
+made the run start from rest and look like a physics result.
 
 **Also check the integrator.** Quasi-static ignores velocity and traveling-wave
 conditions, warning as it does so:
@@ -38,7 +45,8 @@ conditions, warning as it does so:
 [WARNING] Initial velocity ICs ignored for non-Newmark integrator.
 ```
 
-Traveling-wave entries *are* validated, so they will tell you what is wrong.
+This warning is the one remaining case where an initial condition is legitimately
+dropped, so it is worth grepping for.
 
 ## Convergence is far slower than expected
 
@@ -108,8 +116,9 @@ rather than hand-tuning `time step`. On large-deformation problems, where
 element geometry degrades as the run proceeds, also set `stable time step
 interval` so the estimate is refreshed.
 
-Note that a zero or missing `density` makes the stable-step estimate
-degenerate — check for the no-density warning.
+A zero or missing `density` would make the stable-step estimate degenerate, but
+it cannot reach this point: a dynamic run with no density is rejected at
+startup.
 
 ## Startup errors
 
@@ -118,7 +127,13 @@ degenerate — check for the no-density warning.
 | `KeyError: "final time"` / `"time step"` | These two are required and indexed directly, so they error rather than warn. |
 | `Adaptive time stepping requires all four: ...` | Supply all of `minimum time step`, `maximum time step`, `decrease factor`, `increase factor`, or none. |
 | `decrease factor must be < 1.0` | Decrease shrinks the step; increase grows it. |
-| `Material block "X" listed in blocks but no property dict found.` | The name in `blocks` is a reference; add a sibling key with the properties. |
+| `Material model "X" is assigned to block "Y" ... but [model.material] has no "X" property dict.` | The name in `blocks` is a reference; add a sibling key with the properties. The message lists the property dicts you did write. |
+| `... refers to element block / node set / side set "X", which is not in the mesh.` | A mesh-name typo. The message suggests the closest match and lists what the mesh actually contains. |
+| `[model.material.blocks] lists N blocks ...` | One material per simulation; name a single block. |
+| `Unknown model.type = "X".` | Only `solid mechanics` exists. |
+| `Unknown solver.type = "X".` | Note that `lbfgs` is a *linear* solver — set it under `linear solver`. |
+| `... is missing required key "X".` | A boundary condition, body force, or initial condition entry is incomplete. The message names the section and entry index. |
+| `... has density 0.0, but a dynamic time integrator requires a mass matrix.` | Set `density`, or check it for a typo — an unrecognised property key is dropped with a warning. |
 | `Missing required [solver] section.` | Implicit integrators need one. Explicit does not. |
 | `Simulation type "multi" not yet supported.` | Only `single` is implemented. |
 | `Failed to establish initial equilibrium.` | The `initial equilibrium: true` solve diverged — relax tolerances or start from a better state. |

@@ -17,19 +17,31 @@ initial conditions:
 ```
 
 Each of the three keys must hold a **list**, even for a single entry. A scalar
-or mapping raises e.g. `initial_conditions.displacement must be a list.`
+or mapping raises e.g. `initial conditions.displacement must be a list.`
 
-!!! warning "Misspelled keys fail silently"
-    The `initial conditions` section is not key-validated, and neither are
-    `displacement` / `velocity` entries. A typo in the section key (`initial
-    condition:`), in a list key (`velocities:`), or in an entry key
-    (`nodeset:`) produces **no warning** — the initial condition is simply
-    never applied and the run starts from rest.
+!!! note "Misspelled keys are reported"
+    A typo in a list key warns:
 
-    Traveling-wave entries are the exception: they are fully validated.
+    ```
+    [WARNING] Unknown key "velocities" in initial conditions. Did you mean "velocity"?
+    ```
 
-    If a simulation starts from an unexpected state, check these spellings
-    first.
+    A typo in an entry key warns and then aborts, because the field it stands
+    in for is required:
+
+    ```
+    [WARNING] Unknown key "nodeset" in displacement IC entry 1. Did you mean "node set"?
+    ERROR: displacement IC entry 1 is missing required key "node set".
+           Need: node set, component, function.
+    ```
+
+    A typo in the *section* key (`initial condition:`) is caught by top-level
+    validation, which warns the same way.
+
+    Carina releases before this behaviour left all three unvalidated, so a
+    misspelling meant the initial condition was silently never applied and the
+    run started from rest — indistinguishable from a physics result. If you are
+    reading an older input file that behaved oddly, that is worth checking.
 
 ## Displacement and velocity
 

@@ -16,24 +16,30 @@ model:
 
 | Key | Required | Description |
 |---|---|---|
-| `type` | no | Physics type. Conventionally `solid mechanics`. |
+| `type` | no | Physics type. `solid mechanics` (aliases `solidmechanics`, `mechanics`). |
 | `material` | **yes** | Material assignment and properties — see [Materials](materials.md). |
 
-## `type` is not yet dispatched on
+## `type` is checked but not yet dispatched on
 
-Every example writes `type: solid mechanics`, and you should keep writing it —
-but be aware that the value is currently **parsed and ignored**. Carina builds
-a solid-mechanics physics object unconditionally; there is no branch on this
-key anywhere in the source, and no validation of it either. Any string, or no
-`type` key at all, produces the same solid-mechanics run.
+Every example writes `type: solid mechanics`, and you should keep writing it.
+Carina builds a solid-mechanics physics object unconditionally — there is no
+branch on this key anywhere in the source — so omitting `type` produces the same
+run as writing it.
 
-Heat conduction and true multiphysics are design goals, not present
-capabilities. When they arrive, `type` is where they will be selected, which is
-why the key is worth writing today.
+What the key does do is *constrain* you to a physics that exists. Any other
+value aborts:
 
-Because the `model` section is not key-validated, misspelled keys under it are
-silently ignored rather than warned about — including `materials:` instead of
-`material:`, which will fail with the missing-section error below.
+```
+Unknown model.type = "thermal". Supported: "solid mechanics".
+Thermal and coupled physics are not implemented.
+```
+
+That matters more than it looks. Heat conduction and true multiphysics are
+design goals, not present capabilities; without this check, an input file
+written in anticipation of them would run as solid mechanics and report nothing.
+
+Keys under `model` are validated, so `materials:` for `material:` warns before
+it reaches the missing-section error below.
 
 ## `material`
 
@@ -49,11 +55,21 @@ All of these abort the run at startup:
 | Message | Cause |
 |---|---|
 | `Missing [model] section in input.` | No `model` key. |
+| `Unknown model.type = "X".` | `type` names a physics that does not exist. |
 | `Missing [model.material] section in input.` | No `material` under `model`. |
 | `Missing [model.material.blocks] mapping.` | No `blocks` under `material`. |
-| `Material block "X" listed in blocks but no property dict found.` | `blocks` names a material with no matching property dictionary. |
+| `[model.material.blocks] is empty; ...` | `blocks` present but with no entries. |
+| `[model.material.blocks] lists N blocks, but Carina supports a single material per simulation.` | More than one block assigned — see [Materials](materials.md). |
+| `Material model "X" is assigned to block "Y" ... but [model.material] has no "X" property dict.` | `blocks` names a material with no matching property dictionary. |
+| `[model.material.blocks] refers to element block "X", which is not in the mesh.` | Block name does not match the mesh. |
 | `Unknown material model "X". Supported: ...` | Material name not recognised. |
 
-The third and fourth are the common ones. A `blocks` entry such as
+The property-dict one is the common mistake. A `blocks` entry such as
 `my_block: neohookean` requires a sibling key `neohookean:` holding the
-properties — the name in `blocks` is a *reference*, not a definition.
+properties — the name in `blocks` is a *reference*, not a definition. The error
+lists the property dicts you did write, which usually makes the mismatch obvious.
+
+The block *name* on the left of that entry (`my_block`) is checked against the
+element blocks in the mesh file. It is only used for the startup log line — the
+material is applied to the whole mesh either way — so a mistyped block name used
+to produce a correct-looking run with a wrong label.

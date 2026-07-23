@@ -23,12 +23,22 @@ solver:
 
 | `type` | Aliases | Needs a linear solver? | GPU | Description |
 |---|---|---|---|---|
-| `newton` | `hessian minimizer` | yes | via linear solver | Newton–Raphson. Quadratic convergence near the solution. **The default choice.** |
+| `newton` | `newton raphson`, `newton-raphson`, `hessian minimizer` | yes | via linear solver | Newton–Raphson. Quadratic convergence near the solution. **The default choice.** |
 | `nonlinear cg` | `nlcg`, `conjugate gradient` | no | yes | Nonlinear CG. Matrix-free, linear convergence. |
 | `steepest descent` | `gradient descent`, `sd` | no | yes | Preconditioned steepest descent. Matrix-free, slowest, most robust. |
 
 `type` is required; there is no default. `hessian minimizer` is accepted for
-compatibility and builds a plain `NewtonSolver`.
+Norma compatibility and builds a plain `NewtonSolver`.
+
+Anything else aborts with the list above. In particular `lbfgs` is **not** a
+nonlinear solver type — it is a [linear solver](#Linear-solvers), selected with
+`solver.linear solver.type: lbfgs`. That mistake used to fall through to Newton
+silently, producing a run that looked fine but was not the algorithm requested:
+
+```
+ERROR: Unknown solver.type = "lbfgs". Supported: "newton" (aliases ...).
+       L-BFGS is a linear solver: set solver.linear solver.type = "lbfgs".
+```
 
 For `newton`, a `linear solver` sub-section is **required**. For the two
 matrix-free solvers it is optional and defaults to `type: none`.
@@ -123,6 +133,10 @@ Still supported. Each entry carries an explicit `type`, with the value under
     - type: maximum iterations
       value: 16
 ```
+
+`combo` must be `and` or `or`; the default when it is omitted is `or`. Any other
+value is an error — it previously fell through to `or`, which inverted the
+meaning of the group without saying so.
 
 ### Oldest: flat tolerances
 
