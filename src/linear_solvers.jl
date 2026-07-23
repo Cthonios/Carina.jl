@@ -118,6 +118,14 @@ _update_amg_precond_assembled!(::Preconditioner, _, _, _) = nothing
 
 # Staleness detector: remember the iteration count right after a build;
 # flag a rebuild when the count grows past 3× that baseline (and ≥ 30).
+#
+# Must be called after EVERY AMG-preconditioned solve, on both the quasi-static
+# and the Newmark path.  It is the only thing that triggers a rebuild on the
+# quasi-static path: `_build_precond_op` passes c_M = 0.0 there, so the
+# `c_M_changed` test in `_update_amg_precond_assembled!` compares 0.0 > 0.0 and
+# is never true.  Without this call the hierarchy is built once at the reference
+# configuration and reused for the whole run, which makes the current-config
+# near-nullspace pointless and lets iteration counts drift upward unchecked.
 function _amg_track_iters!(precond::AMGPreconditioner, iters::Int)
     if precond.base_iters == 0
         precond.base_iters = iters
@@ -126,6 +134,7 @@ function _amg_track_iters!(precond::AMGPreconditioner, iters::Int)
     end
     return nothing
 end
+_amg_track_iters!(::Preconditioner, _) = nothing
 
 # Compute (K + c_M·M)·v via matrix-free actions, storing result in asm storage.
 function _apply_eff_stiffness!(asm, U, v, c_M, p, scratch)
@@ -542,6 +551,10 @@ function _linear_solve!(ls::KrylovLinearSolver, ig::QuasiStaticIntegrator, p, op
     ΔU  = copy(Krylov.solution(ls.workspace))
     res = ls.workspace.stats.residuals
     r_cg = isempty(res) ? NaN : res[end]
+    # Feed the iteration count back to the AMG staleness detector so a hierarchy
+    # built at an earlier configuration gets rebuilt once it stops paying for
+    # itself.  No-op for every other preconditioner.
+    _amg_track_iters!(ls.precond, ls.workspace.stats.niter)
     _carina_logf(8, :solve, "    CG: %d iters : |r|_CG = %.2e : %s",
                  ls.workspace.stats.niter, r_cg,
                  _cg_status_str(ls.workspace.stats.solved))
