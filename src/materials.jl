@@ -23,15 +23,14 @@ const _MODEL_NAMES = (
 
 function _model_ctor(name::String)
     key = lowercase(strip(name))
-    (key == "neohookean" || key == "neo-hookean" || key == "neo hookean")           && return CM.NeoHookean()
+    (key == "neohookean" || key == "neo-hookean" || key == "neo hookean")           && return CM.Hyperelastic(CM.NeoHookean())
     (key == "linear elastic" || key == "linearelastic")                              && return CM.LinearElastic()
-    key == "hencky"                                                                  && return CM.Hencky()
-    key == "linear elasto plasticity"                                                && return CM.LinearElastoPlasticity(
-                                                                                          CM.VonMisesYieldSurface(),
-                                                                                          CM.LinearIsotropicHardening())
+    key == "hencky"                                                                  && return CM.Hyperelastic(CM.Hencky())
+    key == "linear elasto plasticity"                                                && return CM.LinearElastoplastic(
+                                                                                          CM.VonMises(CM.LinearIsotropicHardening())),
     (key == "saint venant kirchhoff" || key == "saintvenant-kirchhoff" ||
-     key == "saintvenantkirchhoff"   || key == "svk")                                && return CM.SaintVenantKirchhoff()
-    (key == "seth-hill" || key == "seth hill" || key == "sethhill")                  && return CM.SethHill()
+     key == "saintvenantkirchhoff"   || key == "svk")                                && return CM.Hyperelastic(CM.SaintVenantKirchhoff())
+    (key == "seth-hill" || key == "seth hill" || key == "sethhill")                  && return CM.Hyperelastic(CM.SethHill())
     (key == "j2 plasticity" || key == "finitedefj2plasticity" ||
      key == "finite def j2 plasticity")                                              && return CM.FiniteDefJ2Plasticity()
     return nothing
@@ -91,6 +90,9 @@ function parse_material(model_name::String, model_dict::Dict)
         cm_key === nothing && _carina_log(0, :warning, "Unknown material property key \"$yaml_key\"; ignoring.")
         cm_key !== nothing && (props_inputs[cm_key] = _f64(val))
     end
+
+    # quick fix to pack density into props_inputs for new CM interface
+    props_inputs["density"] = density
 
     return cm, density, props_inputs
 end
