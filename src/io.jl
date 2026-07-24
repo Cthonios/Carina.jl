@@ -464,7 +464,16 @@ function _write_element_fields!(pp, p_cpu, field_cpu, state_old_cpu, state_new_c
         if output_spec.internal_variables
             state_new_b = FEC.block_view(state_new_cpu, b)
             nquad = size(state_new_b, 2)
-            block_physics = p_cpu.physics[block_name]
+            # Index by POSITION, not by name.  `block_name` comes from
+            # `fspace.ref_fes`, which keeps the Exodus block names, but
+            # `create_parameters` re-keys physics and properties positionally as
+            # `region_1..N` whenever it is handed a bare `AbstractPhysics` --
+            # which is always, since Carina applies one material to the whole
+            # mesh.  The two NamedTuples therefore never share key names unless
+            # the mesh block happens to be called "region_1", and this lookup
+            # threw `FieldError: type NamedTuple has no field <block>` for every
+            # other mesh.  `b` is already how the state array is sliced above.
+            block_physics = values(p_cpu.physics)[b]
             iv_names = CM.state_variable_names(block_physics.constitutive_model)
             for (iv, name) in enumerate(iv_names)
                 for q in 1:nquad
