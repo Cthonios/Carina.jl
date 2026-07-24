@@ -14,7 +14,7 @@ using Tensors
 
 struct SolidMechanics{Model <: CM.AbstractConstitutiveModel, NP, NS} <: FEC.AbstractPhysics{3, NP, NS}
     constitutive_model::Model
-    density::Float64
+    # density::Float64
 end
 
 """
@@ -24,10 +24,12 @@ Construct a `SolidMechanics` physics object wrapping constitutive model `cm`.
 `density` is used for the mass matrix (dynamics).
 """
 function SolidMechanics(
-    cm::CM.AbstractConstitutiveModel{NP, NS},
-    density::Float64 = 0.0,
-) where {NP, NS}
-    return SolidMechanics{typeof(cm), NP, NS}(cm, density)
+    cm::CM.AbstractConstitutiveModel
+    # density::Float64 = 0.0,
+)
+    NP = CM.num_properties(cm)
+    NS = CM.num_state_variables(cm)
+    return SolidMechanics{typeof(cm), NP, NS}(cm)
 end
 
 # --------------------------------------------------------------------------- #
@@ -42,9 +44,10 @@ from a `Dict{String}` of material inputs (e.g. "Young's modulus", "Poisson's rat
 The returned vector is passed as `props_el` to each physics kernel call.
 """
 function create_solid_mechanics_properties(
-    cm::CM.AbstractConstitutiveModel{NP, NS},
+    cm::CM.AbstractConstitutiveModel,
     material_inputs::Dict{String},
-) where {NP, NS}
+)
+    NP = CM.num_properties(cm)
     props_vec = CM.initialize_props(cm, material_inputs)
     return SVector{NP, Float64}(props_vec)
 end
@@ -85,7 +88,7 @@ end
 
     # PK1 stress (analytical or AD-backed depending on the model)
     P_q = CM.pk1_stress(
-        physics.constitutive_model, props_el, dt, ∇u_q, 0.0, state_old_q, state_new_q,
+        physics.constitutive_model, props_el, state_old_q, state_new_q, dt, ∇u_q, 0.0
     )
 
     # Voigt-ordered stress vector and B-matrix, then internal force
@@ -114,7 +117,7 @@ end
     ∇u_q = FEC.interpolate_field_gradients(physics, cell, u_el)
     ∇u_q = FEC.modify_field_gradients(FEC.ThreeDimensional(), ∇u_q)
     W_q = CM.helmholtz_free_energy(
-        physics.constitutive_model, props_el, dt, ∇u_q, 0.0, state_old_q, state_new_q,
+        physics.constitutive_model, props_el, state_old_q, state_new_q, dt, ∇u_q, 0.0
     )
     return JxW * W_q
 end
@@ -147,7 +150,7 @@ end
         h = max(sqrt_eps * abs(val), h_floor)
         ∇u_p = Tensor{2,3}((i,j) -> ∇u[i,j] + (i==k && j==l ? h : 0.0))
         s_p = zero(state_q)
-        P_p = CM.pk1_stress(model, props, dt, ∇u_p, 0.0, state_q, s_p)
+        P_p = CM.pk1_stress(model, props, state_q, s_p, dt, ∇u_p, 0.0)
         for i in 1:3, j in 1:3
             A[i,j,k,l] = (P_p[i,j] - P0[i,j]) / h
         end
@@ -176,7 +179,7 @@ end
     # Use state_old_q as the starting state — same as the residual kernel.
     # The tangent must be the Jacobian of the same function the residual evaluates.
     A_q = CM.material_tangent(
-        physics.constitutive_model, props_el, dt, ∇u_q, 0.0, state_old_q, state_new_q,
+        physics.constitutive_model, props_el, state_old_q, state_new_q, dt, ∇u_q, 0.0
     )
 
     A_v = FEC.extract_stiffness(FEC.ThreeDimensional(), A_q)
@@ -203,7 +206,7 @@ end
     ∇u_q = FEC.modify_field_gradients(FEC.ThreeDimensional(), ∇u_q)
 
     A_q = CM.material_tangent(
-        physics.constitutive_model, props_el, dt, ∇u_q, 0.0, state_old_q, state_new_q,
+        physics.constitutive_model, props_el, state_old_q, state_new_q, dt, ∇u_q, 0.0
     )
 
     A_v = FEC.extract_stiffness(FEC.ThreeDimensional(), A_q)
@@ -247,7 +250,7 @@ end
 
     # Small-strain Cauchy stress σ = C:ε,  ε = sym(∇u)
     σ_q = CM.cauchy_stress(
-        physics.constitutive_model, props_el, dt, ∇u_q, 0.0, state_old_q, state_new_q,
+        physics.constitutive_model, props_el, state_old_q, state_new_q, dt, ∇u_q, 0.0
     )
     # SymmetricTensor{2,3} → Tensor{2,3} (column-major, matching FEC convention)
     T_el = eltype(σ_q)
@@ -274,7 +277,7 @@ end
     ∇u_q = FEC.interpolate_field_gradients(physics, cell, u_el)
     ∇u_q = FEC.modify_field_gradients(FEC.ThreeDimensional(), ∇u_q)
     W_q = CM.helmholtz_free_energy(
-        physics.constitutive_model, props_el, dt, ∇u_q, 0.0, state_old_q, state_new_q,
+        physics.constitutive_model, props_el, state_old_q, state_new_q, dt, ∇u_q, 0.0
     )
     return JxW * W_q
 end
@@ -295,7 +298,7 @@ end
 
     # Constant small-strain tangent C = ∂P/∂∇u|_{∇u=0}
     A_q = CM.material_tangent(
-        physics.constitutive_model, props_el, dt, zero(∇u_q), 0.0, state_old_q, state_new_q,
+        physics.constitutive_model, props_el, state_old_q, state_new_q, dt, zero(∇u_q), 0.0
     )
 
     A_v = FEC.extract_stiffness(FEC.ThreeDimensional(), A_q)
@@ -318,7 +321,7 @@ end
     ∇u_q = FEC.modify_field_gradients(FEC.ThreeDimensional(), ∇u_q)
 
     A_q = CM.material_tangent(
-        physics.constitutive_model, props_el, dt, zero(∇u_q), 0.0, state_old_q, state_new_q,
+        physics.constitutive_model, props_el, state_old_q, state_new_q, dt, zero(∇u_q), 0.0
     )
 
     A_v = FEC.extract_stiffness(FEC.ThreeDimensional(), A_q)
@@ -348,6 +351,7 @@ end
     # column-major generator: the previous element-wise `setindex` on an
     # immutable SVector was O(NDOF⁴) — each `setindex` rebuilds the whole array
     # — and on its own dominated whole-simulation setup time.
+    ρ       = props_el[1]
     ET      = eltype(N)
     N_nodes = size(N, 1)
     NDOF    = 3 * N_nodes
@@ -355,7 +359,7 @@ end
     M_el = SMatrix{NDOF, NDOF, ET}(
         (((r - 1) % 3 == (c - 1) % 3) ? NN[(r - 1) ÷ 3 + 1, (c - 1) ÷ 3 + 1] : zero(ET))
         for r in 1:NDOF, c in 1:NDOF)
-    return JxW * physics.density * M_el
+    return JxW * ρ * M_el
 end
 
 # --------------------------------------------------------------------------- #
@@ -379,10 +383,10 @@ end
 )
     cell = FEC.map_interpolants(interps, x_el)
     (; N, JxW) = cell
-
+    ρ       = props_el[1]
     N_nodes = size(N, 1)
     NDOF    = 3 * N_nodes
-    ρJxW    = JxW * physics.density
+    ρJxW    = JxW * ρ
     tup = zeros(SVector{NDOF, eltype(N)})
     for a in 1:N_nodes
         m_a = ρJxW * N[a]
@@ -409,6 +413,7 @@ end
     cell = FEC.map_interpolants(interps, x_el)
     (; N, JxW) = cell
 
+    ρ = props_el[1]
     # Correct M·v in interleaved DOF ordering:
     #   (M·v)[3*(n-1)+d] = N[n] * Σ_m N[m] * v_el[3*(m-1)+d]
     # i.e. per-direction dot products, NOT a single dot over all DOFs.
@@ -423,7 +428,7 @@ end
         tup = setindex(tup, N[n] * s2, k + 2)
         tup = setindex(tup, N[n] * s3, k + 3)
     end
-    return JxW * physics.density * tup
+    return JxW * ρ * tup
 end
 
 # --------------------------------------------------------------------------- #

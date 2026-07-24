@@ -4,7 +4,7 @@
     # returned ~2× the mean centroid-to-node distance — the body diagonal √3·h
     # for a cube — overestimating the explicit stable time step by ~1.73×.
 
-    physics = Carina.SolidMechanics(Carina.CM.NeoHookean(), 1000.0)
+    physics = Carina.SolidMechanics(Carina.CM.Hyperelastic(Carina.CM.NeoHookean()))
     h = 2.5e-3
 
     call(x_el, u_el) = Carina.element_char_length(

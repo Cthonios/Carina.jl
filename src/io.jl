@@ -213,8 +213,8 @@ function _write_recovered_fields!(sim, step)
                     ∇u_q = FEC.modify_field_gradients(FEC.ThreeDimensional(), ∇u_q)
                     state_scratch = zero(state_new_q)
                     σ_q = symmetric(CM.cauchy_stress(
-                        block_physics.constitutive_model, props_el, dt, ∇u_q, 0.0,
-                        state_old_q, state_scratch,
+                        block_physics.constitutive_model, props_el,
+                        state_old_q, state_scratch, dt, ∇u_q, 0.0
                     ))
                     for i in 1:nnpe
                         NiJxW = N[i] * JxW
@@ -407,7 +407,7 @@ function quadrature_field_output(
     # Use a scratch buffer for state_new to prevent mutation.
     state_scratch = similar(state_new_q)
     σ_q = symmetric(CM.cauchy_stress(
-        physics.constitutive_model, props_el, dt, ∇u_q, 0.0, state_old_q, state_scratch,
+        physics.constitutive_model, props_el, state_old_q, state_scratch, dt, ∇u_q, 0.0
     ))
 
     return QuadratureFieldOutput(F_q, σ_q)

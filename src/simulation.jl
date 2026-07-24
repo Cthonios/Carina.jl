@@ -100,7 +100,7 @@ function create_simulation(dict::Dict{String,Any}, basedir::String="";
               "[model.material] property dict.")
     end
     props   = create_solid_mechanics_properties(cm, props_inputs)
-    physics = SolidMechanics(cm, density)
+    physics = SolidMechanics(cm)
     cm_name = replace(string(typeof(cm)), r"^.*\." => "")  # strip module prefix
     _log_block_material(block_name, cm_name, density, props_inputs)
 
