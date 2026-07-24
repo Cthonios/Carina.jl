@@ -28,40 +28,65 @@
 
     # ----- model ------------------------------------------------------------
     @testset "model" begin
-        @test Carina._parse_material_section(good_material())[1] == "cube"
+        # `_parse_material_section` takes the mesh's block order and returns one
+        # BlockMaterial per block, in that order.  See test/per-block-materials.jl
+        # for the assignment semantics; this set covers the parse-level checks.
+        parse1(d) = Carina._parse_material_section(d, ["cube"])
+
+        @test parse1(good_material())[1].block == "cube"
 
         # `model.type` names a physics that does not exist.  Previously the key
         # was read by nothing at all, so `thermal` ran as solid mechanics.
         d = good_material()
         d["model"]["type"] = "thermal"
-        @test_throws ErrorException Carina._parse_material_section(d)
+        @test_throws ErrorException parse1(d)
 
         # Omitting `type` remains legal.
         d = good_material()
         delete!(d["model"], "type")
-        @test Carina._parse_material_section(d)[1] == "cube"
+        @test parse1(d)[1].block == "cube"
 
-        # A second block used to be dropped, with `first(blocks_dict)` picking
-        # the survivor in hash order and applying it to the whole mesh.
+        # Assigning a material to a block the mesh does not have.  This used to
+        # be silently dropped: `first(blocks_dict)` picked a survivor in hash
+        # order and applied it to the whole mesh.
         d = good_material()
         d["model"]["material"]["blocks"]["shell"] = "linear elastic"
-        @test_throws ErrorException Carina._parse_material_section(d)
+        @test_throws ErrorException parse1(d)
+
+        # ...and the reverse: a mesh block with no material assigned.  There is
+        # no default, because a block inheriting another block's material would
+        # converge to a plausible wrong answer.
+        d = good_material()
+        @test_throws ErrorException Carina._parse_material_section(d, ["cube", "shell"])
 
         d = good_material()
         empty!(d["model"]["material"]["blocks"])
-        @test_throws ErrorException Carina._parse_material_section(d)
+        @test_throws ErrorException parse1(d)
 
-        # `blocks` names a model with no matching property dict.
+        # `blocks` names a material with no matching property dict.
         d = good_material()
         d["model"]["material"]["blocks"]["cube"] = "hencky"
-        @test_throws ErrorException Carina._parse_material_section(d)
+        @test_throws ErrorException parse1(d)
 
         # The property dict is resolved case-insensitively, matching the
         # case-insensitive validation of the same keys.
         d = good_material()
         d["model"]["material"]["blocks"]["cube"] = "NeoHookean"
         d["model"]["material"]["NeoHookean"] = pop!(d["model"]["material"], "neohookean")
-        @test Carina._parse_material_section(d)[3] == 1000.0
+        @test parse1(d)[1].density == 1000.0
+
+        # An arbitrary label plus an explicit `model:` key -- the spelling that
+        # lets two blocks share a model with different properties.
+        d = good_material()
+        d["model"]["material"]["blocks"]["cube"] = "my_steel"
+        d["model"]["material"]["my_steel"] = pop!(d["model"]["material"], "neohookean")
+        d["model"]["material"]["my_steel"]["model"] = "neohookean"
+        m = parse1(d)[1]
+        @test m.model_name == "neohookean"
+        @test m.density == 1000.0
+        # `model` is a selector, not a material property, so it must not leak
+        # into the property dict handed to ConstitutiveModels.
+        @test !haskey(m.props_inputs, "model")
     end
 
     # ----- quadrature -------------------------------------------------------

@@ -73,7 +73,11 @@ end
 # Compute all element variable names that must be declared before the first
 # write.  Matches the naming convention used by FEC.write_field for
 # SymmetricTensor / Tensor (ext_q ordering).
-function _element_var_names(asm_cpu, physics::SolidMechanics,
+# `physics` is the per-block NamedTuple.  Element variables are declared once
+# for the whole database but written per block, so the internal-variable names
+# are the UNION over blocks: with, say, an elastic block next to a J2 block,
+# only the latter contributes `eqps`, and it still has to be declared.
+function _element_var_names(asm_cpu, physics::NamedTuple,
                              output_spec::OutputSpec)
     any_el = output_spec.stress || output_spec.deformation_gradient ||
              output_spec.internal_variables
@@ -82,7 +86,6 @@ function _element_var_names(asm_cpu, physics::SolidMechanics,
     fspace = FEC.function_space(asm_cpu.dof)
     nq_max = maximum(RFE.num_cell_quadrature_points(ref_fe)
                      for ref_fe in values(fspace.ref_fes))
-    NS     = CM.num_state_variables(physics.constitutive_model)
 
     # Component suffixes: lowercase, no parentheses.
     # The QP index _$q prevents ParaView auto-grouping for element vars.
@@ -107,9 +110,15 @@ function _element_var_names(asm_cpu, physics::SolidMechanics,
         end
     end
 
-    if output_spec.internal_variables && NS > 0
-        iv_names = CM.state_variable_names(physics.constitutive_model)
-        for name in iv_names
+    if output_spec.internal_variables
+        seen = String[]
+        for block_physics in values(physics)
+            CM.num_state_variables(block_physics.constitutive_model) == 0 && continue
+            for name in CM.state_variable_names(block_physics.constitutive_model)
+                name in seen || push!(seen, name)
+            end
+        end
+        for name in seen
             for q in 1:nq_max
                 push!(names, "$(name)_$q")
             end
@@ -123,7 +132,36 @@ end
 # Recovered (nodal) variable names for L2 projection
 # ---------------------------------------------------------------------------
 
-function _recovered_nodal_var_names(physics::SolidMechanics, output_spec::OutputSpec)
+"""
+    _uniform_state_variable_names(physics) -> Vector{String}
+
+State-variable names shared by every block, for nodal recovery.
+
+Nodal recovery averages a quadrature-point quantity onto nodes, and nodes on a
+material interface belong to both blocks.  If the blocks disagree about what
+state variable `s` *is* -- `eqps` in a J2 block, nonexistent in an elastic one
+-- the projection has no meaning, and silently averaging over only the
+contributing side would write a field that looks plausible and is wrong.  So
+this errors instead.  Per-block **element** output has no such problem (Exodus
+element variables are written per block) and stays available.
+"""
+function _uniform_state_variable_names(physics::NamedTuple)
+    per_block = [CM.state_variable_names(bp.constitutive_model) for bp in values(physics)]
+    first_names = first(per_block)
+    if !all(==(first_names), per_block)
+        listing = join(("\"$(String(k))\" => [" * join(n, ", ") * "]"
+                        for (k, n) in zip(keys(physics), per_block)), "; ")
+        error("Nodal recovery of internal variables requires every element block to " *
+              "have the same state variables, but they differ: $listing. " *
+              "Nodes on a block interface belong to both blocks, so there is no " *
+              "meaningful value to project there. Set `output.recovery: none`, or " *
+              "turn off `output.internal variables`; per-block element output of " *
+              "internal variables is unaffected.")
+    end
+    return first_names
+end
+
+function _recovered_nodal_var_names(physics::NamedTuple, output_spec::OutputSpec)
     output_spec.recovery == :none && return String[]
     # Trailing _ prevents ParaView auto-grouping (no numeric suffix to match).
     sym_comps = ("xx", "xy", "xz", "yy", "yz", "zz")
@@ -141,11 +179,9 @@ function _recovered_nodal_var_names(physics::SolidMechanics, output_spec::Output
         end
     end
     if output_spec.internal_variables
-        NS = CM.num_state_variables(physics.constitutive_model)
-        if NS > 0
-            for name in CM.state_variable_names(physics.constitutive_model)
-                push!(names, "$(name)_n")
-            end
+        # Errors if the blocks disagree -- see `_uniform_state_variable_names`.
+        for name in _uniform_state_variable_names(physics)
+            push!(names, "$(name)_n")
         end
     end
     return names
@@ -175,10 +211,12 @@ function _write_recovered_fields!(sim, step)
     dt = FEC.time_step(params_cpu.times)
     exo = post_processor.field_output_db
 
-    # Determine number of state variables for internal variable recovery
-    first_physics = first(values(params_cpu.physics))
-    NS = need_iv ? CM.num_state_variables(first_physics.constitutive_model) : 0
-    iv_names = NS > 0 ? CM.state_variable_names(first_physics.constitutive_model) : String[]
+    # Number of state variables for internal-variable recovery.  Safe to take a
+    # single count across blocks only because `_uniform_state_variable_names`
+    # already rejected heterogeneous state layouts at setup; re-deriving it the
+    # same way keeps the two from drifting apart.
+    iv_names = need_iv ? _uniform_state_variable_names(params_cpu.physics) : String[]
+    NS = length(iv_names)
 
     # Allocate nodal accumulators
     stress_nodal = need_stress ? zeros(Float64, 6, n_nodes) : nothing

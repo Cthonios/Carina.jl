@@ -53,9 +53,13 @@
     end
 
     @testset "physics is keyed positionally, not by mesh block name" begin
-        # Pin the underlying mismatch directly, so that if FEC ever starts
-        # keying by real block names this test says so instead of the output
-        # path silently reading the wrong block's physics.
+        # Carina now hands FEC a physics NamedTuple keyed by the real mesh block
+        # names, so the mismatch that caused this bug no longer exists: the keys
+        # agree.  Positional access remains the invariant FEC actually
+        # guarantees (`foreach_block` pairs entry k with block k), so the output
+        # path still indexes by position -- but assert the names line up too,
+        # because a future change that reintroduced a separate key space would
+        # bring the original failure mode back with it.
         mktempdir() do dir
             cp_example(joinpath(example_dir, "cube.g"), joinpath(dir, "cube.g"))
             dict = Carina.YAML.load_file(joinpath(example_dir, "cube.yaml");
@@ -69,11 +73,10 @@
             phys_keys   = collect(keys(sim.params.physics))
 
             @test length(block_names) == length(phys_keys)
-            # The mesh block is "cube"; physics is "region_1".  Indexing physics
-            # by block name is therefore invalid -- position is the only valid
-            # correspondence.
             @test Symbol("cube") in block_names
-            @test phys_keys == [Symbol("region_1")]
+            # Same names, same order -- physics entry k really is block k.
+            @test phys_keys == block_names
+            @test collect(keys(sim.params.properties)) == block_names
             @test values(sim.params.physics)[1] isa Carina.SolidMechanics
         end
     end

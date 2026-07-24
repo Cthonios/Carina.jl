@@ -1,0 +1,61 @@
+# Two element blocks, two different materials.
+#
+# A 1 x 1 x 2 m bar split at z = 1.  The lower block is 100x stiffer than the
+# upper one, so under a prescribed end displacement almost all of the stretch
+# has to appear in the upper block -- which is what makes this a test of
+# per-block material assignment rather than just of multi-block meshes.
+type: single
+input mesh file: two-block.g
+output mesh file: two-block.e
+model:
+  type: solid mechanics
+  material:
+    blocks:
+      lower: stiff
+      upper: soft
+    stiff:
+      model: neohookean
+      elastic modulus: 1.0e11
+      Poisson's ratio: 0.25
+      density: 1000.0
+    soft:
+      model: neohookean
+      elastic modulus: 1.0e9
+      Poisson's ratio: 0.25
+      density: 1000.0
+time integrator:
+  type: quasi static
+  initial time: 0.0
+  final time: 1.0
+  time step: 0.5
+boundary conditions:
+  dirichlet:
+    - node set: bottom
+      component: x
+      function: "0.0"
+    - node set: bottom
+      component: y
+      function: "0.0"
+    - node set: bottom
+      component: z
+      function: "0.0"
+    - node set: top
+      component: z
+      function: "0.02 * t"
+solver:
+  type: newton
+  linear solver:
+    type: cg
+    tolerance: 1.0e-10
+    preconditioner:
+      type: jacobi
+  termination:
+    converge when any:
+      - absolute residual: 1.0e-8
+      - relative residual: 1.0e-10
+    fail when any:
+      - maximum iterations: 20
+output:
+  stress: false
+  deformation gradient: false
+device: cpu

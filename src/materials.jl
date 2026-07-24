@@ -97,6 +97,9 @@ function parse_material(model_name::String, model_dict::Dict)
     props_inputs = Dict{String, Any}()
     for (yaml_key, val) in model_dict
         yaml_key == "density" && continue
+        # `model` selects the constitutive model when the block's material label
+        # is an arbitrary name; it is not a material property.
+        lowercase(strip(yaml_key)) == "model" && continue
         cm_key = get(_ELASTIC_KEY_ALIASES, lowercase(yaml_key), nothing)
         cm_key === nothing && _carina_log(0, :warning, "Unknown material property key \"$yaml_key\"; ignoring.")
         cm_key !== nothing && (props_inputs[cm_key] = _f64(val))

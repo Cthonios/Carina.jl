@@ -92,33 +92,48 @@ function create_simulation(dict::Dict{String,Any}, basedir::String="";
 
     t_setup = time()
 
-    block_name, cm, density, props_inputs = _parse_material_section(dict)
-    # A dynamic run needs a mass matrix.  With no density the lumped mass is
-    # zero and every acceleration is 0/0, so the run produces NaN fields rather
-    # than reporting the missing property.  Quasi-static never uses density, so
-    # omitting it there stays legal (`parse_material` already warns).
-    if _is_dynamic_integrator(dict) && iszero(density)
-        error("The material assigned to block \"$block_name\" has density 0.0, but a " *
-              "dynamic time integrator requires a mass matrix. Set `density` in the " *
-              "[model.material] property dict.")
-    end
-    props   = create_solid_mechanics_properties(cm, props_inputs)
-    physics = SolidMechanics(cm)
-    # Strip module qualifiers everywhere, not just once: models are now wrapped
-    # (`ConstitutiveModels.Hyperelastic{ConstitutiveModels.NeoHookean}`), and a
-    # greedy `^.*\.` chopped through to the last dot and left "NeoHookean}".
-    cm_name = replace(string(typeof(cm)), r"[A-Za-z_][A-Za-z0-9_]*\." => "")
-    _log_block_material(block_name, cm_name, density, props_inputs)
-
     mesh    = @carina_phase "Reading mesh" FEC.UnstructuredMesh(input_mesh)
     n_nodes = size(mesh.nodal_coords, 2)
     n_elems = sum(size(mesh.element_conns[k], 2) for k in keys(mesh.element_conns))
     _carina_logf(0, :setup, "Mesh:    %d nodes, %d elements", n_nodes, n_elems)
 
+    # Materials are parsed AFTER the mesh because they must be ordered by the
+    # mesh's element blocks: FEC pairs the k-th physics entry with the k-th
+    # block positionally and does not re-order, while `blocks:` is an unordered
+    # YAML `Dict`.
+    block_order = collect(keys(mesh.element_conns))
+    materials   = _parse_material_section(dict, block_order)
+
+    # A dynamic run needs a mass matrix.  With no density the lumped mass is
+    # zero and every acceleration is 0/0, so the run produces NaN fields rather
+    # than reporting the missing property.  Quasi-static never uses density, so
+    # omitting it there stays legal (`parse_material` already warns).
+    if _is_dynamic_integrator(dict)
+        for m in materials
+            iszero(m.density) && error(
+                "The material assigned to block \"$(m.block)\" has density 0.0, but a " *
+                "dynamic time integrator requires a mass matrix. Set `density` in the " *
+                "[model.material] property dict.")
+        end
+    end
+
+    block_syms = Tuple(Symbol(m.block) for m in materials)
+    physics = NamedTuple{block_syms}(Tuple(SolidMechanics(m.cm) for m in materials))
+    props   = NamedTuple{block_syms}(
+        Tuple(create_solid_mechanics_properties(m.cm, m.props_inputs) for m in materials))
+
+    for m in materials
+        # Strip module qualifiers everywhere, not just once: models are now wrapped
+        # (`ConstitutiveModels.Hyperelastic{ConstitutiveModels.NeoHookean}`), and a
+        # greedy `^.*\.` chopped through to the last dot and left "NeoHookean}".
+        cm_name = replace(string(typeof(m.cm)), r"[A-Za-z_][A-Za-z0-9_]*\." => "")
+        _log_block_material(m.block, cm_name, m.density, m.props_inputs)
+    end
+
     # Check every block / node set / side set named in the input against the
     # mesh now, before any of them is used.  Catches typos that would otherwise
     # be ignored (material block) or raised as a bare KeyError inside FEC.
-    _validate_mesh_names(dict, mesh, block_name)
+    _validate_mesh_names(dict, mesh, (m.block for m in materials))
     # Warn once on a misspelled `initial conditions` sub-key.  The three IC
     # parsers each read one sub-key, so none of them can own this check.
     _validate_ic_section(dict)
@@ -145,6 +160,19 @@ function create_simulation(dict::Dict{String,Any}, basedir::String="";
     # artificial eigenvalues ~10^6 × tr(K)/n, degrading CG convergence by
     # orders of magnitude.  This assertion guards against regression.
     @assert !FEC._is_condensed(asm_cpu.dof) "Carina requires use_condensed=false (DOF elimination, not penalty)"
+
+    # `materials` was ordered by `keys(mesh.element_conns)`, but what actually
+    # decides which physics entry a block gets is `fspace.ref_fes`, positionally.
+    # The two agree today; verify it rather than assume, because a mismatch does
+    # not fail -- it runs to completion with materials silently swapped between
+    # blocks, which no residual or convergence check would flag.
+    let fs_order = String.(collect(keys(FEC.function_space(asm_cpu.dof).ref_fes)))
+        fs_order == String.(block_order) || error(
+            "Element block order disagrees between the mesh and the function space " *
+            "(mesh: $(join(block_order, ", ")); function space: $(join(fs_order, ", "))). " *
+            "Per-block materials are matched positionally, so continuing would assign " *
+            "materials to the wrong blocks.")
+    end
 
     dbcs = _parse_dirichlet_bcs(dict)
     nbcs, point_load_entries = _parse_neumann_bcs(dict)
@@ -204,7 +232,11 @@ function create_simulation(dict::Dict{String,Any}, basedir::String="";
         p   = FEC.to_backend(backend, p_cpu)
     end
 
-    @carina_timed "Assembly cache" _init_assembly_cache!(asm_cpu, cm isa CM.LinearElastic)
+    # The stiffness/factorization cache is only sound if the tangent is constant,
+    # which requires EVERY block to be linear elastic -- one nonlinear block is
+    # enough to make a cached stiffness wrong after the first step.
+    all_linear_elastic = all(m -> m.cm isa CM.LinearElastic, materials)
+    @carina_timed "Assembly cache" _init_assembly_cache!(asm_cpu, all_linear_elastic)
     _cpu_asm_ref[]    = asm_cpu
     _cpu_params_ref[] = p_cpu
     _backend_ref[]    = backend

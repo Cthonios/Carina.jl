@@ -23,6 +23,7 @@ any working directory.
 | `quasistatic/cube-linear-elastic/cube.yaml` | Linear elastic material and its caching path |
 | `quasistatic/cube-neumann-bc/cube.yaml` | Surface traction |
 | `quasistatic/cube-gravity/cube.yaml` | Body force |
+| `quasistatic/two-block/two-block.yaml` | Two element blocks with different materials |
 | `quasistatic/tension-specimen/tension-specimen.yaml` | Tension specimen, elastic |
 | `quasistatic/tension-specimen-j2/tension-specimen.yaml` | Finite-deformation J2 plasticity |
 | `quasistatic/tension-specimen-j2/tension-specimen-dt001.yaml` | The same, with a smaller step for path accuracy |

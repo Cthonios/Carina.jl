@@ -20,26 +20,79 @@ The key `neohookean` in `blocks` must match a sibling key holding the property
 dictionary. The material name is matched after `lowercase(strip(...))`, so
 capitalisation and surrounding whitespace do not matter.
 
-!!! warning "One material per simulation"
-    Carina currently applies a **single** constitutive model and density to the
-    entire mesh: one `SolidMechanics(cm)` physics object covers the
-    whole domain. `blocks` is a mapping for forward compatibility, but it must
-    hold exactly one entry. Listing more is an error:
+Meshes with more than one element block assign a material to each; see
+[One material per element block](#One-material-per-element-block) below.
+
+## One material per element block
+
+Each element block gets its own constitutive model and density. Name every block
+in `blocks`, and give each material a property dictionary:
+
+```yaml
+model:
+  type: solid mechanics
+  material:
+    blocks:
+      lower: stiff
+      upper: soft
+    stiff:
+      model: neohookean
+      elastic modulus: 1.0e11
+      Poisson's ratio: 0.25
+      density: 1000.0
+    soft:
+      model: neohookean
+      elastic modulus: 1.0e9
+      Poisson's ratio: 0.25
+      density: 1000.0
+```
+
+The value in `blocks` is a **material label**, and the dictionary it names
+carries a `model` key selecting the constitutive model. The label is arbitrary,
+which is what lets two blocks share a model with different properties — as
+`stiff` and `soft` do above.
+
+If you omit `model`, the label itself is read as the model name. That is the
+older spelling and still works:
+
+```yaml
+    blocks:
+      my_block: neohookean
+    neohookean:
+      elastic modulus: 10.0e9
+      Poisson's ratio: 0.25
+      density: 1000.0
+```
+
+!!! warning "Every block must be assigned"
+    There is no default material. A mesh block missing from `blocks` is an
+    error, not an inherited material:
 
     ```
-    ERROR: [model.material.blocks] lists 2 blocks (matrix, inclusion), but Carina
-           supports a single material per simulation. The material is applied to
-           the whole mesh; per-block materials are not implemented.
+    ERROR: [model.material.blocks] does not assign a material to "upper". Every
+           element block in the mesh needs a material; there is no default.
+           Mesh blocks: lower, upper.
     ```
 
-    Carina releases before this behaviour took `first(blocks_dict)` and applied
-    it everywhere. Since `blocks` is an unordered `Dict`, *which* material won
-    was hash order rather than file order — so a two-block input ran with an
-    arbitrary one of the two, silently, on both blocks.
+    Assigning a material to a block that is not in the mesh is likewise an
+    error, with a spelling suggestion:
 
-    If your mesh has multiple element blocks, that is fine; give them all the
-    same material by naming any one of them in `blocks`. The block you name is
-    checked against the mesh, but the material applies to every block.
+    ```
+    ERROR: [model.material.blocks] assigns a material to "uppr" (did you mean
+           "upper"?), which is not an element block in the mesh.
+           Mesh blocks: lower, upper.
+    ```
+
+    Both directions are checked because materials are matched to blocks by
+    **name**, and a block that silently inherited some other block's material
+    would produce a converged, plausible, wrong answer. Carina releases before
+    per-block support took `first(blocks_dict)` and applied it everywhere —
+    since `blocks` is an unordered `Dict`, *which* material won was hash order
+    rather than file order.
+
+    A property dictionary that no block references is reported as an unknown
+    key in `model.material`, which usually means a block was renamed and its
+    old material left behind.
 
 ## Material models
 
@@ -111,6 +164,31 @@ ERROR: The material assigned to block "cube" has density 0.0, but a dynamic
        time integrator requires a mass matrix. Set `density` in the
        [model.material] property dict.
 ```
+
+## Mixed materials and internal-variable output
+
+Blocks may have different numbers of internal state variables — an elastic block
+next to a J2 plasticity block is fine. Per-block **element** output of internal
+variables works in that case, because Exodus element variables are written per
+block; the declared set of names is the union across blocks.
+
+**Nodal recovery** of internal variables is different. It averages a
+quadrature-point quantity onto nodes, and a node on a block interface belongs to
+both blocks. If the blocks disagree about what a given state variable *is* —
+`eqps` in the plastic block, nonexistent in the elastic one — the projection has
+no meaning, so Carina refuses rather than averaging over one side:
+
+```
+ERROR: Nodal recovery of internal variables requires every element block to have
+       the same state variables, but they differ: "lower" => []; "upper" =>
+       [Fp_xx, ..., eqps]. Nodes on a block interface belong to both blocks, so
+       there is no meaningful value to project there. Set `output.recovery:
+       none`, or turn off `output.internal variables`; per-block element output
+       of internal variables is unaffected.
+```
+
+Stress and deformation-gradient recovery are unaffected — those exist for every
+material.
 
 ## Unknown property keys are ignored
 

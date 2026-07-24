@@ -30,9 +30,10 @@ is not read as promising more than it delivers.
 - *Planned:* heat conduction, multiphysics coupling, contact, and multidomain
   Schwarz coupling. Note that `model.type` is currently parsed but not
   dispatched on — solid mechanics is the only physics.
-- *Not supported:* more than one material per mesh. Carina applies a single
-  constitutive model and density to the whole domain; see
-  [Materials](reference/materials.md).
+- **Per-block materials.** Each element block carries its own constitutive model
+  and density, including different numbers of internal state variables (an
+  elastic block beside a plastic one). Every block must be assigned explicitly —
+  there is no default material. See [Materials](reference/materials.md).
 
 ## Time integration
 

@@ -18,6 +18,7 @@ const indexed_test_files = [
     (23, "material-models.jl"),
     (24, "explicit-cfl.jl"),
     (25, "internal-variables-output.jl"),
+    (26, "per-block-materials.jl"),
     (1, "mechanics-quasistatic-cube.jl"),
     (2, "mechanics-implicit-dynamic-cube.jl"),
     (3, "mechanics-explicit-dynamic-cube.jl"),

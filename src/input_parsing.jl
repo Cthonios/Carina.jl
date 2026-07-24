@@ -240,7 +240,41 @@ end
 
 # ---- material ----
 
-function _parse_material_section(dict)
+"""
+One block's material assignment, as parsed from `[model.material]`.
+
+`block` is the mesh element-block name, `model_name` the YAML material name
+(kept for error messages and logging), and `props_inputs` the canonicalised
+property dict handed to ConstitutiveModels.
+"""
+struct BlockMaterial
+    block::String
+    model_name::String
+    cm::Any
+    density::Float64
+    props_inputs::Dict{String, Any}
+end
+
+"""
+    _parse_material_section(dict, block_order) -> Vector{BlockMaterial}
+
+Parse `[model.material]` into one `BlockMaterial` per element block, returned in
+`block_order` -- the mesh's block order.
+
+Ordering is not cosmetic.  `FEC.create_parameters` does **not** re-order a
+physics/properties `NamedTuple` to match the function space (there is an
+explicit `TODO` to that effect in its `Parameters.jl`); it pairs entry `k` with
+block `k` positionally.  `blocks:` parses to an unordered `Dict`, so building
+the tuple in YAML order would assign materials to the wrong blocks on any mesh
+where the two happen to differ -- silently, with a plausible-looking answer.
+Everything downstream is therefore keyed off `block_order`.
+
+Every element block in the mesh must be assigned a material, and every assigned
+block must exist in the mesh.  Both directions are errors rather than defaults:
+a block silently inheriting some other block's material is exactly the class of
+bug this ordering discipline exists to prevent.
+"""
+function _parse_material_section(dict, block_order::AbstractVector{<:AbstractString})
     model_dict_top = get(dict, "model", nothing)
     model_dict_top === nothing && error("Missing [model] section in input.")
 
@@ -267,37 +301,70 @@ function _parse_material_section(dict)
     blocks_dict = blocks::Dict{String,Any}
     isempty(blocks_dict) && error("[model.material.blocks] is empty; assign a material to a block.")
 
-    # One material for the whole mesh.  `blocks` is a mapping for forward
-    # compatibility, but only a single entry can be honoured: the constitutive
-    # model built here is applied to every element block. Taking `first` of a
-    # multi-entry mapping would pick an arbitrary one — `Dict` iteration order
-    # is hash order, not file order — and silently apply it everywhere.
-    length(blocks_dict) == 1 || error(
-        "[model.material.blocks] lists $(length(blocks_dict)) blocks " *
-        "($(join(sort(collect(keys(blocks_dict))), ", "))), but Carina supports a " *
-        "single material per simulation. The material is applied to the whole mesh; " *
-        "per-block materials are not implemented.")
+    # Every mesh block must be assigned, and every assignment must name a real
+    # block.  Report both directions together so a swapped or misspelled name
+    # does not take two runs to diagnose.
+    mesh_blocks   = Set(String.(block_order))
+    listed_blocks = Set(String.(keys(blocks_dict)))
 
-    pair = first(blocks_dict)
-    block_name = pair.first
-    model_name = pair.second::String
-
-    # Everything in `material` other than `blocks` must be a property dict named
-    # after a supported constitutive model.  The legal key set is the model-name
-    # list, matched case-insensitively to agree with the `_get_ci` lookup below.
-    _validate_keys_ci(mat_section, Set{String}(["blocks", _MODEL_NAMES...]), "model.material")
-
-    # The model-specific sub-dict (e.g.  neohookean: { elastic_modulus: ... })
-    model_props = _get_ci(mat_section, model_name, nothing)
-    if model_props === nothing
-        present = sort(String[k for k in keys(mat_section) if k != "blocks"])
-        error("Material model \"$model_name\" is assigned to block \"$block_name\" in " *
-              "[model.material.blocks], but [model.material] has no \"$model_name\" " *
-              "property dict. Property dicts present: $(join(present, ", ")).")
+    unknown = sort(collect(setdiff(listed_blocks, mesh_blocks)))
+    if !isempty(unknown)
+        msgs = String[]
+        for name in unknown
+            suggestion = _suggest(name, mesh_blocks)
+            push!(msgs, isempty(suggestion) ? "\"$name\"" :
+                        "\"$name\" (did you mean \"$suggestion\"?)")
+        end
+        error("[model.material.blocks] assigns a material to $(join(msgs, ", ")), " *
+              "which is not an element block in the mesh. " *
+              "Mesh blocks: $(join(sort(collect(mesh_blocks)), ", ")).")
     end
 
-    cm, density, props_inputs = parse_material(model_name, model_props::Dict{String,Any})
-    return block_name, cm, density, props_inputs
+    missing_blocks = sort(collect(setdiff(mesh_blocks, listed_blocks)))
+    if !isempty(missing_blocks)
+        error("[model.material.blocks] does not assign a material to " *
+              "$(join(map(b -> "\"$b\"", missing_blocks), ", ")). " *
+              "Every element block in the mesh needs a material; there is no " *
+              "default. Mesh blocks: $(join(sort(collect(mesh_blocks)), ", ")).")
+    end
+
+    # Every key in `material` other than `blocks` should be a property dict that
+    # some block actually references.  Validating against the referenced labels
+    # rather than against `_MODEL_NAMES` is both looser and stricter in the right
+    # places: it permits arbitrary labels (see below), and it flags a property
+    # dict that no block uses -- typically a renamed block whose old material
+    # was left behind, which would otherwise sit there doing nothing.
+    labels = Set{String}(String(v) for v in values(blocks_dict))
+    _validate_keys_ci(mat_section, union(Set{String}(["blocks"]), labels), "model.material")
+
+    materials = BlockMaterial[]
+    for block_name in block_order
+        label = String(blocks_dict[String(block_name)]::AbstractString)
+
+        # The property dict for this block's material.
+        model_props = _get_ci(mat_section, label, nothing)
+        if model_props === nothing
+            present = sort(String[k for k in keys(mat_section) if k != "blocks"])
+            error("Block \"$block_name\" is assigned material \"$label\" in " *
+                  "[model.material.blocks], but [model.material] has no \"$label\" " *
+                  "property dict. Property dicts present: $(join(present, ", ")).")
+        end
+        props_dict = model_props::Dict{String,Any}
+
+        # Two spellings are accepted.  Historically the label WAS the model name
+        # (`blocks: {cube: neohookean}` + a `neohookean:` dict), which cannot
+        # express two blocks sharing a model with different properties -- the
+        # commonest per-block case.  So an explicit `model:` key inside the
+        # property dict takes precedence, letting the label be an arbitrary name
+        # (`blocks: {lower: stiff}` + `stiff: {model: neohookean, ...}`), which
+        # is also how Norma spells it.  Without that key the label is still
+        # interpreted as the model name, so existing inputs are unaffected.
+        model_name = String(_get_ci(props_dict, "model", label))
+
+        cm, density, props_inputs = parse_material(model_name, props_dict)
+        push!(materials, BlockMaterial(String(block_name), model_name, cm, density, props_inputs))
+    end
+    return materials
 end
 
 # ---- time ----
@@ -1129,12 +1196,23 @@ end
 #   * A mistyped node set or side set reached FEC and raised a bare
 #     `KeyError: key "ssz_" not found` from inside `DirichletBCContainer`,
 #     naming neither the section nor the entry it came from.
-function _validate_mesh_names(dict, mesh, material_block::AbstractString)
+# A single block name is a valid thing to pass, and a `String` is iterable --
+# over `Char`s.  Without this method, `_validate_mesh_names(d, mesh, "cube")`
+# would check the blocks 'c', 'u', 'b', 'e'.
+_validate_mesh_names(dict, mesh, material_block::AbstractString) =
+    _validate_mesh_names(dict, mesh, (material_block,))
+
+function _validate_mesh_names(dict, mesh, material_blocks)
     blocks    = collect(keys(mesh.element_conns))
     node_sets = collect(keys(mesh.nodeset_nodes))
     side_sets = collect(keys(mesh.sideset_elems))
 
-    _check_mesh_name(material_block, blocks, "element block", "[model.material.blocks]")
+    # `_parse_material_section` already checks assignment against the mesh in
+    # both directions; this re-check costs nothing and keeps the guarantee local
+    # to the one function that validates every other mesh name.
+    for material_block in material_blocks
+        _check_mesh_name(material_block, blocks, "element block", "[model.material.blocks]")
+    end
 
     # Boundary conditions.  Read through `_get_ci` so the casing accepted by
     # `_parse_dirichlet_bcs` is accepted here too.
