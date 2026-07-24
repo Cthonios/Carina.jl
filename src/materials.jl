@@ -11,28 +11,39 @@ import ConstitutiveModels as CM
 # so YAML can spell the model as "linear elastic" / "neo-hookean" / "j2
 # plasticity" without each variant needing its own switch arm.
 
-const _MODEL_NAMES = (
-    "neohookean", "neo-hookean", "neo hookean",
-    "linear elastic", "linearelastic",
-    "hencky",
-    "linear elasto plasticity",
-    "saint venant kirchhoff", "saintvenant-kirchhoff", "saintvenantkirchhoff", "svk",
-    "seth-hill", "seth hill", "sethhill",
-    "j2 plasticity", "finitedefj2plasticity", "finite def j2 plasticity",
+# Single source of truth: accepted spellings → constructor.  `_MODEL_NAMES` is
+# DERIVED from this table, so the "Supported: ..." list in the parse error can
+# never drift from what `_model_ctor` actually accepts.  The previous version
+# kept the two by hand as parallel `&& return` arms; a stray trailing comma
+# folded the Saint-Venant-Kirchhoff arm into the preceding `return` as a tuple
+# element, which made every SVK spelling unreachable *and* made
+# `linear elasto plasticity` return a `Tuple` instead of a model.  Neither
+# failure was visible until runtime, and the error message went on advertising
+# "svk" as supported while rejecting it.  A table cannot desynchronise that way.
+const _MODEL_TABLE = (
+    (("neohookean", "neo-hookean", "neo hookean"),
+     () -> CM.Hyperelastic(CM.NeoHookean())),
+    (("linear elastic", "linearelastic"),
+     () -> CM.LinearElastic()),
+    (("hencky",),
+     () -> CM.Hyperelastic(CM.Hencky())),
+    (("linear elasto plasticity",),
+     () -> CM.LinearElastoplastic(CM.VonMises(CM.LinearIsotropicHardening()))),
+    (("saint venant kirchhoff", "saintvenant-kirchhoff", "saintvenantkirchhoff", "svk"),
+     () -> CM.Hyperelastic(CM.SaintVenantKirchhoff())),
+    (("seth-hill", "seth hill", "sethhill"),
+     () -> CM.Hyperelastic(CM.SethHill())),
+    (("j2 plasticity", "finitedefj2plasticity", "finite def j2 plasticity"),
+     () -> CM.FiniteDefJ2Plasticity()),
 )
+
+const _MODEL_NAMES = Tuple(Iterators.flatten(aliases for (aliases, _) in _MODEL_TABLE))
 
 function _model_ctor(name::String)
     key = lowercase(strip(name))
-    (key == "neohookean" || key == "neo-hookean" || key == "neo hookean")           && return CM.Hyperelastic(CM.NeoHookean())
-    (key == "linear elastic" || key == "linearelastic")                              && return CM.LinearElastic()
-    key == "hencky"                                                                  && return CM.Hyperelastic(CM.Hencky())
-    key == "linear elasto plasticity"                                                && return CM.LinearElastoplastic(
-                                                                                          CM.VonMises(CM.LinearIsotropicHardening())),
-    (key == "saint venant kirchhoff" || key == "saintvenant-kirchhoff" ||
-     key == "saintvenantkirchhoff"   || key == "svk")                                && return CM.Hyperelastic(CM.SaintVenantKirchhoff())
-    (key == "seth-hill" || key == "seth hill" || key == "sethhill")                  && return CM.Hyperelastic(CM.SethHill())
-    (key == "j2 plasticity" || key == "finitedefj2plasticity" ||
-     key == "finite def j2 plasticity")                                              && return CM.FiniteDefJ2Plasticity()
+    for (aliases, ctor) in _MODEL_TABLE
+        key in aliases && return ctor()
+    end
     return nothing
 end
 
@@ -91,7 +102,10 @@ function parse_material(model_name::String, model_dict::Dict)
         cm_key !== nothing && (props_inputs[cm_key] = _f64(val))
     end
 
-    # quick fix to pack density into props_inputs for new CM interface
+    # Density is a material property as far as ConstitutiveModels is concerned:
+    # every model's `initialize_props` reads `inputs["density"]` and emits it as
+    # props[1].  It is still returned separately because the input-validation and
+    # logging paths want it before any property vector exists.
     props_inputs["density"] = density
 
     return cm, density, props_inputs

@@ -610,7 +610,14 @@ function _compute_stable_dt(asm, p, CFL)
     for (b, (block_physics, block_storage, props)) in enumerate(zip(
         values(p.physics), values(char_len_storage), values(p.properties),
     ))
-        ρ   = block_physics.density
+        # Density lives in the property vector, not on the physics object --
+        # `SolidMechanics` no longer carries a `density` field.  CM's interface
+        # mandates that the first property of every model is the Lagrangian-frame
+        # density (ConstitutiveModels/src/Interface.jl), which is also what the
+        # mass-matrix kernels in physics.jl read.  `CM.density` itself is not
+        # usable here: it takes the full (props, Z_old, Z_new, Δt, ∇u, θ) call
+        # signature, none of which is meaningful at setup time.
+        ρ   = props[1]
         M   = CM.p_wave_modulus(block_physics.constitutive_model, props)
         c_p = sqrt(M / ρ)
         h_min = minimum(block_storage)   # GPU-native reduction if on device

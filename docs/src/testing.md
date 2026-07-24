@@ -40,7 +40,13 @@ results:
 - **Solvers** — Newton with direct and iterative linear solves, L-BFGS,
   nonlinear CG, steepest descent
 - **Preconditioners** — Jacobi, Chebyshev, and AMG (dynamic and quasi-static)
-- **Materials** — neo-Hookean, linear elastic, and J2 plasticity
+- **Materials** — every model name Carina accepts is constructed and checked
+  (`material-models.jl`), and neo-Hookean and linear elastic are additionally
+  run end to end. The construction sweep exists because the end-to-end tests
+  only ever built two models, which let a parsing bug make Saint
+  Venant–Kirchhoff unreachable without any test noticing.
+- **Explicit stable time step** — the CFL-driven path (`explicit-cfl.jl`),
+  which runs only when `cfl` is set and so was previously unexercised
 - **Boundary conditions** — Dirichlet, Neumann tractions, point loads, gravity
   body forces
 - **Initial conditions** — including 37 tests covering the traveling-wave

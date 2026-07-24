@@ -22,7 +22,7 @@ capitalisation and surrounding whitespace do not matter.
 
 !!! warning "One material per simulation"
     Carina currently applies a **single** constitutive model and density to the
-    entire mesh: one `SolidMechanics(cm, density)` physics object covers the
+    entire mesh: one `SolidMechanics(cm)` physics object covers the
     whole domain. `blocks` is a mapping for forward compatibility, but it must
     hold exactly one entry. Listing more is an error:
 
@@ -89,8 +89,12 @@ expects; keys are matched case-insensitively.
 | `density` | dynamic runs only | `0.0` | Mass density (kg/m³). |
 
 `density` is read from the material dictionary and is **not** passed through
-the elastic-constant alias table. If it is missing or zero, Carina emits a
-warning and continues with `0.0`:
+the elastic-constant alias table; it is forwarded to ConstitutiveModels under
+its own name, which requires every model to carry density as the **first**
+entry of its property vector. That single copy is what the mass matrix and the
+explicit stable-time-step estimate both read — the physics object does not
+store a second one. If `density` is missing or zero, Carina emits a warning and
+continues with `0.0`:
 
 ```
 [WARNING] No density specified for material "neohookean"; using 0.0.

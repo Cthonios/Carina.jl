@@ -14,19 +14,19 @@ using Tensors
 
 struct SolidMechanics{Model <: CM.AbstractConstitutiveModel, NP, NS} <: FEC.AbstractPhysics{3, NP, NS}
     constitutive_model::Model
-    # density::Float64
 end
 
 """
-    SolidMechanics(cm, density)
+    SolidMechanics(cm)
 
 Construct a `SolidMechanics` physics object wrapping constitutive model `cm`.
-`density` is used for the mass matrix (dynamics).
+
+Density is *not* stored here.  ConstitutiveModels requires every model to carry
+its Lagrangian-frame density as the first entry of the property vector, so the
+mass-matrix and stable-time-step code reads `props[1]` instead.  Keeping a
+second copy on the physics object would let the two disagree.
 """
-function SolidMechanics(
-    cm::CM.AbstractConstitutiveModel
-    # density::Float64 = 0.0,
-)
+function SolidMechanics(cm::CM.AbstractConstitutiveModel)
     NP = CM.num_properties(cm)
     NS = CM.num_state_variables(cm)
     return SolidMechanics{typeof(cm), NP, NS}(cm)

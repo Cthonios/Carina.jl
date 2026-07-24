@@ -23,6 +23,9 @@ function _log_block_material(block_name::AbstractString, cm_name::AbstractString
                               density::Float64, props_inputs::Dict)
     parts = String["density = " * Printf.@sprintf("%.3e", density)]
     for key in sort!(collect(keys(props_inputs)))
+        # `props_inputs` carries density too (CM's `initialize_props` requires it
+        # as the first property), but it is already the leading entry above.
+        key == "density" && continue
         push!(parts, key * " = " * Printf.@sprintf("%.3e", Float64(props_inputs[key])))
     end
     _carina_log(0, :setup, "Block \"$block_name\": $cm_name : " * join(parts, ", "))
@@ -101,7 +104,10 @@ function create_simulation(dict::Dict{String,Any}, basedir::String="";
     end
     props   = create_solid_mechanics_properties(cm, props_inputs)
     physics = SolidMechanics(cm)
-    cm_name = replace(string(typeof(cm)), r"^.*\." => "")  # strip module prefix
+    # Strip module qualifiers everywhere, not just once: models are now wrapped
+    # (`ConstitutiveModels.Hyperelastic{ConstitutiveModels.NeoHookean}`), and a
+    # greedy `^.*\.` chopped through to the last dot and left "NeoHookean}".
+    cm_name = replace(string(typeof(cm)), r"[A-Za-z_][A-Za-z0-9_]*\." => "")
     _log_block_material(block_name, cm_name, density, props_inputs)
 
     mesh    = @carina_phase "Reading mesh" FEC.UnstructuredMesh(input_mesh)
