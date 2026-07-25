@@ -1203,7 +1203,7 @@ _validate_mesh_names(dict, mesh, material_block::AbstractString) =
     _validate_mesh_names(dict, mesh, (material_block,))
 
 function _validate_mesh_names(dict, mesh, material_blocks)
-    blocks    = collect(keys(mesh.element_conns))
+    blocks    = FEC.block_names(mesh)
     node_sets = collect(keys(mesh.nodeset_nodes))
     side_sets = collect(keys(mesh.sideset_elems))
 

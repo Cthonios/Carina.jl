@@ -5,10 +5,10 @@
 #     block_physics = p_cpu.physics[block_name]
 #
 # `block_name` comes from `fspace.ref_fes`, which keeps the Exodus block names.
-# But `FEC.create_parameters` re-keys physics and properties POSITIONALLY as
-# `region_1..N` whenever it is handed a bare `AbstractPhysics` -- which is
-# always, because Carina applies a single material to the whole mesh.  The two
-# NamedTuples therefore share no key names unless the mesh block is literally
+# But `FEC.create_parameters` used to re-key physics and properties POSITIONALLY
+# as `region_1..N` whenever it was handed a bare `AbstractPhysics` -- which was
+# always, because Carina applied a single material to the whole mesh.  The two
+# NamedTuples therefore shared no key names unless the mesh block was literally
 # called "region_1", so the lookup threw
 #
 #     FieldError: type NamedTuple has no field `tension`, available fields: `region_1`
@@ -52,13 +52,13 @@
         @test sim isa Carina.SingleDomainSimulation
     end
 
-    @testset "physics is keyed positionally, not by mesh block name" begin
-        # Carina now hands FEC a physics NamedTuple keyed by the real mesh block
-        # names, so the mismatch that caused this bug no longer exists: the keys
-        # agree.  Positional access remains the invariant FEC actually
-        # guarantees (`foreach_block` pairs entry k with block k), so the output
-        # path still indexes by position -- but assert the names line up too,
-        # because a future change that reintroduced a separate key space would
+    @testset "physics is keyed by mesh block name, in block order" begin
+        # Carina hands FEC a physics NamedTuple keyed by the real mesh block
+        # names, and FEC now matches those names against the function space's
+        # blocks and reorders to block order, so the mismatch that caused this
+        # bug no longer exists.  The output path still indexes by position,
+        # which is what `foreach_block` guarantees -- assert the names line up
+        # too, because a change that reintroduced a separate key space would
         # bring the original failure mode back with it.
         mktempdir() do dir
             cp_example(joinpath(example_dir, "cube.g"), joinpath(dir, "cube.g"))

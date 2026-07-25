@@ -98,10 +98,11 @@ function create_simulation(dict::Dict{String,Any}, basedir::String="";
     _carina_logf(0, :setup, "Mesh:    %d nodes, %d elements", n_nodes, n_elems)
 
     # Materials are parsed AFTER the mesh because they must be ordered by the
-    # mesh's element blocks: FEC pairs the k-th physics entry with the k-th
-    # block positionally and does not re-order, while `blocks:` is an unordered
-    # YAML `Dict`.
-    block_order = collect(keys(mesh.element_conns))
+    # mesh's element blocks: `blocks:` is an unordered YAML `Dict`, and the
+    # order here is what the startup log and the properties tuple follow.
+    # `FEC.block_names` is the canonical block order -- NOT
+    # `keys(mesh.element_conns)`, which is `Dict` hash order.
+    block_order = FEC.block_names(mesh)
     materials   = _parse_material_section(dict, block_order)
 
     # A dynamic run needs a mass matrix.  With no density the lumped mass is
@@ -161,17 +162,17 @@ function create_simulation(dict::Dict{String,Any}, basedir::String="";
     # orders of magnitude.  This assertion guards against regression.
     @assert !FEC._is_condensed(asm_cpu.dof) "Carina requires use_condensed=false (DOF elimination, not penalty)"
 
-    # `materials` was ordered by `keys(mesh.element_conns)`, but what actually
-    # decides which physics entry a block gets is `fspace.ref_fes`, positionally.
-    # The two agree today; verify it rather than assume, because a mismatch does
-    # not fail -- it runs to completion with materials silently swapped between
-    # blocks, which no residual or convergence check would flag.
-    let fs_order = String.(collect(keys(FEC.function_space(asm_cpu.dof).ref_fes)))
+    # FEC matches `physics`/`properties` to blocks by NAME and reorders them to
+    # the function space's block order, so the material a block gets no longer
+    # depends on the order Carina happens to build the tuples in.  Verify the
+    # names line up anyway: a mismatch does not fail on its own -- it would run
+    # to completion with materials silently swapped between blocks, which no
+    # residual or convergence check would flag.
+    let fs_order = String.(FEC.block_names(FEC.function_space(asm_cpu.dof)))
         fs_order == String.(block_order) || error(
             "Element block order disagrees between the mesh and the function space " *
             "(mesh: $(join(block_order, ", ")); function space: $(join(fs_order, ", "))). " *
-            "Per-block materials are matched positionally, so continuing would assign " *
-            "materials to the wrong blocks.")
+            "Per-block materials would be assigned to the wrong blocks.")
     end
 
     dbcs = _parse_dirichlet_bcs(dict)
