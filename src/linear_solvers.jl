@@ -136,7 +136,25 @@ function _amg_track_iters!(precond::AMGPreconditioner, iters::Int)
 end
 _amg_track_iters!(::Preconditioner, _) = nothing
 
+# All-DOF scratch for the matrix-free action path, sized on first use.
+#
+# `ls.scratch` is built from the free-DOF template, which is the right size for
+# the diagonal-based preconditioner updates but NOT for the action storage: that
+# spans every DOF, constrained ones included.  Handing `ls.scratch` to
+# `_apply_eff_stiffness!` therefore threw a BoundsError on the first matvec of
+# any matrix-free Newmark solve.  Keep the two buffers separate rather than
+# widening `scratch`, which `_update_jacobi_precond_eff!` still needs free-DOF
+# sized.
+function _action_scratch!(ls::KrylovLinearSolver, asm)
+    n = length(asm.stiffness_action_storage.data)
+    if length(ls.action_scratch) != n
+        ls.action_scratch = similar(ls.scratch, n)
+    end
+    return ls.action_scratch
+end
+
 # Compute (K + c_M·M)·v via matrix-free actions, storing result in asm storage.
+# `scratch` must be all-DOF sized — see _action_scratch!.
 function _apply_eff_stiffness!(asm, U, v, c_M, p, scratch)
     FEC.assemble_matrix_free_action!(asm, FEC.stiffness_action, U, v, p)
     copyto!(scratch, asm.stiffness_action_storage.data)
@@ -416,7 +434,8 @@ function _setup_linear_ops(ig::NewmarkIntegrator, ls::KrylovLinearSolver, p)
     # point for the matvec.
     Uu = _displacement(ig); n = length(Uu); c_M = ig.c_M
     ls.assembled && return (nothing, nothing)
-    matvec! = (y, v) -> _eff_stiffness_matvec!(y, v, ig.asm, Uu, c_M, p, ls.scratch)
+    sc = _action_scratch!(ls, ig.asm)
+    matvec! = (y, v) -> _eff_stiffness_matvec!(y, v, ig.asm, Uu, c_M, p, sc)
     K_eff_op = LinearOperator(Float64, n, n, true, true, matvec!)
     return K_eff_op, _mf_precond_op(ls.precond, n, matvec!)
 end

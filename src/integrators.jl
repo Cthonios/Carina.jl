@@ -512,8 +512,11 @@ function setup_jacobian!(ig::NewmarkIntegrator{<:NewtonSolver{<:KrylovLinearSolv
         # Matrix-free path: update from true diag(K_eff) via diagonal kernel.
         # For linear elastic with constant dt, cache after first call.
         if !af.is_linear || af.compute_factorization
+            # Jacobi works off the free-DOF diagonal, Chebyshev drives the
+            # all-DOF action operator: different buffers, not interchangeable.
             _update_jacobi_precond_eff!(ls.precond, asm, Uu, ls.ones_v, c_M, p, ls.scratch)
-            _update_chebyshev_precond_eff!(ls.precond, asm, Uu, c_M, p, ls.scratch)
+            _update_chebyshev_precond_eff!(ls.precond, asm, Uu, c_M, p,
+                                           _action_scratch!(ls, asm))
             af.is_linear && (af.compute_factorization = false)
         end
     end

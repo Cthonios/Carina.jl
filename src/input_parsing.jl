@@ -999,8 +999,12 @@ function _parse_linear_solver(ls_dict, template, backend, make_precond::Function
         ones_v  = (v = similar(template); fill!(v, one(T)); v)
         scratch = (v = similar(template); fill!(v, zero(T)); v)
 
+        # action_scratch is sized on first use against the assembler's action
+        # storage; see _action_scratch!.
+        action_scratch = similar(template, 0)
+
         return KrylovLinearSolver(itmax, rtol, assembled, precond,
-                                   workspace, ones_v, scratch)
+                                   workspace, ones_v, scratch, action_scratch)
 
     elseif ls_type == "lbfgs"
         m     = Int(get(ls_dict, "history size", 10))
