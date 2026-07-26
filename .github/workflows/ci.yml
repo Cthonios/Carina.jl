@@ -1,6 +1,15 @@
 name: CI
 
 on:
+  # Coverage on `main` is the baseline every pull request is compared against,
+  # so the suite has to run on merges too -- not just on the pull requests
+  # themselves. Documentation-only pushes cannot change coverage, so skip them.
+  push:
+    branches: [main]
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - '.github/workflows/documentation.yml'
   pull_request:
     branches: [main]
   schedule:
@@ -48,5 +57,20 @@ jobs:
             Pkg.precompile()
           '
 
+      # `@src` restricts instrumentation to this repository's sources. Plain
+      # `user` coverage would also instrument the sibling path dependencies
+      # cloned above, slowing the run and littering their trees with .cov files
+      # that nothing consumes.
       - name: Run tests
-        run: julia --color=no --project=. test/runtests.jl
+        run: julia --color=no --project=. --code-coverage=@src test/runtests.jl
+
+      - name: Process coverage
+        uses: julia-actions/julia-processcoverage@v1
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          files: lcov.info
+          fail_ci_if_error: true
+        env:
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
