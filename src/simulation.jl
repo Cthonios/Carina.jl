@@ -229,7 +229,13 @@ function create_simulation(dict::Dict{String,Any}, basedir::String="";
         p   = p_cpu
     else
         _carina_log(0, :setup, "Transferring to GPU...")
-        asm = FEC.to_backend(backend, asm_cpu)
+        # Device solves are always matrix-free (`assembled = backend isa
+        # KA.CPU`, and the direct solver is rejected for GPU at parse time),
+        # so the sparse pattern and matrix value buffers would be dead weight
+        # on the device — ~5.6 GB of a 5.8 GB footprint at 530k DOFs.  Strip
+        # them from the transferred copy; asm_cpu keeps them for the CPU-side
+        # work (initial acceleration, GPU Cholesky factorization, AMG).
+        asm = FEC.to_backend(backend, FEC.as_matrix_free(asm_cpu))
         p   = FEC.to_backend(backend, p_cpu)
     end
 

@@ -176,5 +176,24 @@ solver:
         end
     end
 
+    # The device copy of the assembler must be stripped of the assembled-matrix
+    # machinery (sparse pattern + matrix value buffers): device solves are
+    # matrix-free by construction, and that storage dominated VRAM (~5.6 GB of
+    # a 5.8 GB footprint at 530k DOFs) while never being read.  The CPU
+    # assembler must keep its pattern for host-side work (initial acceleration,
+    # GPU Cholesky factorization, AMG).
+    if has_gpu
+        @testset "device assembler is stripped" begin
+            mktempdir() do dir
+                cp_example(joinpath(example_dir, "cube.g"), joinpath(dir, "cube.g"))
+                path = joinpath(dir, "gpu_bc_implicit_strip.yaml")
+                open(io -> write(io, implicit_yaml), path, "w")
+                sim = Carina.run(path; backend=backend)
+                @test Carina.FEC._is_matrix_free(sim.integrator.asm)
+                @test !Carina.FEC._is_matrix_free(sim.asm_cpu)
+            end
+        end
+    end
+
     has_gpu || @info "No GPU detected — GPU Dirichlet BC comparison skipped"
 end
