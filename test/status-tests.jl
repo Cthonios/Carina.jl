@@ -46,4 +46,58 @@
         @test Carina.check(t, info()) == Carina.Unconverged
         @test isempty(t.message)
     end
+
+    # SolverInfo(iteration, norm_R, norm_R_init, norm_R_prev, norm_step, norm_solution)
+    step_info(; step=1.0e-3, U=1.0) = Carina.SolverInfo(1, 1.0, 1.0, 1.0, step, U)
+
+    @testset "update-norm tests" begin
+        # Step-size convergence criteria: parseable from YAML since the
+        # termination rework, but nothing ever evaluated one.
+        t = Carina.AbsUpdateTest(1.0e-6)
+        @test Carina.check(t, step_info(; step=1.0e-8)) == Carina.Converged
+        @test Carina.check(t, step_info(; step=1.0e-3)) == Carina.Unconverged
+
+        t = Carina.RelUpdateTest(1.0e-4)
+        @test Carina.check(t, step_info(; step=1.0e-6, U=1.0)) == Carina.Converged
+        @test Carina.check(t, step_info(; step=1.0e-2, U=1.0)) == Carina.Unconverged
+        # A zero solution norm must not divide; the test just stays unconverged.
+        @test Carina.check(t, step_info(; step=1.0e-6, U=0.0)) == Carina.Unconverged
+    end
+
+    @testset "DivergenceTest" begin
+        t = Carina.DivergenceTest(1.0e3)
+        grew(factor) = Carina.SolverInfo(3, factor, 1.0, factor / 2, 1.0e-3, 1.0)
+        @test Carina.check(t, grew(10.0))   == Carina.Unconverged
+        @test Carina.check(t, grew(1.0e4)) == Carina.Failed
+    end
+
+    @testset "default status-test builders" begin
+        # The exported convenience constructors for embedding Carina solvers
+        # programmatically (no YAML, hence no parsed termination block).
+        t = Carina.default_nonlinear_status_test(;
+            abs_tol=1.0e-8, rel_tol=1.0e-12, max_iters=7)
+        @test t isa Carina.ComboOrTest
+        # Convergence is AND(abs, rel): the sample must satisfy both tolerances.
+        @test Carina.check(t, Carina.SolverInfo(1, 1.0e-13, 1.0, 1.0, 1.0, 1.0)) ==
+              Carina.Converged
+        @test Carina.check(t, Carina.SolverInfo(7, 1.0, 1.0, 1.0, 1.0, 1.0)) ==
+              Carina.Failed
+        @test Carina.check(t, Carina.SolverInfo(1, NaN, 1.0, 1.0, 1.0, 1.0)) ==
+              Carina.Failed
+
+        t = Carina.default_linear_status_test(; rtol=1.0e-6, max_iters=50)
+        @test t isa Carina.ComboOrTest
+        @test Carina.check(t, Carina.SolverInfo(1, 1.0e-8, 1.0, 1.0, 1.0, 1.0)) ==
+              Carina.Converged
+        @test Carina.check(t, Carina.SolverInfo(50, 1.0, 1.0, 1.0, 1.0, 1.0)) ==
+              Carina.Failed
+
+        # The in-solver fallback used when no termination block was parsed.
+        ns = Carina.NewtonSolver(0, 20, 1.0e-8, 1.0e-8, 1.0e-12,
+                                 Carina.NoLinearSolver(), true, 0.5, 1.0e-4, 10)
+        t = Carina._build_status_test(ns)
+        @test t isa Carina.ComboOrTest
+        @test Carina.check(t, Carina.SolverInfo(1, 0.0, 1.0, 1.0, 1.0, 1.0)) ==
+              Carina.Converged
+    end
 end

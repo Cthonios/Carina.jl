@@ -23,6 +23,7 @@ const indexed_test_files = [
     (28, "adaptive-stepping.jl"),
     (29, "matrix-free-operators.jl"),
     (30, "mechanics-quasistatic-cube-sd.jl"),
+    (31, "logging-format.jl"),
     (1, "mechanics-quasistatic-cube.jl"),
     (2, "mechanics-implicit-dynamic-cube.jl"),
     (3, "mechanics-explicit-dynamic-cube.jl"),

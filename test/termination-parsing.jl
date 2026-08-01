@@ -197,6 +197,68 @@
     end
 
     # ----- All test types recognized ----------------------------------------
+    @testset "every alias spelling maps to the same test" begin
+        # The compact-syntax alias table listed "abs_residual" (and the
+        # rel/update analogues) twice where the spaced short form was
+        # intended, so "abs residual" errored as unknown while its siblings
+        # ("max iterations", "nan check") parsed.  Walk every alias group.
+        groups = [
+            (("absolute residual", "abs residual", "abs_residual"), 1e-6,
+             Carina.AbsResidualTest),
+            (("relative residual", "rel residual", "rel_residual"), 1e-10,
+             Carina.RelResidualTest),
+            (("absolute update", "abs update", "abs_update"), 1e-8,
+             Carina.AbsUpdateTest),
+            (("relative update", "rel update", "rel_update"), 1e-6,
+             Carina.RelUpdateTest),
+            (("maximum iterations", "max iterations"), 20,
+             Carina.MaxIterationsTest),
+            (("minimum iterations", "min iterations"), 2,
+             Carina.MinIterationsTest),
+            (("finite value", "nan check"), 0,
+             Carina.FiniteValueTest),
+        ]
+        for (aliases, value, expected_type) in groups
+            for a in aliases
+                @test Carina._parse_termination_item(Dict(a => value)) isa
+                      expected_type
+            end
+        end
+    end
+
+    @testset "legacy typed entries cover every arm" begin
+        # The long-form chain (type/tolerance dicts) is parsed by separate
+        # code from the compact map; exercise each of its arms too, including
+        # the default-taking divergence and stagnation entries.
+        typed = [
+            (Dict("type" => "abs residual", "tolerance" => 1e-6),
+             Carina.AbsResidualTest),
+            (Dict("type" => "rel residual", "tolerance" => 1e-10),
+             Carina.RelResidualTest),
+            (Dict("type" => "absolute update", "tolerance" => 1e-8),
+             Carina.AbsUpdateTest),
+            (Dict("type" => "relative update", "tolerance" => 1e-6),
+             Carina.RelUpdateTest),
+            (Dict("type" => "min iterations", "value" => 2),
+             Carina.MinIterationsTest),
+            (Dict("type" => "nan check"),
+             Carina.FiniteValueTest),
+            (Dict("type" => "divergence"),
+             Carina.DivergenceTest),
+            (Dict("type" => "divergence", "threshold" => 1e4),
+             Carina.DivergenceTest),
+            (Dict("type" => "stagnation"),
+             Carina.StagnationTest),
+            (Dict("type" => "stagnation", "window" => 3, "tolerance" => 0.9),
+             Carina.StagnationTest),
+        ]
+        for (entry, expected_type) in typed
+            @test Carina._parse_termination_test(entry) isa expected_type
+        end
+        @test_throws ErrorException Carina._parse_termination_test(
+            Dict("type" => "residualish", "tolerance" => 1e-6))
+    end
+
     @testset "all test types parse" begin
         items = [
             (Dict("absolute residual"  => 1e-6),  Carina.AbsResidualTest),

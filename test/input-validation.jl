@@ -268,4 +268,124 @@
         @test Carina._validate_mesh_names(d, mesh, "cube") === nothing
     end
 
+    # ----- scalar coercion ---------------------------------------------------
+    @testset "_f64 accepts any Real" begin
+        # YAML.jl only ever hands back Int64/Float64, but programmatic callers
+        # can pass any Real; the typed fallback must coerce rather than error.
+        @test Carina._f64(1.5)          === 1.5
+        @test Carina._f64(Int64(3))     === 3.0
+        @test Carina._f64(Float32(2.5)) === 2.5
+        @test Carina._f64(3 // 4)       === 0.75
+    end
+
+    # ----- component / direction maps ----------------------------------------
+    @testset "component and direction reject unknowns" begin
+        @test Carina._component_to_string(" X ") == "displ_x"
+        @test_throws ErrorException Carina._component_to_string("w")
+        @test Carina._direction_to_idx("z") == 3
+        @test_throws ErrorException Carina._direction_to_idx("w")
+    end
+
+    # ----- linear solver values ----------------------------------------------
+    @testset "linear solver type and preconditioner arms" begin
+        ls(d) = Carina._parse_linear_solver(
+            d, zeros(4), Carina.KA.CPU(), () -> Carina.NoPreconditioner())
+        iterative(precond) = ls(Dict{String,Any}(
+            "type" => "iterative",
+            "preconditioner" => Dict{String,Any}("type" => precond)))
+
+        @test iterative("incomplete cholesky").precond isa Carina.ICPreconditioner
+        @test iterative("ildl").precond isa Carina.ICPreconditioner
+
+        # Unknown solver types must fail loudly, not fall through to a default.
+        @test_throws ErrorException ls(Dict{String,Any}("type" => "gmres"))
+
+        # An integrator that provides no AMG factory must reject `amg` loudly
+        # (the default factory is the error thunk).
+        @test_throws ErrorException iterative("amg")
+    end
+
+    # ----- max-iteration extraction ------------------------------------------
+    @testset "_extract_max_iters fallbacks" begin
+        @test Carina._extract_max_iters(Carina.MaxIterationsTest(12)) == 12
+        # Leaf tests other than MaxIterations contribute no bound.
+        @test Carina._extract_max_iters(Carina.AbsResidualTest(1e-8)) == 0
+        # Nested combos are searched; the first positive bound wins.
+        combo = Carina.ComboOrTest(Carina.AbstractStatusTest[
+            Carina.ComboAndTest(Carina.AbstractStatusTest[
+                Carina.AbsResidualTest(1e-8)]),
+            Carina.MaxIterationsTest(7)])
+        @test Carina._extract_max_iters(combo) == 7
+    end
+
+    # ----- BC entries must name a set ----------------------------------------
+    @testset "BC entries missing their set fail loudly" begin
+        dbc = Dict{String,Any}("boundary conditions" => Dict{String,Any}(
+            "dirichlet" => Any[Dict{String,Any}(
+                "component" => "z", "function" => "0.0")]))
+        @test_throws ErrorException Carina._parse_dirichlet_bcs(dbc)
+
+        nbc = Dict{String,Any}("boundary conditions" => Dict{String,Any}(
+            "neumann" => Any[Dict{String,Any}(
+                "component" => "z", "function" => "1.0")]))
+        @test_throws ErrorException Carina._parse_neumann_bcs(nbc)
+    end
+
+    # ----- output spec defaults ----------------------------------------------
+    @testset "OutputSpec default construction" begin
+        spec = Carina.OutputSpec()
+        @test !spec.velocity && !spec.acceleration && !spec.stress
+        @test !spec.deformation_gradient && !spec.internal_variables
+        @test spec.recovery == :none
+    end
+
+    # ----- unknown integrator type -------------------------------------------
+    @testset "unknown time integrator type" begin
+        # This error sits past assembler construction, so it needs a real
+        # parse: run a minimal input whose integrator type is misspelled.
+        example_dir = joinpath(@__DIR__, "..", "examples", "mechanics",
+                               "quasistatic", "cube")
+        yaml = """
+        type: single
+        input mesh file: cube.g
+        output mesh file: cube_bad_ti.e
+        model:
+          type: solid mechanics
+          material:
+            blocks:
+              cube: neohookean
+            neohookean:
+              elastic modulus: 1.0e9
+              Poisson's ratio: 0.25
+              density: 1000.0
+        time integrator:
+          type: quasistatique
+          initial time: 0.0
+          final time: 1.0
+          time step: 1.0
+        boundary conditions:
+          dirichlet:
+            - side set: ssz-
+              component: z
+              function: "0.0"
+        solver:
+          type: newton
+          linear solver:
+            type: direct
+        """
+        mktempdir() do dir
+            cp_example(joinpath(example_dir, "cube.g"), joinpath(dir, "cube.g"))
+            path = joinpath(dir, "bad_integrator.yaml")
+            open(io -> write(io, yaml), path, "w")
+            err = try
+                Carina.run(path)
+                nothing
+            catch e
+                sprint(showerror, e)
+            end
+            @test err !== nothing
+            @test occursin("Unknown time_integrator.type", err)
+        end
+    end
+
 end
