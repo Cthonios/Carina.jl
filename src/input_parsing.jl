@@ -777,16 +777,16 @@ end
 # Map from test name → constructor taking a single numeric value.
 const _TERMINATION_TEST_MAP = Dict{String,Any}(
     "absolute residual"  => v -> AbsResidualTest(Float64(v)),
-    "abs_residual"       => v -> AbsResidualTest(Float64(v)),
+    "abs residual"       => v -> AbsResidualTest(Float64(v)),
     "abs_residual"       => v -> AbsResidualTest(Float64(v)),
     "relative residual"  => v -> RelResidualTest(Float64(v)),
-    "rel_residual"       => v -> RelResidualTest(Float64(v)),
+    "rel residual"       => v -> RelResidualTest(Float64(v)),
     "rel_residual"       => v -> RelResidualTest(Float64(v)),
     "absolute update"    => v -> AbsUpdateTest(Float64(v)),
-    "abs_update"         => v -> AbsUpdateTest(Float64(v)),
+    "abs update"         => v -> AbsUpdateTest(Float64(v)),
     "abs_update"         => v -> AbsUpdateTest(Float64(v)),
     "relative update"    => v -> RelUpdateTest(Float64(v)),
-    "rel_update"         => v -> RelUpdateTest(Float64(v)),
+    "rel update"         => v -> RelUpdateTest(Float64(v)),
     "rel_update"         => v -> RelUpdateTest(Float64(v)),
     "maximum iterations" => v -> MaxIterationsTest(Int(v)),
     "max iterations"     => v -> MaxIterationsTest(Int(v)),
@@ -839,19 +839,19 @@ Returns an AbstractStatusTest.
 function _parse_termination_test(entry::Dict)
     test_type = lowercase(strip(get(entry, "type", "")))
 
-    if test_type in ("absolute residual", "abs_residual", "abs_residual")
+    if test_type in ("absolute residual", "abs residual", "abs_residual")
         tol = Float64(entry["tolerance"])
         return AbsResidualTest(tol)
 
-    elseif test_type in ("relative residual", "rel_residual", "rel_residual")
+    elseif test_type in ("relative residual", "rel residual", "rel_residual")
         tol = Float64(entry["tolerance"])
         return RelResidualTest(tol)
 
-    elseif test_type in ("absolute update", "abs_update", "abs_update")
+    elseif test_type in ("absolute update", "abs update", "abs_update")
         tol = Float64(entry["tolerance"])
         return AbsUpdateTest(tol)
 
-    elseif test_type in ("relative update", "rel_update", "rel_update")
+    elseif test_type in ("relative update", "rel update", "rel_update")
         tol = Float64(entry["tolerance"])
         return RelUpdateTest(tol)
 

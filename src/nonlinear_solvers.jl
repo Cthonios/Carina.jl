@@ -30,9 +30,6 @@ function _solver_info(iter, norm_R, norm_R_init, norm_R_prev, norm_step, norm_U)
     SolverInfo(iter, norm_R, norm_R_init, norm_R_prev, norm_step, norm_U)
 end
 
-# Map SolverStatus to the display string and boolean for logging.
-_status_done(s::SolverStatus) = s == Converged
-
 # --------------------------------------------------------------------------- #
 # Backtracking line search
 # --------------------------------------------------------------------------- #
