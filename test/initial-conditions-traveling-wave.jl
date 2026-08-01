@@ -148,3 +148,176 @@
         @test -(+1000.0) * du_dz(X, 0.0) ≈ -(-(-1000.0) * du_dz(X, 0.0))
     end
 end
+
+# --------------------------------------------------------------------------- #
+# End-to-end: a real simulation applies the traveling-wave IC.
+#
+# Everything above stops at the parser and the symbolic derivative;
+# `_apply_initial_traveling_wave_ics!` itself never ran, so a bug in the
+# DOF scatter (or in wiring U and V together) would have passed the suite.
+# Reuse the clamped-beam setup (E = 1 GPa, ν = 0, ρ = 1000 ⇒ c = 1000 m/s)
+# whose displacement-IC variant is validated against the paper solution in
+# mechanics-clamped-wave.jl.  With v₀ = −c·∂u₀/∂z the pulse propagates one
+# way: u(z, t) = u₀(z − c·t) exactly in the continuum.
+# --------------------------------------------------------------------------- #
+@testset "Traveling-wave IC end-to-end (central difference)" begin
+    a, s, c = 0.01, 0.02, 1000.0
+    t_final = 2.0e-6
+
+    example_dir = joinpath(@__DIR__, "..", "examples", "mechanics",
+                           "explicit-dynamic", "clamped")
+    yaml = """
+type: single
+input mesh file: clamped.g
+output mesh file: clamped_tw.e
+model:
+  type: solid mechanics
+  material:
+    linear elastic:
+      elastic modulus: 1.0e9
+      density: 1000.0
+      Poisson's ratio: 0.0
+    blocks:
+      clamped: linear elastic
+time integrator:
+  type: central difference
+  time step: 1.0e-7
+  gamma: 0.5
+  final time: $t_final
+  initial time: 0.0
+initial conditions:
+  traveling wave:
+    - node set: nsall
+      displacement: "a=$a; s=$s; a*exp(-z*z/s/s/2)"
+      component: z
+      direction: z
+      wave speed: $c
+boundary conditions:
+  dirichlet:
+    - node set: nsx-
+      function: "0.0"
+      component: x
+    - node set: nsx+
+      function: "0.0"
+      component: x
+    - node set: nsy-
+      function: "0.0"
+      component: y
+    - node set: nsy+
+      function: "0.0"
+      component: y
+    - node set: nsz-
+      function: "0.0"
+      component: z
+    - node set: nsz+
+      function: "0.0"
+      component: z
+"""
+
+    u0(z) = a * exp(-z^2 / (2 * s^2))
+    v0(z) = (c * z / s^2) * u0(z)      # −c · du₀/dz
+
+    mktempdir() do dir
+        cp_example(joinpath(example_dir, "clamped.g"), joinpath(dir, "clamped.g"))
+        path = joinpath(dir, "clamped_tw.yaml")
+        open(io -> write(io, yaml), path, "w")
+
+        dict = Carina.YAML.load_file(path; dicttype=Dict{String,Any})
+        sim  = Carina.create_simulation(dict, dir)
+        ig   = sim.integrator
+        @test ig isa Carina.CentralDifferenceIntegrator
+
+        X     = reshape(Vector(sim.params_cpu.coords.data), 3, :)
+        nnode = size(X, 2)
+        free  = falses(3 * nnode)
+        free[sim.asm_cpu.dof.unknown_dofs] .= true
+
+        # ---- state right after initialization: u₀ applied, v₀ derived ----
+        U = Vector(sim.params.field.data)
+        V = Vector(ig.V)
+        err_u = err_v = 0.0
+        for n in 1:nnode
+            zd = 3 * (n - 1) + 3
+            free[zd] || continue     # constrained slots hold g(t₀), not the IC
+            z = X[3, n]
+            err_u = max(err_u, abs(U[zd] - u0(z)))
+            err_v = max(err_v, abs(V[zd] - v0(z)))
+        end
+        # The IC is an exact nodal interpolation, so agreement is round-off,
+        # scaled by the magnitude of each field (max|v₀| ≈ 300).
+        @test err_u < 1.0e-12
+        @test err_v < 1.0e-8
+        # Transverse components carry no IC.
+        @test maximum(abs, reshape(U, 3, :)[1:2, :]) == 0.0
+        @test maximum(abs, reshape(V, 3, :)[1:2, :]) == 0.0
+
+        # ---- propagate: one-way advection u(z, t) = u₀(z − c·t) ----------
+        Carina.evolve!(sim)
+        Carina.FEC.close(sim.post_processor)
+        @test !ig.failed[]
+
+        z_nodes = X[3, :]
+        Uf = Vector(sim.params.field.data)
+        uz = reshape(Uf, 3, :)[3, :]
+        @test all(isfinite, uz)
+        # Compare extrema against the analytic one-way solution sampled on
+        # the same mesh (the standing-wave solution would still show a
+        # trough of −a/2·e^{-1/2}-scale here; one-way advection does not).
+        ref = [u0(z - c * t_final) for z in z_nodes]
+        @test maximum(uz) ≈ maximum(ref) rtol = 5.0e-3
+        @test minimum(uz) ≈ minimum(ref) atol = 5.0e-5
+    end
+end
+
+# A quasi-static integrator has no velocity state: the traveling-wave IC is
+# ignored with a warning instead of crashing the setup.
+@testset "Traveling-wave IC ignored for quasi-static" begin
+    example_dir = joinpath(@__DIR__, "..", "examples", "mechanics",
+                           "quasistatic", "cube")
+    yaml = """
+type: single
+input mesh file: cube.g
+output mesh file: cube_tw_qs.e
+model:
+  type: solid mechanics
+  material:
+    blocks:
+      cube: neohookean
+    neohookean:
+      elastic modulus: 1.0e9
+      Poisson's ratio: 0.25
+      density: 1000.0
+time integrator:
+  type: quasi static
+  initial time: 0.0
+  final time: 1.0
+  time step: 1.0
+initial conditions:
+  traveling wave:
+    - node set: nsall
+      displacement: "0.001*exp(-z*z/1.0e-4)"
+      component: z
+      direction: z
+      wave speed: 1000.0
+boundary conditions:
+  dirichlet:
+    - side set: ssz-
+      component: z
+      function: "0.0"
+solver:
+  type: newton
+  linear solver:
+    type: direct
+"""
+    mktempdir() do dir
+        cp_example(joinpath(example_dir, "cube.g"), joinpath(dir, "cube.g"))
+        path = joinpath(dir, "cube_tw_qs.yaml")
+        open(io -> write(io, yaml), path, "w")
+        dict = Carina.YAML.load_file(path; dicttype=Dict{String,Any})
+        sim  = Carina.create_simulation(dict, dir)
+        Carina.FEC.close(sim.post_processor)
+        @test sim.integrator isa Carina.QuasiStaticIntegrator
+        # The warning fallback leaves the initial displacement untouched.
+        @test maximum(abs, Vector(sim.params.field.data)) == 0.0
+    end
+end
