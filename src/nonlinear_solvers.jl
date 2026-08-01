@@ -71,9 +71,13 @@ function _backtrack_line_search(ns::NewtonSolver, ig, p, ΔU)
         α *= ns.ls_backtrack
     end
 
-    # Max iterations reached — restore original state and accept full step
-    copyto!(U, U_save)
+    # Max iterations reached — restore the pre-step material state, then
+    # accept the full Newton step.  (This used to return α = 1.0 while
+    # leaving U at U_save: the increment was silently discarded, so a solve
+    # whose line search ever exhausted its budget stalled at a constant
+    # residual until the iteration limit turned it into a step failure.)
     copyto!(p.state_new.data, state_new_save)
+    @. U = U_save + ΔU
     FEC._update_for_assembly!(p, ig.asm.dof, U)
     evaluate!(ig, p)
     _carina_logf(8, :linesearch, "    LS: max iters reached, using α = 1.0")
