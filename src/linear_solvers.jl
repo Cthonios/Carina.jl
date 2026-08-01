@@ -126,7 +126,7 @@ _update_amg_precond_assembled!(::Preconditioner, _, _, _) = nothing
 # is never true.  Without this call the hierarchy is built once at the reference
 # configuration and reused for the whole run, which makes the current-config
 # near-nullspace pointless and lets iteration counts drift upward unchecked.
-function _amg_track_iters!(precond::AMGPreconditioner, iters::Int)
+function _amg_track_iters!(precond::Union{AMGPreconditioner, GPUAMGPreconditioner}, iters::Int)
     if precond.base_iters == 0
         precond.base_iters = iters
     elseif iters > max(3 * precond.base_iters, 30)
@@ -135,6 +135,78 @@ function _amg_track_iters!(precond::AMGPreconditioner, iters::Int)
     return nothing
 end
 _amg_track_iters!(::Preconditioner, _) = nothing
+
+# --------------------------------------------------------------------------- #
+# GPU AMG: host-built SA hierarchy, device V-cycle (src/gpu_amg.jl)
+# --------------------------------------------------------------------------- #
+
+function _compute_gpu_amg_precond(asm_cpu, template)
+    inv_d = similar(template); fill!(inv_d, 0.0)
+    return GPUAMGPreconditioner(collect(asm_cpu.dof.unknown_dofs),
+                                inv_d, nothing, 1.0, -1.0, 0, false, 0)
+end
+
+# Host-side hierarchy (re)build with the same staleness triggers as the CPU
+# AMG.  Assembles K_eff on the always-CPU assembler — the device assembler is
+# stripped of its pattern precisely because assembly belongs on the host.
+function _build_gpu_amg_hierarchy!(precond::GPUAMGPreconditioner, c_M, U_dev)
+    c_M_changed = abs(c_M - precond.built_c_M) > 1e-3 * abs(c_M)
+    stale = precond.hierarchy === nothing || precond.rebuild || c_M_changed
+    stale || return nothing
+
+    asm_cpu = _cpu_asm_ref[]; p_cpu = _cpu_params_ref[]; backend = _backend_ref[]
+    (asm_cpu === nothing || p_cpu === nothing) &&
+        error("GPU AMG requires the CPU assembler references to be set.")
+
+    t = @elapsed begin
+        U_cpu = Vector{Float64}(Adapt.adapt(Array, U_dev))
+        FEC._update_for_assembly!(p_cpu, asm_cpu.dof, U_cpu)
+        FEC.assemble_stiffness!(asm_cpu, FEC.stiffness, U_cpu, p_cpu)
+        if c_M != 0.0
+            FEC.assemble_mass!(asm_cpu, FEC.mass, U_cpu, p_cpu)
+            @. asm_cpu.stiffness_storage += c_M * asm_cpu.mass_storage
+        end
+        K_raw = FEC.stiffness(asm_cpu)
+        A = SparseArrays.sparse((K_raw + K_raw') / 2)
+        B = _rigid_body_modes(_current_coords(p_cpu), precond.udofs)
+        ml = AMG.smoothed_aggregation(A; B = B)
+        dinv_h = 1.0 ./ Vector(diag(A))
+        precond.lmax_fine = _host_lambda_max(A, dinv_h)
+        precond.hierarchy = DeviceAMGHierarchy(backend, ml, precond.inv_diag,
+                                               precond.lmax_fine)
+    end
+    precond.built_c_M  = c_M
+    precond.base_iters = 0
+    precond.rebuild    = false
+    precond.nbuilds   += 1
+    _carina_logf(4, :solve, "    GPU AMG hierarchy build #%d (%s)",
+                 precond.nbuilds, format_time(t))
+    return nothing
+end
+
+# Per-Newton-iteration updates: refresh the fine diagonal (used by the
+# V-cycle's fine smoother), then lazily rebuild the hierarchy.
+function _update_gpu_amg_precond_qs!(precond::GPUAMGPreconditioner, asm, U, p)
+    FEC.assemble_diagonal!(asm, FEC.stiffness, U, p)
+    d = FEC.diagonal(asm)
+    @. precond.inv_diag = 1.0 / max(abs(d), eps(Float64))
+    _build_gpu_amg_hierarchy!(precond, 0.0, U)
+    return nothing
+end
+_update_gpu_amg_precond_qs!(::Preconditioner, args...) = nothing
+
+function _update_gpu_amg_precond_eff!(precond::GPUAMGPreconditioner, asm, U,
+                                      c_M, p, scratch)
+    FEC.assemble_diagonal!(asm, FEC.stiffness, U, p)
+    copyto!(scratch, FEC.diagonal(asm))
+    FEC.assemble_diagonal!(asm, FEC.mass, U, p)
+    d_mass = FEC.diagonal(asm)
+    @. precond.inv_diag = 1.0 / max(abs(scratch + c_M * d_mass), eps(Float64))
+    _build_gpu_amg_hierarchy!(precond, c_M, U)
+    return nothing
+end
+_update_gpu_amg_precond_eff!(::Preconditioner, args...) = nothing
+
 
 # All-DOF scratch for the matrix-free action path, sized on first use.
 #
@@ -416,6 +488,10 @@ _setup_linear_ops(ig, ::NoLinearSolver,     p)  = nothing
 # matvec! is the system operator A (needed by Chebyshev; ignored by Jacobi).
 _mf_precond_op(::NoPreconditioner, n, matvec!)          = nothing
 _mf_precond_op(p::JacobiPreconditioner, n, matvec!)     = _jacobi_precond_op(p, n)
+_mf_precond_op(p::GPUAMGPreconditioner, n, matvec!) =
+    LinearOperator(Float64, n, n, true, true,
+        (y, v) -> (_amg_vcycle!(y, v, p.hierarchy, matvec!,
+                                KA.get_backend(p.inv_diag)); y))
 _mf_precond_op(p::ChebyshevPreconditioner, n, matvec!)  =
     _chebyshev_precond_op(p, n, matvec!; inv_sqrt_d=p.work3)
 
@@ -639,6 +715,7 @@ function _linear_solve!(ls::KrylovLinearSolver, ig::NewmarkIntegrator, p, ops)
                 copyto!(ΔU, Krylov.solution(ls.workspace))
                 res = ls.workspace.stats.residuals
                 r_cg = isempty(res) ? NaN : res[end]
+                _amg_track_iters!(ls.precond, ls.workspace.stats.niter)
                 _carina_logf(8, :solve, "    CG: %d iters : |r|_CG = %.2e : %s",
                              ls.workspace.stats.niter, r_cg,
                              _cg_status_str(ls.workspace.stats.solved))

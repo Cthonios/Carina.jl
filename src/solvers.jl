@@ -117,6 +117,22 @@ end
 
 AMGPreconditioner(udofs::Vector{Int}) = AMGPreconditioner(udofs, nothing, -1.0, 0, false, 0)
 
+# GPU-resident AMG: hierarchy built on the host by the same SA machinery,
+# applied on the device as a V-cycle with a matrix-free fine level
+# (src/gpu_amg.jl).  `inv_diag` is the fine-level 1/diag(K_eff) on the device,
+# refreshed every Newton iteration; the hierarchy itself is rebuilt lazily
+# with the same c_M / iteration-growth staleness triggers as the CPU AMG.
+mutable struct GPUAMGPreconditioner{V} <: Preconditioner
+    udofs      ::Vector{Int}
+    inv_diag   ::V
+    hierarchy  ::Any              # DeviceAMGHierarchy; nothing until built
+    lmax_fine  ::Float64
+    built_c_M  ::Float64
+    base_iters ::Int
+    rebuild    ::Bool
+    nbuilds    ::Int
+end
+
 # --------------------------------------------------------------------------- #
 # Abstract solver types
 # --------------------------------------------------------------------------- #
