@@ -134,7 +134,7 @@ end
 @inline function _fd_material_tangent(model, props, dt, ∇u, state_q)
     # Base stress
     s0 = zero(state_q)
-    P0 = CM.pk1_stress(model, props, dt, ∇u, 0.0, state_q, s0)
+    P0 = CM.pk1_stress(model, props, state_q, s0, dt, ∇u, 0.0)
 
     # Adaptive perturbation (Sierra/SM approach, Wallin 2001):
     # h_j = max(sqrt(ε_mach) * |∇u_j|, floor)

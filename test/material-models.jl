@@ -109,6 +109,31 @@
         end
     end
 
+    @testset "finite-difference tangent matches the analytic tangent" begin
+        # `_fd_material_tangent` is the reference implementation for debugging a
+        # model's `material_tangent`, so it must agree with the analytic/AD
+        # tangent wherever both exist.  Nothing called it, and it had bit-rotted:
+        # its base-stress `pk1_stress` call used a scrambled argument order that
+        # no longer matched any method.  Restricted to the hyperelastic models --
+        # at a plastic state the FD secant and the consistent tangent legitimately
+        # differ across the yield surface.
+        import ConstitutiveModels as CM
+        using Tensors: Tensor
+        using LinearAlgebra: norm
+
+        ∇u = Tensor{2,3}((i, j) -> 0.01i - 0.005j + (i == j ? 0.02 : 0.003i * j))
+        for name in ("neohookean", "linear elastic", "svk")
+            cm, _, props_inputs = Carina.parse_material(name, base_props())
+            props = Carina.create_solid_mechanics_properties(cm, props_inputs)
+            state = CM.initialize_state(cm)
+            A_fd = Carina._fd_material_tangent(cm, props, 0.1, ∇u, state)
+            A_an = CM.material_tangent(cm, props, state, zero(state), 0.1, ∇u, 0.0)
+            # Forward differences carry O(h) error; the adaptive h keeps the
+            # agreement near sqrt(eps) for smooth models.
+            @test norm(A_fd - A_an) / norm(A_an) < 1.0e-5
+        end
+    end
+
     @testset "documentation lists exactly the supported models" begin
         # Keeps docs/src/reference/materials.md from advertising a model that
         # was removed, or omitting one that was added.
