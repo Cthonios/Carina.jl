@@ -326,12 +326,14 @@ end
 # ---------------------------------------------------------------------------
 
 # Create an H1Field from a full-DOF CPU vector (e.g. integrator.V or .A).
-function _full_dof_to_h1field(unk_cpu::AbstractVector{Float64}, dof)
+# The integrator's V and A are full-DOF (Norma-shape state): free slots hold
+# the solved values and BC slots hold g'/g'' from the Dirichlet update, so the
+# whole vector maps onto the field one to one.  (This used to scatter as if
+# the input were a reduced free-DOF vector, which permuted values into the
+# wrong nodes on any mesh with constraints.)
+function _full_dof_to_h1field(full_cpu::AbstractVector{Float64}, dof)
     field = FEC.create_field(dof)
-    # Scatter reduced (unknown-DOF) vector into full field at unknown positions.
-    for (i, fd) in enumerate(dof.unknown_dofs)
-        field.data[fd] = unk_cpu[i]
-    end
+    copyto!(field.data, full_cpu)
     return field
 end
 
