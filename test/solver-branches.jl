@@ -361,4 +361,73 @@ solver:
         end
     end
 
+    @testset "element eversion fails loudly, never converges silently" begin
+        # The +z face is driven 1.2 below the fixed -z face -- a target state
+        # that everts the cube.  Neohookean is algebraically smooth through
+        # J = 0 (cbrt accepts negative arguments), so before the eversion
+        # guard this run CONVERGED to an inside-out equilibrium.  The guard
+        # NaN-poisons the residual at any J <= 0 quadrature point, so each
+        # attempt is a step failure; adaptive stepping shrinks dt until the
+        # loud cannot-reduce error ends the run.
+        yaml = """
+type: single
+input mesh file: cube.g
+output mesh file: cube_eversion.e
+model:
+  type: solid mechanics
+  material:
+    blocks:
+      cube: neohookean
+    neohookean:
+      elastic modulus: 1.0e9
+      Poisson's ratio: 0.3
+      density: 1000.0
+time integrator:
+  type: quasi static
+  initial time: 0.0
+  final time: 1.0
+  time step: 1.0
+  minimum time step: 0.05
+  maximum time step: 1.0
+  decrease factor: 0.5
+  increase factor: 1.5
+boundary conditions:
+  dirichlet:
+    - side set: ssx-
+      component: x
+      function: "0.0"
+    - side set: ssy-
+      component: y
+      function: "0.0"
+    - side set: ssz-
+      component: z
+      function: "0.0"
+    - side set: ssz+
+      component: z
+      function: "-1.2 * t"
+solver:
+  type: newton
+  termination:
+    fail when any:
+      - maximum iterations: 15
+    converge when any:
+      - relative residual: 1.0e-8
+  linear solver:
+    type: direct
+"""
+        mktempdir() do dir
+            cp_example(joinpath(example_dir, "cube.g"), joinpath(dir, "cube.g"))
+            path = joinpath(dir, "eversion.yaml")
+            open(io -> write(io, yaml), path, "w")
+            err = try
+                Carina.run(path)
+                nothing
+            catch e
+                sprint(showerror, e)
+            end
+            @test err !== nothing
+            @test err !== nothing && occursin("Cannot reduce time step", err)
+        end
+    end
+
 end

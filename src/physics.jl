@@ -86,6 +86,21 @@ end
     ∇u_q = FEC.interpolate_field_gradients(physics, cell, u_el)
     ∇u_q = FEC.modify_field_gradients(FEC.ThreeDimensional(), ∇u_q)
 
+    G = FEC.discrete_gradient(FEC.ThreeDimensional(), ∇N_X)
+
+    # Guard against element eversion (J ≤ 0) by NaN-poisoning the residual:
+    # evaluate! ends with isfinite(‖R‖), so an everted trial state becomes a
+    # step failure that the line search / adaptive stepping retries.  A branch
+    # (not a throw) so the same kernel runs on GPU, and placed before the
+    # constitutive call so models whose stress evaluation cannot survive
+    # J ≤ 0 are never asked to.  Without this, models that are algebraically
+    # smooth through J = 0 (neohookean uses cbrt, which accepts negative
+    # arguments) converge silently to everted equilibria.
+    if det(∇u_q + one(∇u_q)) <= 0.0
+        P_v = FEC.extract_stress(FEC.ThreeDimensional(), zero(∇u_q))
+        return oftype(JxW, NaN) * (G * P_v)
+    end
+
     # PK1 stress (analytical or AD-backed depending on the model)
     P_q = CM.pk1_stress(
         physics.constitutive_model, props_el, state_old_q, state_new_q, dt, ∇u_q, 0.0
@@ -93,7 +108,6 @@ end
 
     # Voigt-ordered stress vector and B-matrix, then internal force
     P_v = FEC.extract_stress(FEC.ThreeDimensional(), P_q)
-    G   = FEC.discrete_gradient(FEC.ThreeDimensional(), ∇N_X)
     return JxW * G * P_v
 end
 
@@ -116,6 +130,12 @@ end
     (; JxW) = cell
     ∇u_q = FEC.interpolate_field_gradients(physics, cell, u_el)
     ∇u_q = FEC.modify_field_gradients(FEC.ThreeDimensional(), ∇u_q)
+    # Same eversion guard as FEC.residual.  The steepest-descent Armijo loop
+    # checks isfinite(W_trial), so a NaN here rejects the trial step instead
+    # of letting log(J) throw inside device code.
+    if det(∇u_q + one(∇u_q)) <= 0.0
+        return oftype(JxW, NaN)
+    end
     W_q = CM.helmholtz_free_energy(
         physics.constitutive_model, props_el, state_old_q, state_new_q, dt, ∇u_q, 0.0
     )
@@ -228,6 +248,10 @@ end
 #   residual:          f_int = ∫ G^T · σ_v dV,  σ = C:sym(∇u)
 #   stiffness:         K_el  = ∫ G^T · C · G dV (constant; C evaluated at ∇u=0)
 #   stiffness_action:  K·v   = ∫ G^T · C · (G·v) dV  (same constant C)
+#
+# The eversion guard (J ≤ 0 → NaN) of the finite-deformation kernels is
+# deliberately absent here: infinitesimal kinematics carries no J, and the
+# linear operator is well defined for any displacement magnitude.
 #
 # At ∇u=0: J=1, σ=0, so the geometric terms in ∂P/∂∇u vanish and
 # CM.material_tangent reduces to the small-strain C.  This is consistent with
