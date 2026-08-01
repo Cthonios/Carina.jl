@@ -249,9 +249,13 @@ end
 #   stiffness:         K_el  = ∫ G^T · C · G dV (constant; C evaluated at ∇u=0)
 #   stiffness_action:  K·v   = ∫ G^T · C · (G·v) dV  (same constant C)
 #
-# The eversion guard (J ≤ 0 → NaN) of the finite-deformation kernels is
-# deliberately absent here: infinitesimal kinematics carries no J, and the
-# linear operator is well defined for any displacement magnitude.
+# The eversion guard (J ≤ 0 → NaN) applies here exactly as in the
+# finite-deformation kernels.  The linear operator itself is well defined for
+# any displacement magnitude — which is precisely the danger: it will happily
+# produce an everted mesh as a "converged" answer.  J ≤ 0 is a statement about
+# the deformed geometry, not the constitutive law, so it invalidates a
+# small-strain solution just the same (Norma guards its Elastic materials
+# identically, at the kinematics level).
 #
 # At ∇u=0: J=1, σ=0, so the geometric terms in ∂P/∂∇u vanish and
 # CM.material_tangent reduces to the small-strain C.  This is consistent with
@@ -272,6 +276,14 @@ end
     ∇u_q = FEC.interpolate_field_gradients(physics, cell, u_el)
     ∇u_q = FEC.modify_field_gradients(FEC.ThreeDimensional(), ∇u_q)
 
+    G = FEC.discrete_gradient(FEC.ThreeDimensional(), ∇N_X)
+
+    # Eversion guard: J ≤ 0 → NaN-poisoned residual → step failure.
+    if det(∇u_q + one(∇u_q)) <= 0.0
+        P_v = FEC.extract_stress(FEC.ThreeDimensional(), zero(∇u_q))
+        return oftype(JxW, NaN) * (G * P_v)
+    end
+
     # Small-strain Cauchy stress σ = C:ε,  ε = sym(∇u)
     σ_q = CM.cauchy_stress(
         physics.constitutive_model, props_el, state_old_q, state_new_q, dt, ∇u_q, 0.0
@@ -284,7 +296,6 @@ end
         σ_q[1, 3], σ_q[2, 3], σ_q[3, 3],
     ))
     P_v = FEC.extract_stress(FEC.ThreeDimensional(), σ_full)
-    G   = FEC.discrete_gradient(FEC.ThreeDimensional(), ∇N_X)
     return JxW * G * P_v
 end
 
@@ -300,6 +311,10 @@ end
     (; JxW) = cell
     ∇u_q = FEC.interpolate_field_gradients(physics, cell, u_el)
     ∇u_q = FEC.modify_field_gradients(FEC.ThreeDimensional(), ∇u_q)
+    # Eversion guard: reject the trial step via the Armijo isfinite check.
+    if det(∇u_q + one(∇u_q)) <= 0.0
+        return oftype(JxW, NaN)
+    end
     W_q = CM.helmholtz_free_energy(
         physics.constitutive_model, props_el, state_old_q, state_new_q, dt, ∇u_q, 0.0
     )

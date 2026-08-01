@@ -363,13 +363,15 @@ solver:
 
     @testset "element eversion fails loudly, never converges silently" begin
         # The +z face is driven 1.2 below the fixed -z face -- a target state
-        # that everts the cube.  Neohookean is algebraically smooth through
-        # J = 0 (cbrt accepts negative arguments), so before the eversion
-        # guard this run CONVERGED to an inside-out equilibrium.  The guard
-        # NaN-poisons the residual at any J <= 0 quadrature point, so each
-        # attempt is a step failure; adaptive stepping shrinks dt until the
-        # loud cannot-reduce error ends the run.
-        yaml = """
+        # that everts the cube.  Neither formulation objects on its own:
+        # neohookean is algebraically smooth through J = 0 (cbrt accepts
+        # negative arguments), and the small-strain linear operator is well
+        # defined for ANY displacement -- so before the eversion guard both
+        # CONVERGED to an inside-out equilibrium.  The guard NaN-poisons the
+        # residual at any J <= 0 quadrature point, so each attempt is a step
+        # failure; adaptive stepping shrinks dt until the loud cannot-reduce
+        # error ends the run.
+        eversion_yaml(material) = """
 type: single
 input mesh file: cube.g
 output mesh file: cube_eversion.e
@@ -377,8 +379,8 @@ model:
   type: solid mechanics
   material:
     blocks:
-      cube: neohookean
-    neohookean:
+      cube: $material
+    $material:
       elastic modulus: 1.0e9
       Poisson's ratio: 0.3
       density: 1000.0
@@ -415,18 +417,20 @@ solver:
   linear solver:
     type: direct
 """
-        mktempdir() do dir
-            cp_example(joinpath(example_dir, "cube.g"), joinpath(dir, "cube.g"))
-            path = joinpath(dir, "eversion.yaml")
-            open(io -> write(io, yaml), path, "w")
-            err = try
-                Carina.run(path)
-                nothing
-            catch e
-                sprint(showerror, e)
+        for material in ("neohookean", "linear elastic")
+            mktempdir() do dir
+                cp_example(joinpath(example_dir, "cube.g"), joinpath(dir, "cube.g"))
+                path = joinpath(dir, "eversion.yaml")
+                open(io -> write(io, eversion_yaml(material)), path, "w")
+                err = try
+                    Carina.run(path)
+                    nothing
+                catch e
+                    sprint(showerror, e)
+                end
+                @test err !== nothing
+                @test err !== nothing && occursin("Cannot reduce time step", err)
             end
-            @test err !== nothing
-            @test err !== nothing && occursin("Cannot reduce time step", err)
         end
     end
 
