@@ -1,6 +1,7 @@
 # Benchmark report: native-Julia GPU AMG for Carina's implicit paths
 
-**Status: COMPLETE — submitted to Critic review.**
+**Status: PASSED Critic review (3 rounds: REVISE, REVISE, PASS; verdicts and
+resolutions tracked in the gpu-amg branch history, commits d209ecd/094ca3b/b9f82e4).**
 
 Campaign brief: `~/Carina-GPU.md`.  Proposed solution, design rationale and
 rejected alternatives: `benchmark/design.md`.  Raw data:
