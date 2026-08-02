@@ -4,7 +4,8 @@
 
 Campaign brief: `~/Carina-GPU.md`.  Proposed solution, design rationale and
 rejected alternatives: `benchmark/design.md`.  Raw data:
-`benchmark/results/{baseline,proposed,scaling}.jsonl`; harness:
+`benchmark/results/{baseline,proposed,scaling2,variance,detail,bisect,nbuilds-check}.jsonl`
+plus the evidence appendix `benchmark/evidence/`; harness:
 `benchmark/harness.jl` (one fresh process per run; iteration counts parsed
 from Carina's own log; VRAM from `AMDGPU.memory_stats().live` at end of run).
 
@@ -51,16 +52,21 @@ after BC elimination (torsion-qs 527,877; cube64 806,975; cube80
 or VRAM carryover; total wall time therefore includes ~40 s of compilation
 identically in every cell, and per-step walls / solve-phase sums (from the
 run log) exclude it.  The three headline torsion-QS cells were measured
-3× (2× for CPU Jacobi); tables report the mean, with observed run-to-run
-spread of 0.8% (GPU Jacobi: 581/576/577), 8% (GPU AMG: 314/299/291 — the
+3× or more (2× for CPU Jacobi); tables report the mean, with observed
+run-to-run spread of 0.8% (GPU Jacobi: 581/576/577), 8.2% (GPU AMG:
+314/299/291/290, n=4 — the
 larger spread tracks a small CG-iteration difference, 980 vs 951,
 consistent with atomics nondeterminism in the device diagonal
 extraction), and 2.3% (CPU Jacobi: 377/368).  Single-shot cells carry
 that uncertainty.  GPU runs on ROCm (AMDGPU.jl); the implementation
 itself is KernelAbstractions-portable.  All variants of a case solve the
-identical nonlinear problem with identical tolerances; every convergent run
-reaches the same displacement solution (spot-checked against CPU direct at
-rtol 1e-7 on the 16³ validation cube; harness asserts non-failure).
+identical nonlinear problem with identical tolerances.  Solution agreement
+is a checked-in artifact: the "GPU AMG preconditioner" testset in
+`test/mechanics-gpu-device.jl` solves a 16³ generated cube (14,739 DOF,
+multilevel hierarchy asserted) with device CG+AMG and requires agreement
+with CPU direct at rtol 1e-7; its ROCm output is recorded at
+`benchmark/evidence/gpu_amg_test_rocm.txt`.  The harness asserts
+non-failure on every run.
 
 ## 2. Results at 530k DOF (torsion)
 
@@ -72,7 +78,7 @@ hit (linear systems NOT converged to rtol 1e-8 — reported as measured).
 
 | variant            | total (s) | CG iters   | linear conv. | VRAM (GB) |
 |--------------------|----------:|-----------:|--------------|----------:|
-| **GPU CG+AMG (new)** | **302** (n=3) | **951–980** | yes          | 0.65      |
+| **GPU CG+AMG (new)** | **299** (n=4) | **951–980** | yes          | 0.65      |
 | CPU CG+AMG         | 302       | 787        | yes          | —         |
 | CPU CG+Jacobi      | 372 (n=2) | 16,000     | **capped**   | —         |
 | CPU direct         | 443       | —          | (direct)     | —         |
@@ -81,7 +87,10 @@ hit (linear systems NOT converged to rtol 1e-8 — reported as measured).
 | CPU CG+IC          | 1,011     | 8,226      | yes          | —         |
 | GPU L-BFGS         | failed    | —          | (stalls; step failure) | n/a\* |
 
-- GPU AMG is **1.9× faster** (mean over repeats) than the best pre-existing GPU option and the
+\* The failed L-BFGS run writes no JSONL record; its failure log is
+`benchmark/evidence/torsion_qs_lbfgs_failure.txt`.
+
+- GPU AMG is **1.9× faster** (578/299, means over repeats) than the best pre-existing GPU option and the
   only GPU variant that both converges its linear systems and beats the
   direct solver.
 - Chebyshev illustrates the cost/iteration trade the design targets: 4.5×
@@ -124,13 +133,11 @@ counts are lower across the board; the *relative* trends are the point.)
 
 | size            | GPU AMG (new)   | GPU Jacobi      | CPU AMG        | CPU Jacobi      |
 |-----------------|-----------------|-----------------|----------------|-----------------|
-| 530k (torsion)  | 302 s / ~965 (n=3) | 578 s / 16,000c (n=3) | 302 s / 787 | 372 s / 16,000c (n=2) |
+| 530k (torsion)  | 299 s / 958 (n=4) | 578 s / 16,000c (n=3) | 302 s / 787 | 372 s / 16,000c (n=2) |
 | 823k (cube64)   | 167 s / 118     | 290 s / 2,670   | 164 s / 100    | 169 s / 2,670   |
 | 1.57M (cube80)  | **249 s / 136** | 439 s / 3,320   | **OOM**        | 312 s / 3,320   |
 
 ("c" = CG iteration cap hit; linear systems not converged to tolerance.)
-\* The failed L-BFGS run writes no JSONL record; its failure log is
-`benchmark/evidence/torsion_qs_lbfgs_failure.txt`.
 
 - **At 1.57M DOF the proposed solver is the fastest quasistatic option on
   the machine and the only AMG that runs at all.**  Stock
@@ -188,14 +195,14 @@ Byte accounting per iteration (basis of the achieved-bandwidth figures):
   + coarse work).  (The 2.45× solve-phase speedup then follows from the
   iteration ratio by identity, so it is a consistency check, not an
   independent one.)  Per Newton solve, capped Jacobi spends 1,000
-  iterations without converging while AMG converges in ~60–82; the
+  iterations without converging while AMG converges in 74–85; the
   aggregate 16.3× total-iteration ratio also reflects the Jacobi run
   needing more Newton iterations (16 solves vs 12) on top of its capped,
   non-converged linear solves.
 - **Bandwidth utilization is the honest weak spot.**  One matrix-free fine
-  action moves ~150 MB (connectivity, coordinate/field gathers, scattered
-  accumulation, CG vector work) in ~30 ms: ≈ 5–7 GB/s achieved against
-  HBM-class peak of ~1 TB/s — 0.5–0.7% of roofline.  This, not
+  action moves ~160 MB (per the byte accounting above) in ~30 ms:
+  ≈ 5.2 GB/s achieved against HBM-class peak of ~1 TB/s — ~0.5% of
+  roofline.  This, not
   preconditioning, is why CPU assembled SpMV stays competitive with the
   GPU through 1.57M DOF (instrumented CPU figures in the table below).
   The gap between achieved and peak bandwidth is consistent with a
@@ -206,7 +213,9 @@ Byte accounting per iteration (basis of the achieved-bandwidth figures):
 - **Allocation:** the V-cycle apply path preallocates all per-level
   workspaces at hierarchy conversion; the checked-in GPU test
   (`test/mechanics-gpu-device.jl`, "GPU AMG preconditioner") asserts that
-  20 repeated V-cycle applications leave live VRAM exactly unchanged.
+  20 repeated V-cycle applications — driven through the real matrix-free
+  fine action, the same operator production uses — leave live VRAM exactly
+  unchanged.
   Host allocation per run is recorded in the JSONL (`cpu_alloc_bytes`);
   end-of-run VRAM: 0.65 GB at 530k, 2.0 GB at 1.57M — hierarchy plus the
   0.22–0.67 GB base matrix-free footprint.
@@ -215,8 +224,12 @@ Byte accounting per iteration (basis of the achieved-bandwidth figures):
 
 Per-solve Newton iteration counts and per-solve CG iteration lists for every
 run are in the JSONL records (`newton_iters`, `cg_iters` fields), including
-the capped-at-1000 Jacobi solves.  Hierarchy rebuild counts and times are
-logged per run (`amg_build_s` in instrumented records).
+the capped-at-1000 Jacobi solves.  Hierarchy rebuild seconds are in
+instrumented records (`amg_build_s`); build *counts* are in records from
+the current harness revision (`nbuilds` — e.g. nbuilds-check.jsonl:
+1 build, 11.8 s, torsion-qs — the staleness detector requested no rebuild
+in that rep; the earlier instrumented rep's 15.6 s `amg_build_s` predates
+the counter).
 
 ## 6. Scope compliance
 

@@ -1,0 +1,350 @@
+[CARINA]  BEGIN TESTS
+[SETUP]   [14] mechanics-gpu-device.jl
+[CARINA]  BEGIN SIMULATION
+[SETUP]   Reading from /tmp/jl_9qjnE6/sphere_explicit.yaml
+[DEVICE]  CPU
+[SETUP]   Input:  /tmp/jl_9qjnE6/sphere.g
+[SETUP]   Output: /tmp/jl_9qjnE6/sphere_explicit.e
+[SETUP]   Reading mesh...
+[SETUP]   Mesh:    997 nodes, 864 elements
+[SETUP]   Block "sphere": Hyperelastic{NeoHookean} : density = 1.000e+03, Poisson's ratio = 3.300e-01, Young's modulus = 1.000e+04
+[SETUP]   Building assembler...
+[SETUP]   Time:    [0.00e+00, 1.00e-02], Δt = 1.00e-02, 1 steps
+[SETUP]   Building parameters...
+[SETUP]   DOFs:    2991 total, 2991 free, 0 constrained
+[SETUP]   Building integrator and solver...
+[SETUP]   Solver:  Central difference (explicit)
+[ACCELER] Computing Initial Acceleration...
+[ACCELER] Initial Acceleration = 0 (trivial RHS, 0.00s)
+[SETUP]   L2 lumped recovery initialized
+[SETUP]   Setup complete (9.51s)
+[SETUP]   Writing initial state...
+[STOP]    [0/1, 0%] : Time = 0.00e+00
+[OUTPUT]  /tmp/jl_9qjnE6/sphere_explicit.e
+    [ADVANCE] [0.00e+00, 1.00e-02] : Δt = 1.00e-02
+[STOP]    [1/1, 100%] : Time = 1.00e-02 : |U|_max = 5.00e-02 : wall = 0.04s
+[OUTPUT]  sphere_explicit.e
+[DONE]    Simulation complete
+[TIME]    Total wall time = 13.46s
+[CARINA]  END SIMULATION
+[CARINA]  BEGIN SIMULATION
+[SETUP]   Reading from /tmp/jl_5pjxoP/sphere_explicit.yaml
+[DEVICE]  GPU [ROCBackend]
+[SETUP]   Input:  /tmp/jl_5pjxoP/sphere.g
+[SETUP]   Output: /tmp/jl_5pjxoP/sphere_explicit.e
+[SETUP]   Reading mesh...
+[SETUP]   Mesh:    997 nodes, 864 elements
+[SETUP]   Block "sphere": Hyperelastic{NeoHookean} : density = 1.000e+03, Poisson's ratio = 3.300e-01, Young's modulus = 1.000e+04
+[SETUP]   Building assembler...
+[SETUP]   Time:    [0.00e+00, 1.00e-02], Δt = 1.00e-02, 1 steps
+[SETUP]   Building parameters...
+[SETUP]   DOFs:    2991 total, 2991 free, 0 constrained
+[SETUP]   Transferring to GPU...
+[SETUP]   Building integrator and solver...
+[SETUP]   Solver:  Central difference (explicit)
+[ACCELER] Computing Initial Acceleration...
+[ACCELER] Initial Acceleration = 0 (trivial RHS, 0.27s)
+[SETUP]   L2 lumped recovery initialized
+[SETUP]   Setup complete (11.60s)
+[SETUP]   Writing initial state...
+[STOP]    [0/1, 0%] : Time = 0.00e+00
+[OUTPUT]  /tmp/jl_5pjxoP/sphere_explicit.e
+    [ADVANCE] [0.00e+00, 1.00e-02] : Δt = 1.00e-02
+[STOP]    [1/1, 100%] : Time = 1.00e-02 : |U|_max = 5.00e-02 : wall = 7.27s
+[OUTPUT]  sphere_explicit.e
+[DONE]    Simulation complete
+[TIME]    Total wall time = 20.96s
+[CARINA]  END SIMULATION
+[CARINA]  BEGIN SIMULATION
+[SETUP]   Reading from /tmp/jl_7sCaru/gpu_bc_explicit.yaml
+[DEVICE]  CPU
+[SETUP]   Input:  /tmp/jl_7sCaru/cube.g
+[SETUP]   Output: /tmp/jl_7sCaru/cube_gpu_bc.e
+[SETUP]   Reading mesh...
+[SETUP]   Mesh:    27 nodes, 8 elements
+[SETUP]   Block "cube": Hyperelastic{NeoHookean} : density = 1.000e+03, Poisson's ratio = 2.500e-01, Young's modulus = 1.000e+09
+[SETUP]   Building assembler...
+[SETUP]   Time:    [0.00e+00, 2.00e-07], Δt = 1.00e-07, 2 steps
+[SETUP]   Building parameters...
+[SETUP]   DOFs:    81 total, 63 free, 18 constrained
+[SETUP]   Building integrator and solver...
+[SETUP]   Solver:  Central difference (explicit)
+[ACCELER] Computing Initial Acceleration...
+[ACCELER] Initial Acceleration: |A₀| = 5.80e+00 (0.00s)
+[SETUP]   L2 lumped recovery initialized
+[SETUP]   Setup complete (31.13s)
+[SETUP]   Writing initial state...
+[STOP]    [0/2, 0%] : Time = 0.00e+00
+[OUTPUT]  /tmp/jl_7sCaru/cube_gpu_bc.e
+    [ADVANCE] [0.00e+00, 1.00e-07] : Δt = 1.00e-07
+[STOP]    [1/2, 50%] : Time = 1.00e-07 : |U|_max = 5.00e-07
+[OUTPUT]  cube_gpu_bc.e
+    [ADVANCE] [1.00e-07, 2.00e-07] : Δt = 1.00e-07
+[STOP]    [2/2, 100%] : Time = 2.00e-07 : |U|_max = 5.00e-07
+[OUTPUT]  cube_gpu_bc.e
+[DONE]    Simulation complete
+[TIME]    Total wall time = 32.25s
+[CARINA]  END SIMULATION
+[CARINA]  BEGIN SIMULATION
+[SETUP]   Reading from /tmp/jl_l0ORJq/gpu_bc_explicit.yaml
+[DEVICE]  GPU [ROCBackend]
+[SETUP]   Input:  /tmp/jl_l0ORJq/cube.g
+[SETUP]   Output: /tmp/jl_l0ORJq/cube_gpu_bc.e
+[SETUP]   Reading mesh...
+[SETUP]   Mesh:    27 nodes, 8 elements
+[SETUP]   Block "cube": Hyperelastic{NeoHookean} : density = 1.000e+03, Poisson's ratio = 2.500e-01, Young's modulus = 1.000e+09
+[SETUP]   Building assembler...
+[SETUP]   Time:    [0.00e+00, 2.00e-07], Δt = 1.00e-07, 2 steps
+[SETUP]   Building parameters...
+[SETUP]   DOFs:    81 total, 63 free, 18 constrained
+[SETUP]   Transferring to GPU...
+[SETUP]   Building integrator and solver...
+[SETUP]   Solver:  Central difference (explicit)
+[ACCELER] Computing Initial Acceleration...
+[ACCELER] Initial Acceleration: |A₀| = 5.80e+00 (0.00s)
+[SETUP]   L2 lumped recovery initialized
+[SETUP]   Setup complete (0.82s)
+[SETUP]   Writing initial state...
+[STOP]    [0/2, 0%] : Time = 0.00e+00
+[OUTPUT]  /tmp/jl_l0ORJq/cube_gpu_bc.e
+    [ADVANCE] [0.00e+00, 1.00e-07] : Δt = 1.00e-07
+[STOP]    [1/2, 50%] : Time = 1.00e-07 : |U|_max = 5.00e-07 : wall = 1.37s
+[OUTPUT]  cube_gpu_bc.e
+    [ADVANCE] [1.00e-07, 2.00e-07] : Δt = 1.00e-07
+[STOP]    [2/2, 100%] : Time = 2.00e-07 : |U|_max = 5.00e-07
+[OUTPUT]  cube_gpu_bc.e
+[DONE]    Simulation complete
+[TIME]    Total wall time = 2.98s
+[CARINA]  END SIMULATION
+[CARINA]  BEGIN SIMULATION
+[SETUP]   Reading from /tmp/jl_lkox9a/gpu_bc_implicit.yaml
+[DEVICE]  CPU
+[SETUP]   Input:  /tmp/jl_lkox9a/cube.g
+[SETUP]   Output: /tmp/jl_lkox9a/cube_gpu_bc_qs.e
+[SETUP]   Reading mesh...
+[SETUP]   Mesh:    27 nodes, 8 elements
+[SETUP]   Block "cube": Hyperelastic{NeoHookean} : density = 1.000e+03, Poisson's ratio = 2.500e-01, Young's modulus = 1.000e+09
+[SETUP]   Building assembler...
+[SETUP]   Time:    [0.00e+00, 1.00e+00], Δt = 5.00e-01, 2 steps
+[SETUP]   Building parameters...
+[SETUP]   DOFs:    81 total, 45 free, 36 constrained
+[SETUP]   Building integrator and solver...
+[SETUP]   Solver:  Quasi-static, Newton + CG
+[SETUP]   L2 lumped recovery initialized
+[SETUP]   Setup complete (3.75s)
+[SETUP]   Writing initial state...
+[STOP]    [0/2, 0%] : Time = 0.00e+00
+[OUTPUT]  /tmp/jl_lkox9a/cube_gpu_bc_qs.e
+    [ADVANCE] [0.00e+00, 5.00e-01] : Δt = 5.00e-01
+        [SOLVE]   Iter [0] |R| = 4.66e+04 : |r| = 1.00e+00 : [WAIT]
+        [SOLVE]       CG: 23 iters : |r|_CG = 6.39e-11 : [CONV]
+        [LINESEA]     LS: α = 1.00e+00 : m = 2.18e+09 → 9.920e-01 : [ACCEPT]
+        [SOLVE]   Iter [1] |R| = 9.96e-01 : |r| = 2.14e-05 : |ΔU| = 9.56e-05 : t_eval = 0.00s : t_solve = 0.19s : [WAIT]
+        [SOLVE]       CG: 23 iters : |r|_CG = 3.13e-15 : [CONV]
+        [LINESEA]     LS: α = 1.00e+00 : m = 9.92e-01 → 3.696e-15 : [ACCEPT]
+        [SOLVE]   Iter [2] |R| = 6.08e-08 : |r| = 1.30e-12 : |ΔU| = 4.07e-09 : [DONE]
+[STOP]    [1/2, 50%] : Time = 5.00e-01 : |U|_max = 5.05e-05 : wall = 0.64s
+[OUTPUT]  cube_gpu_bc_qs.e
+    [ADVANCE] [5.00e-01, 1.00e+00] : Δt = 5.00e-01
+        [SOLVE]   Iter [0] |R| = 4.66e+04 : |r| = 1.00e+00 : [WAIT]
+        [SOLVE]       CG: 17 iters : |r|_CG = 1.56e-10 : [CONV]
+        [LINESEA]     LS: α = 1.00e+00 : m = 2.17e+09 → 9.863e-01 : [ACCEPT]
+        [SOLVE]   Iter [1] |R| = 9.93e-01 : |r| = 2.13e-05 : |ΔU| = 9.56e-05 : [WAIT]
+        [SOLVE]       CG: 21 iters : |r|_CG = 1.87e-15 : [CONV]
+        [LINESEA]     LS: α = 1.00e+00 : m = 9.86e-01 → 3.692e-15 : [ACCEPT]
+        [SOLVE]   Iter [2] |R| = 6.08e-08 : |r| = 1.30e-12 : |ΔU| = 4.05e-09 : [DONE]
+[STOP]    [2/2, 100%] : Time = 1.00e+00 : |U|_max = 1.01e-04
+[OUTPUT]  cube_gpu_bc_qs.e
+[DONE]    Simulation complete
+[TIME]    Total wall time = 4.93s
+[CARINA]  END SIMULATION
+[CARINA]  BEGIN SIMULATION
+[SETUP]   Reading from /tmp/jl_5sKGMh/gpu_bc_implicit.yaml
+[DEVICE]  GPU [ROCBackend]
+[SETUP]   Input:  /tmp/jl_5sKGMh/cube.g
+[SETUP]   Output: /tmp/jl_5sKGMh/cube_gpu_bc_qs.e
+[SETUP]   Reading mesh...
+[SETUP]   Mesh:    27 nodes, 8 elements
+[SETUP]   Block "cube": Hyperelastic{NeoHookean} : density = 1.000e+03, Poisson's ratio = 2.500e-01, Young's modulus = 1.000e+09
+[SETUP]   Building assembler...
+[SETUP]   Time:    [0.00e+00, 1.00e+00], Δt = 5.00e-01, 2 steps
+[SETUP]   Building parameters...
+[SETUP]   DOFs:    81 total, 45 free, 36 constrained
+[SETUP]   Transferring to GPU...
+[SETUP]   Building integrator and solver...
+[SETUP]   Solver:  Quasi-static, Newton + CG
+[SETUP]   L2 lumped recovery initialized
+[SETUP]   Setup complete (3.28s)
+[SETUP]   Writing initial state...
+[STOP]    [0/2, 0%] : Time = 0.00e+00
+[OUTPUT]  /tmp/jl_5sKGMh/cube_gpu_bc_qs.e
+    [ADVANCE] [0.00e+00, 5.00e-01] : Δt = 5.00e-01
+        [SOLVE]   Iter [0] |R| = 4.66e+04 : |r| = 1.00e+00 : [WAIT]
+        [SOLVE]       CG: 23 iters : |r|_CG = 6.39e-11 : [CONV]
+        [LINESEA]     LS: α = 1.00e+00 : m = 2.18e+09 → 9.920e-01 : [ACCEPT]
+        [SOLVE]   Iter [1] |R| = 9.96e-01 : |r| = 2.14e-05 : |ΔU| = 9.56e-05 : t_eval = 0.00s : t_solve = 2.38s : [WAIT]
+        [SOLVE]       CG: 23 iters : |r|_CG = 3.13e-15 : [CONV]
+        [LINESEA]     LS: α = 1.00e+00 : m = 9.92e-01 → 3.697e-15 : [ACCEPT]
+        [SOLVE]   Iter [2] |R| = 6.08e-08 : |r| = 1.30e-12 : |ΔU| = 4.07e-09 : t_eval = 0.00s : t_solve = 0.07s : [DONE]
+[STOP]    [1/2, 50%] : Time = 5.00e-01 : |U|_max = 5.05e-05 : wall = 6.97s
+[OUTPUT]  cube_gpu_bc_qs.e
+    [ADVANCE] [5.00e-01, 1.00e+00] : Δt = 5.00e-01
+        [SOLVE]   Iter [0] |R| = 4.66e+04 : |r| = 1.00e+00 : [WAIT]
+        [SOLVE]       CG: 17 iters : |r|_CG = 1.56e-10 : [CONV]
+        [LINESEA]     LS: α = 1.00e+00 : m = 2.17e+09 → 9.863e-01 : [ACCEPT]
+        [SOLVE]   Iter [1] |R| = 9.93e-01 : |r| = 2.13e-05 : |ΔU| = 9.56e-05 : t_eval = 0.00s : t_solve = 0.04s : [WAIT]
+        [SOLVE]       CG: 21 iters : |r|_CG = 1.87e-15 : [CONV]
+        [LINESEA]     LS: α = 1.00e+00 : m = 9.86e-01 → 3.529e-15 : [ACCEPT]
+        [SOLVE]   Iter [2] |R| = 5.94e-08 : |r| = 1.27e-12 : |ΔU| = 4.05e-09 : t_eval = 0.00s : t_solve = 0.06s : [DONE]
+[STOP]    [2/2, 100%] : Time = 1.00e+00 : |U|_max = 1.01e-04 : wall = 0.11s
+[OUTPUT]  cube_gpu_bc_qs.e
+[DONE]    Simulation complete
+[TIME]    Total wall time = 10.88s
+[CARINA]  END SIMULATION
+[CARINA]  BEGIN SIMULATION
+[SETUP]   Reading from /tmp/jl_ZtT2E3/gpu_bc_implicit_strip.yaml
+[DEVICE]  GPU [ROCBackend]
+[SETUP]   Input:  /tmp/jl_ZtT2E3/cube.g
+[SETUP]   Output: /tmp/jl_ZtT2E3/cube_gpu_bc_qs.e
+[SETUP]   Reading mesh...
+[SETUP]   Mesh:    27 nodes, 8 elements
+[SETUP]   Block "cube": Hyperelastic{NeoHookean} : density = 1.000e+03, Poisson's ratio = 2.500e-01, Young's modulus = 1.000e+09
+[SETUP]   Building assembler...
+[SETUP]   Time:    [0.00e+00, 1.00e+00], Δt = 5.00e-01, 2 steps
+[SETUP]   Building parameters...
+[SETUP]   DOFs:    81 total, 45 free, 36 constrained
+[SETUP]   Transferring to GPU...
+[SETUP]   Building integrator and solver...
+[SETUP]   Solver:  Quasi-static, Newton + CG
+[SETUP]   L2 lumped recovery initialized
+[SETUP]   Setup complete (0.00s)
+[SETUP]   Writing initial state...
+[STOP]    [0/2, 0%] : Time = 0.00e+00
+[OUTPUT]  /tmp/jl_ZtT2E3/cube_gpu_bc_qs.e
+    [ADVANCE] [0.00e+00, 5.00e-01] : Δt = 5.00e-01
+        [SOLVE]   Iter [0] |R| = 4.66e+04 : |r| = 1.00e+00 : [WAIT]
+        [SOLVE]       CG: 23 iters : |r|_CG = 6.39e-11 : [CONV]
+        [LINESEA]     LS: α = 1.00e+00 : m = 2.18e+09 → 9.920e-01 : [ACCEPT]
+        [SOLVE]   Iter [1] |R| = 9.96e-01 : |r| = 2.14e-05 : |ΔU| = 9.56e-05 : t_eval = 0.00s : t_solve = 0.06s : [WAIT]
+        [SOLVE]       CG: 23 iters : |r|_CG = 3.13e-15 : [CONV]
+        [LINESEA]     LS: α = 1.00e+00 : m = 9.92e-01 → 3.697e-15 : [ACCEPT]
+        [SOLVE]   Iter [2] |R| = 6.08e-08 : |r| = 1.30e-12 : |ΔU| = 4.07e-09 : t_eval = 0.00s : t_solve = 0.06s : [DONE]
+[STOP]    [1/2, 50%] : Time = 5.00e-01 : |U|_max = 5.05e-05 : wall = 0.13s
+[OUTPUT]  cube_gpu_bc_qs.e
+    [ADVANCE] [5.00e-01, 1.00e+00] : Δt = 5.00e-01
+        [SOLVE]   Iter [0] |R| = 4.66e+04 : |r| = 1.00e+00 : [WAIT]
+        [SOLVE]       CG: 17 iters : |r|_CG = 1.56e-10 : [CONV]
+        [LINESEA]     LS: α = 1.00e+00 : m = 2.17e+09 → 9.863e-01 : [ACCEPT]
+        [SOLVE]   Iter [1] |R| = 9.93e-01 : |r| = 2.13e-05 : |ΔU| = 9.56e-05 : t_eval = 0.00s : t_solve = 0.05s : [WAIT]
+        [SOLVE]       CG: 21 iters : |r|_CG = 1.87e-15 : [CONV]
+        [LINESEA]     LS: α = 1.00e+00 : m = 9.86e-01 → 3.529e-15 : [ACCEPT]
+        [SOLVE]   Iter [2] |R| = 5.94e-08 : |r| = 1.27e-12 : |ΔU| = 4.05e-09 : t_eval = 0.00s : t_solve = 0.06s : [DONE]
+[STOP]    [2/2, 100%] : Time = 1.00e+00 : |U|_max = 1.01e-04 : wall = 0.11s
+[OUTPUT]  cube_gpu_bc_qs.e
+[DONE]    Simulation complete
+[TIME]    Total wall time = 0.27s
+[CARINA]  END SIMULATION
+[ Info: Generating 16^3 hex cube: 4913 nodes, 4096 elements, 14739 DOF
+[ Info: Wrote /tmp/jl_F4mS69/cube16.g (0.3 MB)
+[CARINA]  BEGIN SIMULATION
+[SETUP]   Reading from /tmp/jl_F4mS69/run.yaml
+[DEVICE]  CPU
+[SETUP]   Input:  /tmp/jl_F4mS69/cube16.g
+[SETUP]   Output: /tmp/jl_F4mS69/cube_gpu_amg.e
+[SETUP]   Reading mesh...
+[SETUP]   Mesh:    4913 nodes, 4096 elements
+[SETUP]   Block "cube": Hyperelastic{NeoHookean} : density = 1.000e+03, Poisson's ratio = 2.500e-01, Young's modulus = 1.000e+09
+[SETUP]   Building assembler...
+[SETUP]   Time:    [0.00e+00, 1.00e+00], Δt = 5.00e-01, 2 steps
+[SETUP]   Building parameters...
+[SETUP]   DOFs:    14739 total, 13583 free, 1156 constrained
+[SETUP]   Building integrator and solver...
+[SETUP]   Solver:  Quasi-static, Newton + direct
+[SETUP]   L2 lumped recovery initialized
+[SETUP]   Setup complete (1.03s)
+[SETUP]   Writing initial state...
+[STOP]    [0/2, 0%] : Time = 0.00e+00
+[OUTPUT]  /tmp/jl_F4mS69/cube_gpu_amg.e
+    [ADVANCE] [0.00e+00, 5.00e-01] : Δt = 5.00e-01
+        [SOLVE]   Iter [0] |R| = 5.80e+05 : |r| = 1.00e+00 : [WAIT]
+        [LINESEA]     LS: α = 1.00e+00 : m = 3.36e+11 → 9.940e+06 : [ACCEPT]
+        [SOLVE]   Iter [1] |R| = 3.15e+03 : |r| = 5.44e-03 : |ΔU| = 2.02e-02 : t_eval = 0.00s : t_solve = 0.25s : [WAIT]
+        [LINESEA]     LS: α = 1.00e+00 : m = 9.94e+06 → 2.153e-02 : [ACCEPT]
+        [SOLVE]   Iter [2] |R| = 1.47e-01 : |r| = 2.53e-07 : |ΔU| = 1.81e-04 : t_eval = 0.00s : t_solve = 0.23s : [WAIT]
+        [LINESEA]     LS: α = 1.00e+00 : m = 2.15e-02 → 1.663e-16 : [ACCEPT]
+        [SOLVE]   Iter [3] |R| = 1.29e-08 : |r| = 2.22e-14 : |ΔU| = 5.42e-09 : t_eval = 0.00s : t_solve = 0.23s : [DONE]
+[STOP]    [1/2, 50%] : Time = 5.00e-01 : |U|_max = 5.00e-04 : wall = 0.94s
+[OUTPUT]  cube_gpu_amg.e
+    [ADVANCE] [5.00e-01, 1.00e+00] : Δt = 5.00e-01
+        [SOLVE]   Iter [0] |R| = 5.79e+05 : |r| = 1.00e+00 : [WAIT]
+        [LINESEA]     LS: α = 1.00e+00 : m = 3.35e+11 → 9.906e+06 : [ACCEPT]
+        [SOLVE]   Iter [1] |R| = 3.15e+03 : |r| = 5.43e-03 : |ΔU| = 2.02e-02 : t_eval = 0.00s : t_solve = 0.63s : [WAIT]
+        [LINESEA]     LS: α = 1.00e+00 : m = 9.91e+06 → 2.140e-02 : [ACCEPT]
+        [SOLVE]   Iter [2] |R| = 1.46e-01 : |r| = 2.53e-07 : |ΔU| = 1.81e-04 : t_eval = 0.00s : t_solve = 0.21s : [WAIT]
+        [LINESEA]     LS: α = 1.00e+00 : m = 2.14e-02 → 2.728e-15 : [ACCEPT]
+        [SOLVE]   Iter [3] |R| = 5.22e-08 : |r| = 9.02e-14 : |ΔU| = 5.41e-09 : t_eval = 0.00s : t_solve = 0.22s : [DONE]
+[STOP]    [2/2, 100%] : Time = 1.00e+00 : |U|_max = 1.00e-03 : wall = 1.21s
+[OUTPUT]  cube_gpu_amg.e
+[DONE]    Simulation complete
+[TIME]    Total wall time = 3.73s
+[CARINA]  END SIMULATION
+[ Info: Generating 16^3 hex cube: 4913 nodes, 4096 elements, 14739 DOF
+[ Info: Wrote /tmp/jl_DbBd4L/cube16.g (0.3 MB)
+[CARINA]  BEGIN SIMULATION
+[SETUP]   Reading from /tmp/jl_DbBd4L/run.yaml
+[DEVICE]  GPU [ROCBackend]
+[SETUP]   Input:  /tmp/jl_DbBd4L/cube16.g
+[SETUP]   Output: /tmp/jl_DbBd4L/cube_gpu_amg.e
+[SETUP]   Reading mesh...
+[SETUP]   Mesh:    4913 nodes, 4096 elements
+[SETUP]   Block "cube": Hyperelastic{NeoHookean} : density = 1.000e+03, Poisson's ratio = 2.500e-01, Young's modulus = 1.000e+09
+[SETUP]   Building assembler...
+[SETUP]   Time:    [0.00e+00, 1.00e+00], Δt = 5.00e-01, 2 steps
+[SETUP]   Building parameters...
+[SETUP]   DOFs:    14739 total, 13583 free, 1156 constrained
+[SETUP]   Transferring to GPU...
+[SETUP]   Building integrator and solver...
+[SETUP]   Solver:  Quasi-static, Newton + CG
+[SETUP]   L2 lumped recovery initialized
+[SETUP]   Setup complete (0.19s)
+[SETUP]   Writing initial state...
+[STOP]    [0/2, 0%] : Time = 0.00e+00
+[OUTPUT]  /tmp/jl_DbBd4L/cube_gpu_amg.e
+    [ADVANCE] [0.00e+00, 5.00e-01] : Δt = 5.00e-01
+    [SOLVE]       GPU AMG hierarchy build #1 (1.84s)
+        [SOLVE]   Iter [0] |R| = 5.80e+05 : |r| = 1.00e+00 : [WAIT]
+        [SOLVE]       CG: 16 iters : |r|_CG = 2.43e-09 : [CONV]
+        [LINESEA]     LS: α = 1.00e+00 : m = 3.36e+11 → 9.940e+06 : [ACCEPT]
+        [SOLVE]   Iter [1] |R| = 3.15e+03 : |r| = 5.44e-03 : |ΔU| = 2.02e-02 : t_eval = 0.00s : t_solve = 1.71s : [WAIT]
+        [SOLVE]       CG: 17 iters : |r|_CG = 2.21e-11 : [CONV]
+        [LINESEA]     LS: α = 1.00e+00 : m = 9.94e+06 → 2.153e-02 : [ACCEPT]
+        [SOLVE]   Iter [2] |R| = 1.47e-01 : |r| = 2.53e-07 : |ΔU| = 1.81e-04 : t_eval = 0.00s : t_solve = 0.18s : [WAIT]
+        [SOLVE]       CG: 17 iters : |r|_CG = 5.83e-16 : [CONV]
+        [LINESEA]     LS: α = 1.00e+00 : m = 2.15e-02 → 1.802e-16 : [ACCEPT]
+        [SOLVE]   Iter [3] |R| = 1.34e-08 : |r| = 2.32e-14 : |ΔU| = 5.42e-09 : t_eval = 0.00s : t_solve = 0.17s : [DONE]
+[STOP]    [1/2, 50%] : Time = 5.00e-01 : |U|_max = 5.00e-04 : wall = 4.24s
+[OUTPUT]  cube_gpu_amg.e
+    [ADVANCE] [5.00e-01, 1.00e+00] : Δt = 5.00e-01
+        [SOLVE]   Iter [0] |R| = 5.79e+05 : |r| = 1.00e+00 : [WAIT]
+        [SOLVE]       CG: 16 iters : |r|_CG = 2.43e-09 : [CONV]
+        [LINESEA]     LS: α = 1.00e+00 : m = 3.35e+11 → 9.906e+06 : [ACCEPT]
+        [SOLVE]   Iter [1] |R| = 3.15e+03 : |r| = 5.43e-03 : |ΔU| = 2.02e-02 : t_eval = 0.00s : t_solve = 0.16s : [WAIT]
+        [SOLVE]       CG: 17 iters : |r|_CG = 2.20e-11 : [CONV]
+        [LINESEA]     LS: α = 1.00e+00 : m = 9.91e+06 → 2.140e-02 : [ACCEPT]
+        [SOLVE]   Iter [2] |R| = 1.46e-01 : |r| = 2.53e-07 : |ΔU| = 1.81e-04 : t_eval = 0.00s : t_solve = 0.16s : [WAIT]
+        [SOLVE]       CG: 17 iters : |r|_CG = 5.83e-16 : [CONV]
+        [LINESEA]     LS: α = 1.00e+00 : m = 2.14e-02 → 2.770e-15 : [ACCEPT]
+        [SOLVE]   Iter [3] |R| = 5.26e-08 : |r| = 9.09e-14 : |ΔU| = 5.41e-09 : t_eval = 0.00s : t_solve = 0.16s : [DONE]
+[STOP]    [2/2, 100%] : Time = 1.00e+00 : |U|_max = 1.00e-03 : wall = 0.52s
+[OUTPUT]  cube_gpu_amg.e
+[DONE]    Simulation complete
+[TIME]    Total wall time = 5.00s
+[CARINA]  END SIMULATION
+[TIME]    [14] wall = 1m 49.06s
+Test Summary:             | Pass  Total     Time
+Carina.jl Test Suite      |   22     22  1m49.1s
+  GPU Device Verification |    6      6    47.3s
+  GPU Dirichlet BCs       |    8      8    51.6s
+  GPU AMG preconditioner  |    8      8    10.0s
+[TIME]    Total wall time = 1m 49.27s
+[CARINA]  END TESTS

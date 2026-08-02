@@ -208,11 +208,14 @@ end
     if backend isa Carina.KA.CPU
         @info "No GPU detected — GPU AMG verification skipped"
     else
-        example_dir = joinpath(@__DIR__, "..", "examples", "mechanics",
-                               "quasistatic", "cube")
+        # A 16^3 generated cube (14,739 DOF): large enough that the SA
+        # hierarchy has assembled intermediate levels, so the device
+        # descend/ascend CSR loops are exercised — the 8-element cube.g
+        # coarsens straight to the dense coarse solve and tests nothing.
+        include(joinpath(@__DIR__, "..", "benchmark", "meshgen.jl"))
         amg_yaml(solver) = """
 type: single
-input mesh file: cube.g
+input mesh file: cube16.g
 output mesh file: cube_gpu_amg.e
 model:
   type: solid mechanics
@@ -230,16 +233,16 @@ time integrator:
   time step: 0.5
 boundary conditions:
   dirichlet:
-    - side set: ssx-
+    - node set: nsx-
       component: x
       function: "0.0"
-    - side set: ssy-
+    - node set: nsy-
       component: y
       function: "0.0"
-    - side set: ssz-
+    - node set: nsz-
       component: z
       function: "0.0"
-    - side set: ssz+
+    - node set: nsz+
       component: z
       function: "1.0e-3 * t"
 solver:
@@ -258,7 +261,7 @@ $solver
 
         function run_with(solver, dev)
             mktempdir() do dir
-                cp_example(joinpath(example_dir, "cube.g"), joinpath(dir, "cube.g"))
+                generate(16, joinpath(dir, "cube16.g"))
                 path = joinpath(dir, "run.yaml")
                 open(io -> write(io, amg_yaml(solver)), path, "w")
                 sim = Carina.run(path; backend=dev)
@@ -271,10 +274,13 @@ $solver
         sim_amg, u_amg = run_with(amg, backend)
         @test u_amg ≈ u_ref rtol = 1e-7
 
-        # The hierarchy really was built and lives on the device.
+        # The hierarchy really was built, lives on the device, and has at
+        # least one assembled intermediate level (multilevel V-cycle, not a
+        # degenerate fine→coarse-solve shortcut).
         ls = sim_amg.integrator.nonlinear_solver.linear_solver
         @test ls.precond isa Carina.GPUAMGPreconditioner
         @test ls.precond.hierarchy !== nothing
+        @test length(ls.precond.hierarchy.levels) >= 1
         @test ls.precond.nbuilds >= 1
 
         # The V-cycle apply path must not allocate device memory: repeated
@@ -282,11 +288,15 @@ $solver
         # portable KA layer has no allocation counter).
         if isdefined(Main, :AMDGPU)
             h = ls.precond.hierarchy
-            asm = sim_amg.integrator.asm
+            ig = sim_amg.integrator
             n = length(ls.precond.inv_diag)
             z = Carina.KA.allocate(backend, Float64, n); fill!(z, 0.0)
             r = Carina.KA.allocate(backend, Float64, n); fill!(r, 1.0)
-            mv!(y, x) = (copyto!(y, x); y)   # placeholder linear operator
+            # The REAL matrix-free fine action, as production V-cycles use —
+            # a placeholder here would exempt 5 of the ~7 kernel launches per
+            # application from the allocation check.
+            mv!(y, x) = Carina._stiffness_matvec_qs!(y, x, ig.asm, ig.U,
+                                                     sim_amg.params)
             Carina._amg_vcycle!(z, r, h, mv!, backend)   # warm-up/compile
             Main.AMDGPU.synchronize()
             live0 = Main.AMDGPU.memory_stats().live

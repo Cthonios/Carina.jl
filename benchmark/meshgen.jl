@@ -72,5 +72,7 @@ function generate(N::Int, path::String)
     @info "Wrote $path ($(round(filesize(path) / 1e6; digits=1)) MB)"
 end
 
-length(ARGS) == 2 || error("Usage: meshgen.jl <N> <out.g>")
-generate(parse(Int, ARGS[1]), ARGS[2])
+if abspath(PROGRAM_FILE) == @__FILE__
+    length(ARGS) == 2 || error("Usage: meshgen.jl <N> <out.g>")
+    generate(parse(Int, ARGS[1]), ARGS[2])
+end
