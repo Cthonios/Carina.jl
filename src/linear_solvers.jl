@@ -169,7 +169,7 @@ function _build_gpu_amg_hierarchy!(precond::GPUAMGPreconditioner, c_M, U_dev)
         K_raw = FEC.stiffness(asm_cpu)
         A = SparseArrays.sparse((K_raw + K_raw') / 2)
         B = _rigid_body_modes(_current_coords(p_cpu), precond.udofs)
-        ml = AMG.smoothed_aggregation(A; B = B)
+        ml = _sa_hierarchy_lowmem(A, B)
         dinv_h = 1.0 ./ Vector(diag(A))
         precond.lmax_fine = _host_lambda_max(A, dinv_h)
         precond.hierarchy = DeviceAMGHierarchy(backend, ml, precond.inv_diag,

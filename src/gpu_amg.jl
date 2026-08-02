@@ -105,6 +105,42 @@ struct DeviceAMGHierarchy{L <: DeviceAMGLevel, VF, MF}
     nu      ::Int       # smoothing steps per side
 end
 
+# --------------------------------------------------------------------------- #
+# Memory-bounded fine-level smoothed-aggregation setup.
+#
+# AlgebraicMultigrid's hierarchy build computes the fine-level Galerkin
+# product with stdlib `spmatmul`, whose up-front nnz-estimate preallocation
+# demands tens of GB at ≥1.5M DOF with a 6-column near-nullspace (measured:
+# OOM with 17.5 GB free while the true product is ~4 GB).  Build the FIRST
+# coarsening ourselves with the same AMG.jl stage functions, but evaluate
+# R·(A·P) in column slabs of P so peak transient memory is one slab's
+# product; hand the (small) coarse problem back to AMG.smoothed_aggregation
+# for the remaining levels.
+# --------------------------------------------------------------------------- #
+
+function _slab_galerkin(R, A, P; slab::Int = 8_192)
+    nc = size(P, 2)
+    parts = Vector{SparseArrays.SparseMatrixCSC{Float64, Int64}}()
+    for j0 in 1:slab:nc
+        j1 = min(j0 + slab - 1, nc)
+        push!(parts, R * (A * P[:, j0:j1]))
+    end
+    return hcat(parts...)
+end
+
+function _sa_hierarchy_lowmem(A::SparseArrays.SparseMatrixCSC, B::Matrix{Float64})
+    S, _  = AMG.SymmetricStrength()(A, false)
+    AggOp = AMG.StandardAggregation()(S)
+    T, Bc = AMG.fit_candidates(AggOp, B)
+    P     = AMG.JacobiProlongation(4.0 / 3.0)(A, T, S, Bc)
+    R     = SparseArrays.sparse(transpose(P))
+    Ac    = _slab_galerkin(R, A, P)
+    # Remaining levels on the (small) coarse problem via stock AMG.jl.
+    ml_c = AMG.smoothed_aggregation(Ac; B = Bc)
+    fine = AMG.Level(A, P, R)
+    return (; levels = [fine; ml_c.levels], final_A = ml_c.final_A)
+end
+
 # λ_max(D⁻¹A) via a few power iterations on the host (setup-time only).
 function _host_lambda_max(A::SparseArrays.SparseMatrixCSC, dinv::Vector{Float64})
     n = size(A, 1)
