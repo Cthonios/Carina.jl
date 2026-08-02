@@ -1,0 +1,1 @@
+{"case":"torsion-qs","variant":"gpu-cg-amg","tag":"proposed","n_dofs":527877,"t_total_s":314.22353954,"newton_iters":[3,3,3,3],"cg_iters":[81,77,84,81,79,84,81,80,85,82,81,85],"cg_total":980,"vram_live_bytes":651391596,"cpu_alloc_bytes":80963148480,"failed":false,"julia":"1.12.6","timestamp":"1785629199"}

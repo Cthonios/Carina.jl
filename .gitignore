@@ -23,5 +23,5 @@ docs/build/
 .JuliaFormatter.toml
 Carina.jl.code-workspace
 examples/mechanics/explicit-dynamic/clamped/.clamped.yaml.swp
+# large generated meshes: rebuild with benchmark/meshgen.jl (see benchmark/README.md)
 benchmark/meshes/
-benchmark/results/

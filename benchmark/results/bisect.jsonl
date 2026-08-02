@@ -1,0 +1,1 @@
+{"case":"cube64-qs","variant":"gpu-cg-jacobi","tag":"bisect","n_dofs":806975,"t_total_s":290.401629853,"step_wall_s":[],"t_solve_s":135.55,"t_eval_s":0.0,"amg_build_s":0.0,"newton_iters":[3,3],"cg_iters":[434,438,463,434,438,463],"cg_total":2670,"vram_live_bytes":342285472,"cpu_alloc_bytes":35647998832,"failed":false,"julia":"1.12.6","timestamp":"1785632675"}

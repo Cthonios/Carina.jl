@@ -69,6 +69,16 @@ with CPU direct at rtol 1e-7; its ROCm output is recorded at
 `benchmark/evidence/gpu_amg_test_rocm.txt`.  The harness asserts
 non-failure on every run.
 
+**Reproducing the study.**  Everything needed is in the repository:
+standalone input decks for every (case, variant) pair are checked in under
+`benchmark/inputs/` and run directly (e.g.
+`bin/carina benchmark/inputs/torsion-qs-gpu-cg-amg.yaml`); the raw
+JSON-lines records behind every number in this report are committed in
+`benchmark/results/`; the torsion mesh (with its Cubit journal) is tracked
+at `examples/meshes/torsion/`, and the large cube meshes are regenerated
+deterministically by `benchmark/meshgen.jl`.  `benchmark/README.md` gives
+the full procedure — mesh generation, single runs, and the sweep scripts.
+
 ## 2. Results at 530k DOF (torsion)
 
 Totals include ~40 s JIT uniformly.  "CG iters" is the total across all
