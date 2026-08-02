@@ -286,7 +286,15 @@ $solver
         # The V-cycle apply path must not allocate device memory: repeated
         # applications leave live VRAM exactly unchanged (ROCm only — the
         # portable KA layer has no allocation counter).
-        if isdefined(Main, :AMDGPU)
+        # `isdefined(Main, :AMDGPU)` is not enough.  AMDGPU is a test-only
+        # extra, so `Pkg.test()` makes it importable on every machine —
+        # including NVIDIA-only ones, where the HIP runtime is absent and the
+        # first call into it dies with `undefined symbol: hipDeviceGet`.  That
+        # throw lands outside any `@test`, so it aborts the whole file instead
+        # of failing softly.  `_TEST_AMDGPU` (helpers.jl) adds the
+        # `AMDGPU.functional()` check, and is what `test_best_device()` used to
+        # pick `backend` above, so this now tracks the backend actually in use.
+        if _TEST_AMDGPU
             h = ls.precond.hierarchy
             ig = sim_amg.integrator
             n = length(ls.precond.inv_diag)
