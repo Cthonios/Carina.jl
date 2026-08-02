@@ -197,3 +197,104 @@ solver:
 
     has_gpu || @info "No GPU detected — GPU Dirichlet BC comparison skipped"
 end
+
+@testset "GPU AMG preconditioner" begin
+    # The device-resident AMG V-cycle (src/gpu_amg.jl) against ground truth:
+    # the same quasistatic problem solved by CPU direct.  This is the
+    # checked-in artifact for the solution-agreement claim in
+    # benchmark_report.md §1 — CG+AMG on the device must reproduce the
+    # direct answer, not merely converge.
+    backend = test_best_device()
+    if backend isa Carina.KA.CPU
+        @info "No GPU detected — GPU AMG verification skipped"
+    else
+        example_dir = joinpath(@__DIR__, "..", "examples", "mechanics",
+                               "quasistatic", "cube")
+        amg_yaml(solver) = """
+type: single
+input mesh file: cube.g
+output mesh file: cube_gpu_amg.e
+model:
+  type: solid mechanics
+  material:
+    blocks:
+      cube: neohookean
+    neohookean:
+      elastic modulus: 1.0e9
+      Poisson's ratio: 0.25
+      density: 1000.0
+time integrator:
+  type: quasi static
+  initial time: 0.0
+  final time: 1.0
+  time step: 0.5
+boundary conditions:
+  dirichlet:
+    - side set: ssx-
+      component: x
+      function: "0.0"
+    - side set: ssy-
+      component: y
+      function: "0.0"
+    - side set: ssz-
+      component: z
+      function: "0.0"
+    - side set: ssz+
+      component: z
+      function: "1.0e-3 * t"
+solver:
+  type: newton
+  termination:
+    fail when any:
+      - maximum iterations: 20
+    converge when any:
+      - absolute residual: 1.0e-8
+      - relative residual: 1.0e-10
+$solver
+"""
+        direct = "  linear solver:\n    type: direct\n"
+        amg    = "  linear solver:\n    type: iterative\n    tolerance: 1.0e-10\n" *
+                 "    maximum iterations: 2000\n    preconditioner:\n      type: amg\n"
+
+        function run_with(solver, dev)
+            mktempdir() do dir
+                cp_example(joinpath(example_dir, "cube.g"), joinpath(dir, "cube.g"))
+                path = joinpath(dir, "run.yaml")
+                open(io -> write(io, amg_yaml(solver)), path, "w")
+                sim = Carina.run(path; backend=dev)
+                @test !sim.integrator.failed[]
+                return sim, copy(Array(sim.params.field.data))
+            end
+        end
+
+        _, u_ref = run_with(direct, Carina.KA.CPU())
+        sim_amg, u_amg = run_with(amg, backend)
+        @test u_amg ≈ u_ref rtol = 1e-7
+
+        # The hierarchy really was built and lives on the device.
+        ls = sim_amg.integrator.nonlinear_solver.linear_solver
+        @test ls.precond isa Carina.GPUAMGPreconditioner
+        @test ls.precond.hierarchy !== nothing
+        @test ls.precond.nbuilds >= 1
+
+        # The V-cycle apply path must not allocate device memory: repeated
+        # applications leave live VRAM exactly unchanged (ROCm only — the
+        # portable KA layer has no allocation counter).
+        if isdefined(Main, :AMDGPU)
+            h = ls.precond.hierarchy
+            asm = sim_amg.integrator.asm
+            n = length(ls.precond.inv_diag)
+            z = Carina.KA.allocate(backend, Float64, n); fill!(z, 0.0)
+            r = Carina.KA.allocate(backend, Float64, n); fill!(r, 1.0)
+            mv!(y, x) = (copyto!(y, x); y)   # placeholder linear operator
+            Carina._amg_vcycle!(z, r, h, mv!, backend)   # warm-up/compile
+            Main.AMDGPU.synchronize()
+            live0 = Main.AMDGPU.memory_stats().live
+            for _ in 1:20
+                Carina._amg_vcycle!(z, r, h, mv!, backend)
+            end
+            Main.AMDGPU.synchronize()
+            @test Main.AMDGPU.memory_stats().live == live0
+        end
+    end
+end

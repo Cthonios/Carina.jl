@@ -297,6 +297,7 @@ function parse_log(logpath::String)
     t_solve_sum  = 0.0       # linear-solve seconds (logged when > 0.01s)
     t_eval_sum   = 0.0       # residual-evaluation seconds (same threshold)
     amg_build_s  = 0.0       # hierarchy (re)build seconds
+    nbuilds      = 0         # hierarchy build count
     current_last = 0
     for line in eachline(logpath)
         m = match(r"Iter \[(\d+)\]", line)
@@ -314,11 +315,15 @@ function parse_log(logpath::String)
         me !== nothing && (t_eval_sum += parse(Float64, me.captures[1]))
         mw = match(r"wall = ([0-9.]+)s", line)
         mw !== nothing && push!(step_walls, parse(Float64, mw.captures[1]))
-        mb = match(r"hierarchy build #\d+ \(([0-9.]+)s\)", line)
-        mb !== nothing && (amg_build_s += parse(Float64, mb.captures[1]))
+        mb = match(r"hierarchy build #(\d+) \(([0-9.]+)s\)", line)
+        if mb !== nothing
+            amg_build_s += parse(Float64, mb.captures[2])
+            nbuilds = max(nbuilds, parse(Int, mb.captures[1]))
+        end
     end
     current_last > 0 && push!(newton_iters, current_last)
-    return newton_iters, cg_iters, step_walls, t_solve_sum, t_eval_sum, amg_build_s
+    return newton_iters, cg_iters, step_walls, t_solve_sum, t_eval_sum,
+           amg_build_s, nbuilds
 end
 
 # --------------------------------------------------------------------------- #
@@ -362,8 +367,8 @@ function main()
         t_total = @elapsed sim = C.run(path; backend=backend)
         gc_after = Base.gc_num()
 
-        newton_iters, cg_iters, step_walls, t_solve_sum, t_eval_sum, amg_build_s =
-            parse_log(joinpath(dir, "bench.log"))
+        newton_iters, cg_iters, step_walls, t_solve_sum, t_eval_sum,
+            amg_build_s, nbuilds = parse_log(joinpath(dir, "bench.log"))
 
         vram_live = use_gpu ? Int(AMDGPU.memory_stats().live) : 0
         n_dofs = length(sim.asm_cpu.dof.unknown_dofs)
@@ -376,6 +381,7 @@ function main()
            t_solve_s   = t_solve_sum,
            t_eval_s    = t_eval_sum,
            amg_build_s,
+           nbuilds,
            newton_iters,
            cg_iters,
            cg_total    = sum(cg_iters; init=0),

@@ -198,8 +198,11 @@ function DeviceAMGHierarchy(backend, ml, inv_d1, lmax1::Float64; nu::Int = 2)
     coarse_x = KA.allocate(backend, Float64, nc); fill!(coarse_x, 0.0)
     coarse_b = KA.allocate(backend, Float64, nc); fill!(coarse_b, 0.0)
 
+    # NB: `[levels...]` on an empty typed vector yields Vector{Any} (zero-arg
+    # vect), which broke single-coarsening hierarchies (small meshes).  Pass
+    # the typed vector itself.
     return DeviceAMGHierarchy(P1, R1, inv_d1, lmax1, r1, z1,
-                              [levels...], coarse_pinv, coarse_x, coarse_b, nu)
+                              levels, coarse_pinv, coarse_x, coarse_b, nu)
 end
 
 # --------------------------------------------------------------------------- #

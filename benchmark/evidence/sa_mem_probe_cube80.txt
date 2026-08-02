@@ -1,0 +1,14 @@
+probe fixed
+RSS after create_simulation: 25.3 GB
+RSS after assemble_stiffness: 25.3 GB
+A: n=1581201 nnz=124649369
+RSS after symmetrize: 28.8 GB
+RSS after rigid_body_modes (B: (1581201, 6)): 28.9 GB
+RSS after strength (nnz=124649369): 30.8 GB
+RSS after aggregation ((19683, 1581201)): 30.8 GB
+RSS after fit_candidates (T: (1581201, 118098) nnz=3964175): 31.2 GB
+RSS after smooth_prolongator (P: (1581201, 118098) nnz=42592184): 32.5 GB
+RSS after R transpose: 32.5 GB
+ERROR: LoadError: OutOfMemoryError()
+ [3] spmatmul(A::SparseMatrixCSC{Float64, Int64}, B::SparseMatrixCSC{Float64, Int64})
+ [4] *(A::SparseMatrixCSC{Float64, Int64}, B::SparseMatrixCSC{Float64, Int64})

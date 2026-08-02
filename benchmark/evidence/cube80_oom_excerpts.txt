@@ -1,0 +1,18 @@
+=== [18:05:49] cube64-qs gpu-cg-amg (mem: 57G avail) ===
+[BENCH] cube64-qs gpu-cg-amg: total 167.24s, 2 Newton solves, 118 CG iters, VRAM 1.048 GB
+=== [18:08:51] cube64-qs cpu-cg-amg (mem: 56G avail) ===
+[BENCH] cube64-qs cpu-cg-amg: total 163.71s, 2 Newton solves, 100 CG iters, VRAM 0.000 GB
+=== [18:11:47] cube64-qs cpu-cg-jacobi (mem: 56G avail) ===
+=== [18:14:48] cube80-qs gpu-cg-amg (mem: 56G avail) ===
+./benchmark/run_scaling2.sh: line 11: 55478 Killed                     JULIA_LOAD_PATH="$STACKED" timeout "$LIMIT" julia benchmark/harness.jl "$case" "$variant" "$TAG"
+!!! cube80-qs gpu-cg-amg failed (124 = timeout)
+=== [18:18:12] cube80-qs gpu-cg-jacobi (mem: 57G avail) ===
+=== [18:25:46] cube80-qs cpu-cg-amg (mem: 56G avail) ===
+./benchmark/run_scaling2.sh: line 11: 57650 Killed                     timeout "$LIMIT" julia --project=. benchmark/harness.jl "$case" "$variant" "$TAG"
+!!! cube80-qs cpu-cg-amg failed (124 = timeout)
+=== [18:28:55] cube80-qs cpu-cg-jacobi (mem: 56G avail) ===
+=== [18:34:19] cube80-newmark gpu-cg-jacobi (mem: 56G avail) ===
+=== [18:37:21] cube80-newmark cpu-cg-jacobi (mem: 56G avail) ===
+=== [18:40:24] torsion-qs gpu-cg-amg (mem: 56G avail) ===
+[BENCH] torsion-qs gpu-cg-amg: total 299.30s, 4 Newton solves, 980 CG iters, VRAM 0.651 GB
+=== [18:45:37] torsion-qs gpu-cg-jacobi (mem: 56G avail) ===
