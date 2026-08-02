@@ -53,8 +53,8 @@ or VRAM carryover; total wall time therefore includes ~40 s of compilation
 identically in every cell, and per-step walls / solve-phase sums (from the
 run log) exclude it.  The three headline torsion-QS cells were measured
 3× or more (2× for CPU Jacobi); tables report the mean, with observed
-run-to-run spread of 0.8% (GPU Jacobi: 581/576/577), 8.2% (GPU AMG:
-314/299/291/290, n=4 — the
+run-to-run spread (max−min over mean) of 0.8% (GPU Jacobi: 581/576/577),
+8.0% (GPU AMG: 314/299/291/290, n=4 — the
 larger spread tracks a small CG-iteration difference, 980 vs 951,
 consistent with atomics nondeterminism in the device diagonal
 extraction), and 2.3% (CPU Jacobi: 377/368).  Single-shot cells carry
@@ -133,7 +133,7 @@ counts are lower across the board; the *relative* trends are the point.)
 
 | size            | GPU AMG (new)   | GPU Jacobi      | CPU AMG        | CPU Jacobi      |
 |-----------------|-----------------|-----------------|----------------|-----------------|
-| 530k (torsion)  | 299 s / 958 (n=4) | 578 s / 16,000c (n=3) | 302 s / 787 | 372 s / 16,000c (n=2) |
+| 530k (torsion)  | 299 s / 966 (n=4) | 578 s / 16,000c (n=3) | 302 s / 787 | 372 s / 16,000c (n=2) |
 | 823k (cube64)   | 167 s / 118     | 290 s / 2,670   | 164 s / 100    | 169 s / 2,670   |
 | 1.57M (cube80)  | **249 s / 136** | 439 s / 3,320   | **OOM**        | 312 s / 3,320   |
 
