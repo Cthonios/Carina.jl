@@ -232,7 +232,33 @@ the current harness revision (`nbuilds` — e.g. nbuilds-check.jsonl:
 in that rep; the earlier instrumented rep's 15.6 s `amg_build_s` predates
 the counter).
 
-## 6. Scope compliance
+## 6. Follow-up work, in priority order
+
+1. **Matrix-free action bandwidth** (§4): the fine action achieves ~5.2 GB/s
+   of ~1 TB/s-class peak (~0.5% of roofline) — the reason CPU assembled SpMV
+   stays competitive through 1.57M DOF.  Kernel-level profiling to test the
+   launch-latency/occupancy hypothesis, then restructuring (fused gather/
+   scatter, per-element→per-DOF parallelism, launch batching).  Any gain here
+   multiplies every GPU variant, AMG included.
+2. **Host-memory remediations** (§3): Int32 assembler pattern indices
+   (halves the 25–35 GB COO pattern), dedup-to-CSR at construction (removes
+   the per-element-entry triplets), and a pattern-free `asm_cpu` mode for GPU
+   runs that never assemble on the host.  These, not device limits, gate
+   multi-M-DOF problems on 60 GB-class hosts.
+3. **Smoother tuning**: CPU AMG's Gauss–Seidel converges in 787 iterations
+   where the device's damped Jacobi needs 951–980 (§2) — ~20% headroom via
+   Chebyshev-polynomial smoothing (machinery exists), ν/cycle-shape tuning,
+   or l1-Jacobi.
+4. **Newmark large-dt regime**: AMG should win Newmark once dt grows enough
+   that c_M stops conditioning the system; the crossover dt was not mapped.
+5. **CUDA validation**: the implementation is KernelAbstractions-portable and
+   contains no ROCm-specific paths, but only ROCm was exercised; a CUDA run
+   of the GPU test suite would close the portability claim.
+6. **Upstream candidates**: the `_slab_galerkin` memory fix (AlgebraicMultigrid.jl
+   would benefit directly) and the `KA.@index` qualified-macro CPU-backend
+   miscompilation (KernelAbstractions.jl issue).
+
+## 7. Scope compliance
 
 Pure Julia throughout: AlgebraicMultigrid.jl (setup), KernelAbstractions
 kernels (apply), Krylov.jl (CG).  No hypre/Trilinos/AmgX/rocSPARSE.  No
