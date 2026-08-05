@@ -181,6 +181,16 @@ never assemble on host.
 
 ## 4. Hardware efficiency
 
+**Machine.**  AMD Ryzen 9 9900X (12 cores / 24 threads, dual-channel DDR5,
+~90 GB/s theoretical / 50–90 GB/s achievable) and an AMD Radeon RX 7600
+(Navi 33, RDNA3, 32 CU, 8 GB GDDR6, **288 GB/s** peak, FP64 at 1/32 rate).
+This is a consumer card, not a datacenter part: the peak-bandwidth ratio
+between the two devices is only ~3–4×, which caps what *any*
+bandwidth-bound solver can gain here.  Datacenter GPUs (MI250X/MI300,
+A100/H100) sit at 1.6–5.3 TB/s with full-rate FP64 and would move that cap
+by an order of magnitude — the algorithmic conclusions below transfer, the
+absolute ratios do not.
+
 From the instrumented torsion-QS detail runs (530k DOF, solve-phase times
 from the run log, JIT excluded):
 
@@ -199,7 +209,7 @@ Byte accounting per iteration (basis of the achieved-bandwidth figures):
 - CPU assembled SpMV: K nnz ≈ 42M ⇒ values+colind 16 B/nnz ≈ 0.67 GB +
   ~40 MB vectors ⇒ ~0.71 GB / 16.8 ms ≈ **42 GB/s** against ~50–90 GB/s
   DDR-class peak — the CPU path runs near its roofline; the GPU path
-  runs at 0.5–0.7% of its.
+  runs at ~1.8–2.4% of its.
 
 - **The genuine model check is the per-application cost:** measured
   6.67× a Jacobi iteration vs the design's predicted ~6× (5 fine actions
@@ -212,15 +222,29 @@ Byte accounting per iteration (basis of the achieved-bandwidth figures):
   non-converged linear solves.
 - **Bandwidth utilization is the honest weak spot.**  One matrix-free fine
   action moves ~160 MB (per the byte accounting above) in ~30 ms:
-  ≈ 5.2 GB/s achieved against HBM-class peak of ~1 TB/s — ~0.5% of
-  roofline.  This, not
+  ≈ 5.2 GB/s achieved against the card's 288 GB/s peak — **~1.8% of
+  roofline**, or ~191 ns per element.  This, not
   preconditioning, is why CPU assembled SpMV stays competitive with the
-  GPU through 1.57M DOF (instrumented CPU figures in the table below).
-  The gap between achieved and peak bandwidth is consistent with a
-  launch-latency/occupancy limitation in the action kernel rather than
-  bandwidth saturation, but that is a hypothesis pending kernel-level
-  profiling — recorded as the top follow-up item either way, since
-  optimizing the action multiplies every GPU variant, AMG included.
+  GPU through 1.57M DOF (instrumented CPU figures in the table below):
+  the CPU runs at ~100% of its machine and the GPU at under 2% of its,
+  which more than cancels the ~3–4× peak-bandwidth advantage.
+- **Prime suspect: the FP64 atomic scatter.**  Every element of the action
+  ends in `_assemble_element!`
+  (FiniteElementContainers `src/assemblers/Assemblers.jl:78-85`), a loop of
+  24 `fec_atomic_add!` calls, and `fec_atomic_add!` is
+  `Atomix.@atomic field.data[index] += val` (`src/Utils.jl:5`) — an FP64
+  global atomic.  At 160k HEX8 that is 3.85M FP64 atomics per action with
+  ~8 elements contending for each node, on an RDNA3 consumer part where
+  FP64 runs at 1/32 rate and FP64 global atomic-add commonly lowers to a
+  CAS retry loop.  This also explains the explicit/implicit asymmetry:
+  explicit assembly pays the same scatter (`src/Formulations.jl:153`) but
+  amortizes it over a full constitutive update per element per step,
+  whereas the implicit action does a comparatively cheap `Bᵀ C B v` per
+  quadrature point and then pays the identical scatter ~6× per V-cycle ×
+  ~980 CG iterations.  Same cost, hidden in one case, dominant in the
+  other.  Still a hypothesis pending rocprof confirmation, but it is the
+  top follow-up item either way, since optimizing the action multiplies
+  every GPU variant, AMG included.
 - **Allocation:** the V-cycle apply path preallocates all per-level
   workspaces at hierarchy conversion; the checked-in GPU test
   (`test/mechanics-gpu-device.jl`, "GPU AMG preconditioner") asserts that
@@ -245,11 +269,20 @@ the counter).
 ## 6. Follow-up work, in priority order
 
 1. **Matrix-free action bandwidth** (§4): the fine action achieves ~5.2 GB/s
-   of ~1 TB/s-class peak (~0.5% of roofline) — the reason CPU assembled SpMV
-   stays competitive through 1.57M DOF.  Kernel-level profiling to test the
-   launch-latency/occupancy hypothesis, then restructuring (fused gather/
-   scatter, per-element→per-DOF parallelism, launch batching).  Any gain here
-   multiplies every GPU variant, AMG included.
+   of the card's 288 GB/s peak (~1.8% of roofline) — the reason CPU assembled
+   SpMV stays competitive through 1.57M DOF.  Profile with `rocprof` to
+   confirm the FP64-atomic-scatter hypothesis (§4), then eliminate the
+   atomics: element coloring, or better the libCEED/MFEM element-restriction
+   pattern — accumulate into a conflict-free E-vector, then apply the
+   transpose restriction through a precomputed node→element map.  Any gain
+   here multiplies every GPU variant, AMG included.
+   Prior art worth reading before implementing: Pazner, Kolev & Camier,
+   "End-to-end GPU acceleration of low-order-refined preconditioning"
+   (IJHPCA 2023); Brown *et al.*, "Performance portable solid mechanics via
+   matrix-free p-multigrid" (Ratel), which reports only "up to 2× benefit
+   for linear elements" and so bounds what to expect at HEX8; and hypre's
+   GPU BoomerAMG guidance (PMIS coarsening, ℓ1-Jacobi/Chebyshev smoothers,
+   never Gauss–Seidel) for item 3.
 2. **Host-memory remediations** (§3): Int32 assembler pattern indices
    (halves the 25–35 GB COO pattern), dedup-to-CSR at construction (removes
    the per-element-entry triplets), and a pattern-free `asm_cpu` mode for GPU

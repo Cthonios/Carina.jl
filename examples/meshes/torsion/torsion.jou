@@ -1,6 +1,6 @@
 ${side = 0.05}
 ${height = 1.0}
-${h = 0.025}
+${h = 0.0025}
 
 create brick x {side} y {side} z {height}
 volume 1 size {h}
