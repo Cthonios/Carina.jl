@@ -345,8 +345,25 @@ raw records `benchmark/results/explicit-scaling.jsonl`.
 - **Nothing here is 25×.**  That figure is reproducible only against a
   *single-threaded* CPU: at N=20, one thread gives 232.8 ms/step, so
   232.8/6.62 = **35.2× against the GPU** — while the same CPU with 24 threads
-  gives 3.55×.  Carina's CPU explicit path scales 9.9× from 1 to 24 threads,
-  and comparing a GPU against a serial CPU simply reports that thread count.
+  gives 3.55×.  Comparing a GPU against a serial CPU mostly reports the
+  thread count.  The full curve at N=20 (160k elements):
+
+  | threads | ms/step | vs 1 thread | parallel efficiency | vs GPU |
+  |--------:|--------:|------------:|--------------------:|-------:|
+  |       1 |  232.80 |       1.00× |                100% |  35.2× |
+  |       2 |  126.20 |       1.84× |                 92% |  19.1× |
+  |       4 |   66.30 |       3.51× |                 88% |  10.0× |
+  |       8 |   37.93 |       6.14× |                 77% |   5.7× |
+  |      12 |   27.50 |       8.47× |                 71% |   4.2× |
+  |      24 |   23.55 |       9.89× |          41% (SMT)  |   3.55× |
+
+  **This is a trap for every CPU/GPU number in this report: Julia 1.12
+  defaults to one thread**, so `bin/carina deck.yaml` with no `--threads` runs
+  serial and flatters the GPU by ~10×.  Note also that the 1-thread row is not
+  simply "the same code, serialized" — `fec_atomic_add!`
+  (FEC `src/Utils.jl:11-21`) branches on `Threads.nthreads() > 1` and skips
+  the atomic entirely on a single thread, so the serial path is *cheaper per
+  element* and the 9.9× scaling is if anything conservative.
 - **This reframes §2 and §4.**  Explicit's honest advantage on this hardware
   is ~3.4×; GPU AMG's 1.9× over the best pre-existing GPU option, tying CPU
   AMG, is within a factor of ~2 of it, not the order of magnitude a 25×
