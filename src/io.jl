@@ -222,8 +222,12 @@ function _write_recovered_fields!(sim, step)
     stress_nodal = need_stress ? zeros(Float64, 6, n_nodes) : nothing
     iv_nodal     = NS > 0     ? zeros(Float64, NS, n_nodes) : nothing
 
-    for (b, (block_physics, ref_fe, props)) in enumerate(zip(
-        values(params_cpu.physics), values(fspace.ref_fes), values(params_cpu.properties),
+    # `params_cpu.properties` is a flat `PropertyField`, not a per-block
+    # NamedTuple, so it cannot be zipped alongside the others: `values` on it
+    # hits Base's generic `values(itr) = itr` fallback and would silently
+    # iterate individual Float64s.  Index it by block instead.
+    for (b, (block_physics, ref_fe)) in enumerate(zip(
+        values(params_cpu.physics), values(fspace.ref_fes),
     ))
         nelem   = conns.nelems[b]
         coffset = conns.offsets[b]
@@ -234,7 +238,7 @@ function _write_recovered_fields!(sim, step)
             conn = FEC.connectivity(ref_fe, conns.data, e, coffset)
             x_el = FEC._element_level_fields_flat(params_cpu.coords, ref_fe, conn)
             u_el = FEC._element_level_fields_flat(params_cpu.field, ref_fe, conn)
-            props_el = FEC._element_level_properties(props, e)
+            props_el = FEC.properties(params_cpu.properties, e, b)
 
             for q in 1:RFE.num_cell_quadrature_points(ref_fe)
                 interps = FEC._cell_interpolants(ref_fe, q)

@@ -678,9 +678,14 @@ function _compute_stable_dt(asm, p, CFL)
 
     # Min-reduction over all blocks
     stable_dt = Inf
-    for (b, (block_physics, block_storage, props)) in enumerate(zip(
-        values(p.physics), values(char_len_storage), values(p.properties),
+    for (b, (block_physics, block_storage)) in enumerate(zip(
+        values(p.physics), values(char_len_storage),
     ))
+        # Properties live in one flat `PropertyField`; index it by block rather
+        # than zipping it (see the same note in io.jl).  Element 1 stands in for
+        # the block: a stable time step needs one wave speed per block, and
+        # element-level properties would call for a min over elements instead.
+        props = FEC.properties(p.properties, 1, b)
         # Density lives in the property vector, not on the physics object --
         # `SolidMechanics` no longer carries a `density` field.  CM's interface
         # mandates that the first property of every model is the Lagrangian-frame

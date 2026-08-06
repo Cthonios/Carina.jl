@@ -39,9 +39,13 @@ end
 """
     create_solid_mechanics_properties(cm, material_inputs)
 
-Compute a flat `SVector` of material properties (e.g. κ, μ for NeoHookean)
+Compute a flat `Vector` of material properties (e.g. κ, μ for NeoHookean)
 from a `Dict{String}` of material inputs (e.g. "Young's modulus", "Poisson's ratio").
-The returned vector is passed as `props_el` to each physics kernel call.
+
+FEC packs every block's properties into one flat `PropertyField`, whose
+constructors take `Vector`/`Matrix` only -- an `SVector` here fails to match any
+of them.  The kernels still see a statically sized `SVector`: `FEC.properties`
+rebuilds one per element from the physics type's property count.
 """
 function create_solid_mechanics_properties(
     cm::CM.AbstractConstitutiveModel,
@@ -49,14 +53,20 @@ function create_solid_mechanics_properties(
 )
     NP = CM.num_properties(cm)
     props_vec = CM.initialize_props(cm, material_inputs)
-    return SVector{NP, Float64}(props_vec)
+    # The old `SVector{NP, Float64}(props_vec)` rejected a length mismatch for
+    # free.  A plain `Vector` would take any length and hand FEC a property
+    # block of the wrong stride, so check it here instead.
+    length(props_vec) == NP || error(
+        "Constitutive model $(typeof(cm)) reports $NP properties but " *
+        "`initialize_props` returned $(length(props_vec)).")
+    return Vector{Float64}(props_vec)
 end
 
 # `create_properties` tells FEC how to allocate the per-block property storage.
 # We return zeros here; the caller is responsible for filling in the actual values
 # (see `create_solid_mechanics_properties`).
 function FEC.create_properties(::SolidMechanics{Model, NP, NS}) where {Model, NP, NS}
-    return SVector{NP, Float64}(zeros(NP))
+    return zeros(NP)
 end
 
 # `create_initial_state` returns the initial per-quadrature-point state vector.

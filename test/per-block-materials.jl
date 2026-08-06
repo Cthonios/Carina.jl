@@ -76,14 +76,21 @@
 
             # The invariant FEC relies on: entry k belongs to block k.
             @test String.(collect(keys(sim.params.physics)))    == block_order
-            @test String.(collect(keys(sim.params.properties))) == block_order
             @test length(sim.params.physics) == 2
+
+            # Properties are one flat `PropertyField` rather than a NamedTuple,
+            # so there are no keys to compare against `block_order`.  The
+            # ordering invariant is what actually matters, and the material
+            # check below is what tests it: block b's properties must be the
+            # ones the input assigned to block b.
+            @test Carina.FEC.num_blocks(sim.params.properties) == 2
 
             # props[1] is density; props[2:3] are the Lamé constants, so the
             # stiff block must have the larger shear modulus.
-            props = values(sim.params.properties)
             lower_idx = findfirst(==("lower"), block_order)
             upper_idx = findfirst(==("upper"), block_order)
+            props = [Carina.FEC.properties(sim.params.properties, 1, b)
+                     for b in 1:length(block_order)]
             @test props[lower_idx][3] > 10 * props[upper_idx][3]
         end
     end

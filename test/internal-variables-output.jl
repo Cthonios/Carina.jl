@@ -76,7 +76,9 @@
             @test Symbol("cube") in block_names
             # Same names, same order -- physics entry k really is block k.
             @test phys_keys == block_names
-            @test collect(keys(sim.params.properties)) == block_names
+            # Properties are a flat `PropertyField` now -- no keys, so assert
+            # the block count instead.
+            @test Carina.FEC.num_blocks(sim.params.properties) == length(block_names)
             @test values(sim.params.physics)[1] isa Carina.SolidMechanics
         end
     end
