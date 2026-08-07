@@ -34,7 +34,7 @@ cp_example(src, dst) = cp(src, dst; follow_symlinks=true)
 # ---------------------------------------------------------------------------
 
 function _field_matrix(sim::Carina.SingleDomainSimulation)
-    d  = sim.params.field.data
+    d  = adapt(Array, sim.params.field.data)
     NF = 3   # number of displacement components (3D)
     return reshape(d, NF, :)   # NF × n_nodes
 end
