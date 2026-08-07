@@ -11,13 +11,14 @@ generation, the measurement harness, sweep scripts, and the raw results.
 | `cases.jl` | Single source of truth for case/variant definitions (decks and harness both derive from it) |
 | `write_inputs.jl` | Regenerates `inputs/` from `cases.jl` |
 | `harness.jl` | Measurement harness: one (case, variant) per fresh process, appends a JSON-lines record to `results/<tag>.jsonl` |
+| `action_bench.jl` | Times the matrix-free stiffness action in isolation, on device — the microbenchmark behind the kernel analysis in the report |
 | `explicit_sweep.jl` | Explicit-dynamics CPU-vs-GPU harness: one (size, device) per fresh process, same JSON-lines contract |
 | `meshgen.jl` | Structured HEX8 cube mesh generator for the large cases |
 | `torsiongen.jl` | Structured HEX8 torsion-bar generator at arbitrary refinement (`N=20` reproduces `torsion.g`) |
 | `run_baselines.sh`, `run_round2.sh`, `run_scaling.sh`, `run_scaling2.sh` | The sweep scripts the implicit study ran |
 | `run_explicit_scaling.sh` | The explicit CPU-vs-GPU size sweep (report §8) |
 | `results/*.jsonl` | Raw records of the study — every number in the report traces to these |
-| `evidence/` | Log excerpts backing specific report claims (OOMs, L-BFGS failure, ROCm test output) |
+| `evidence/` | Log excerpts and ablation arms backing specific report claims (OOMs, L-BFGS failure, ROCm test output, the action ablation) |
 | `design.md` | Proposed solution, design rationale, rejected alternatives |
 
 ## Meshes
@@ -45,7 +46,7 @@ bin/carina benchmark/inputs/torsion-qs-gpu-cg-amg.yaml --device cpu  # override 
 
 Outputs (`.e`, `.log`) land next to the deck and are gitignored.  The
 `cube-qs-*` decks are the 81-DOF smoke case — seconds, good for checking a
-setup.  Note `--device cuda` is untested (report §6).
+setup.  Note `--device cuda` is untested (report §7).
 
 For measured runs (iteration counts, phase timings, VRAM) use the harness
 instead; it runs each combination in a fresh process and appends to
@@ -80,9 +81,15 @@ threads, which beats 12 at N=20 (23.7 vs 27.5 ms/step).
 `run_baselines.sh` is the 530k-DOF baseline sweep (report §2),
 `run_scaling2.sh` the cube64/cube80 scaling sweep (§3).  Both serialize
 runs — the large cases need most of a 60 GB host to themselves.  Results
-land in `results/<tag>.jsonl`; the committed files are the study's records
-(tags: `baseline`, `proposed`, `scaling2`, `variance`, `detail`, `bisect`,
-`nbuilds-check`), so pick a fresh tag to avoid appending to them.
+land in `results/<tag>.jsonl`; the committed files are the study's records,
+so pick a fresh tag to avoid appending to them.  The tags that matter:
+
+| Tag | What it holds |
+| --- | --- |
+| `current` | The numbers the report quotes today — every GPU variant re-measured after the stiffness-action rewrite |
+| `baseline`, `proposed`, `scaling2`, `variance`, `detail`, `bisect`, `nbuilds-check`, `jvp` | The original campaign and the rewrite's first measurements, kept so the history is auditable |
+
+`current` is the one to compare a new change against.
 
 ## Editing cases
 

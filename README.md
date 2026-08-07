@@ -80,6 +80,18 @@ planned rather than implemented.
 
 ---
 
+## Performance
+
+[`benchmark_report.md`](benchmark_report.md) is the measured record: solver
+comparisons at 530k–1.57M DOF on CPU and GPU, the explicit CPU-vs-GPU scaling
+curve to 7.8M DOF, hardware-efficiency analysis, and recommended solver
+choices per problem type.  It opens with an executive summary.  Everything in
+it traces to raw records under [`benchmark/results/`](benchmark/results/), and
+[`benchmark/README.md`](benchmark/README.md) explains how to reproduce any of
+it.
+
+---
+
 ## Installation
 
 Carina tracks the `main` branches of three sibling packages via relative paths,

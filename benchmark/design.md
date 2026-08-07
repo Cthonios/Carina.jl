@@ -1,6 +1,11 @@
 # Design: native-Julia GPU preconditioning for Carina's implicit paths
 
-Campaign brief: `~/Carina-GPU.md`.  Constraints: pure Julia, zero TPLs,
+**This is the design document written *before* the work, kept as the record of
+what was considered and why.  For what was actually built and measured, see
+`benchmark_report.md`; where the two disagree, the report wins.  An Outcome
+section at the end notes where this document's expectations were wrong.**
+
+Constraints: pure Julia, zero TPLs,
 vendor-agnostic (KernelAbstractions), matrix-free or otherwise GPU-native.
 Targets: quasistatic and Newmark implicit dynamics on p=1 unstructured
 hex/tet meshes, 0.5M–8M DOF.
@@ -49,9 +54,10 @@ Already partially in place; measured insufficient on quasistatic (iteration
 counts still grow with problem size — no coarse-grid correction).  Kept as
 the smoother inside (a) instead.
 
-**(e) Linear-solve-free nonlinear methods (L-BFGS, NLCG).**  Measured:
-L-BFGS is ~13x slower than CG+Jacobi on Newmark and stalls on quasistatic;
+**(e) Linear-solve-free nonlinear methods (L-BFGS, NLCG).**  Measured at the
+time: L-BFGS ~13x slower than CG+Jacobi on Newmark, stalls on quasistatic;
 NLCG needs hundreds of iterations.  Not competitive as primary solvers.
+(The Newmark half of this was later overturned — see Outcome.)
 
 ## Chosen architecture
 
@@ -105,8 +111,9 @@ default and the benchmark must show this honestly.
 Bandwidth accounting for the report: count bytes moved per fine action
 (element coordinates, connectivity, field, properties) and per CSR SpMV
 (values + colind + x/y), divide by measured times, compare against device
-peak (MI-series HBM).  This gives the roofline sanity check the Critic will
-apply.
+peak.  (This expectation did not survive contact with the hardware — the
+development GPU is a consumer RX 7600, not an MI-series part, and the action
+turned out to be compute-bound rather than bandwidth-bound.  See Outcome.)
 
 ## Deliverables
 
@@ -116,3 +123,32 @@ apply.
 2. Tests: V-cycle apply vs CPU AMG apply agreement on a small mesh; CG+AMG
    GPU vs CPU solution agreement; staleness/rebuild behavior on device.
 3. `benchmark_report.md` per the benchmark gate.
+
+## Outcome
+
+Built and measured; `benchmark_report.md` is the record.  Three places where
+this document guessed wrong, kept here because the reasoning is instructive:
+
+- **The roofline was the wrong one.**  This document assumed an MI-series HBM
+  part and a bandwidth-bound fine action, and planned the report's hardware
+  section around byte accounting.  The development machine is a consumer
+  Radeon RX 7600 (288 GB/s, FP64 at 1/32 rate), and direct ablation later
+  showed the matrix-free action is **FP64-compute-bound**, not
+  bandwidth-bound: ~73% of it was forming the fourth-order material tangent,
+  and the FP64 atomic scatter — long suspected as the culprit — costs nothing
+  measurable.  Replacing the tangent with a directional derivative gave 3.2x
+  on the kernel.
+- **The win condition was met, but for a different reason than projected.**
+  The cost model predicted V(2,2) at ~6x a Jacobi iteration needing a >=6x
+  iteration reduction; both held (measured 6.67x per application, ~16x fewer
+  iterations).  The projected "2-5x wall-clock gain" was initially not
+  realised — GPU AMG merely tied CPU AMG — because the fine action was
+  leaving 3x on the table.  With that fixed the projection holds.
+- **L-BFGS on Newmark reversed.**  Candidate (e) recorded L-BFGS as ~13x
+  slower than CG+Jacobi on Newmark.  After the zero-allocation fixes it became
+  competitive there.  It still stalls on quasistatic, so the conclusion that
+  it cannot be the general answer stands.
+
+Unchanged and vindicated: the hybrid fine level (never forming the fine matrix
+on device), host-side setup, rigid-body modes from the current configuration,
+lagged rebuilds, and Chebyshev-Jacobi smoothing in place of Gauss-Seidel.
