@@ -44,8 +44,9 @@ absolute ratios do not.
 Two solvers to avoid as defaults despite good individual numbers:
 
 - **L-BFGS** is the fastest Newmark option on GPU (109 s vs 118 s for
-  CG+Jacobi, an 8% margin) but **fails outright on quasi-static** — it stalls
-  and the step fails. It cannot be a general default.
+  CG+Jacobi, an 8% margin) but **fails outright on quasi-static, on both
+  devices** — it stalls seven orders short of tolerance. Not a device problem
+  and not fixable by tuning; see §2. It cannot be a general default.
 - **Chebyshev** converges its linear systems and is respectable (221 s
   quasi-static) but is beaten by both AMG and plain Jacobi. Its polynomial
   costs more per iteration than the iterations it saves.
@@ -126,7 +127,7 @@ converge to rtol 1e-8 — reported as measured.
 | CPU CG+Jacobi | 372 (n=2) | 268.0 | 16,000 | **capped** | — |
 | CPU direct | 443 | 360.0 | — | (direct) | — |
 | CPU CG+IC | 1,011 | 920.5 | 8,226 | yes | — |
-| GPU L-BFGS | **fails** | — | — | stalls; step failure | — |
+| L-BFGS (CPU *and* GPU) | **fails** | — | — | stalls; step failure | — |
 
 - **GPU AMG is 2.2× faster than CPU AMG** (138 vs 302) and 3.2× faster than
   the CPU direct solver. In the solve phase alone it is 3.0× (70.5 vs 211.0).
@@ -141,7 +142,16 @@ converge to rtol 1e-8 — reported as measured.
 - AMG's VRAM cost is the device hierarchy: 0.65 GB against 0.22 GB
   unpreconditioned, i.e. ~0.43 GB, inside the 0.3–0.6× of the never-formed
   fine matrix (~0.9 GB) that smoothed aggregation predicts.
-- L-BFGS's failure log is `benchmark/evidence/torsion_qs_lbfgs_failure.txt`.
+- **L-BFGS fails here on both devices, for an algorithmic reason.** It builds
+  an inverse-tangent model from its last 10 secant pairs, and quasi-static has
+  no mass term to condition that operator — the same system needs 787 AMG
+  iterations, and 10 rank-one updates cannot represent it. `|r|` drops to ~0.1
+  within 13 iterations, then stalls at ~1.2e-3 against a 1e-10 target while the
+  line search collapses to 8–10 Armijo backtracks and steps of ~1e-3. It
+  exhausts its 500-iteration cap on the *first* of four load steps. The CPU and
+  GPU runs agree digit-for-digit over the first eleven iterations, which is
+  what rules the device out. Trajectories and mechanism:
+  `benchmark/evidence/torsion_qs_lbfgs_failure.txt`.
 
 ---
 
@@ -164,8 +174,10 @@ converge to rtol 1e-8 — reported as measured.
   iteration reduction (264 vs 2,558 on CPU) costs more than it saves. The
   design predicted this; the measurement confirms it.
 - L-BFGS leads by 8%, but it does no linear solve at all — it converges by many
-  cheap nonlinear iterations (284–312 per step). That is what makes it fast
-  here and what makes it stall on quasi-static.
+  cheap nonlinear iterations (284–312 per step). What makes it work here is the
+  mass shift `c_M = 1/(βΔt²) ≈ 1.6e9`, which leaves the effective operator
+  strongly diagonally dominant and therefore easy to model at low rank. Remove
+  it and the same solver stalls (§2).
 
 ---
 

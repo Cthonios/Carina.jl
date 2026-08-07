@@ -146,8 +146,12 @@ this document guessed wrong, kept here because the reasoning is instructive:
   leaving 3x on the table.  With that fixed the projection holds.
 - **L-BFGS on Newmark reversed.**  Candidate (e) recorded L-BFGS as ~13x
   slower than CG+Jacobi on Newmark.  After the zero-allocation fixes it became
-  competitive there.  It still stalls on quasistatic, so the conclusion that
-  it cannot be the general answer stands.
+  the fastest Newmark option on GPU.  The quasistatic half of (e) holds and has
+  since been confirmed on both devices: it stalls near |r| ~ 1.2e-3, seven
+  orders short, because a rank-10 inverse-tangent model cannot represent an
+  operator that needs 787 AMG iterations.  So (e)'s conclusion -- not viable as
+  a primary solver -- stands, for the quasistatic reason rather than the
+  dynamics one.
 
 Unchanged and vindicated: the hybrid fine level (never forming the fine matrix
 on device), host-side setup, rigid-body modes from the current configuration,

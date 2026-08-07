@@ -1,30 +1,80 @@
-    @ Main.Carina ~/Repos/Carina.jl/src/simulation.jl:424
-  [4] _subcycle!(sim::Main.Carina.SingleDomainSimulation{FiniteElementContainers.Parameters{Int64, Float64, ROCArray{Int64, 1, AMDGPU.Runtime.Mem.HIPBuffer}, ROCArray{Float64, 1, AMDGPU.Runtime.Mem.HIPBuffer}, ROCArray{StaticArraysCore.SVector{3, Float64}, 2, AMDGPU.Runtime.Mem.HIPBuffer}, ROCArray{StaticArraysCore.SVector{3, Float64}, 2, AMDGPU.Runtime.Mem.HIPBuffer}, ROCArray{StaticArraysCore.SMatrix{3, 3, Float64, 9}, 2, AMDGPU.Runtime.Mem.HIPBuffer}, ROCArray{StaticArraysCore.SVector{3, Float64}, 2, AMDGPU.Runtime.Mem.HIPBuffer}, Vector{FiniteElementContainers.InitialConditionFunction}, Vector{FiniteElementContainers.DirichletBCFunction}, Vector{Any}, Vector{Any}, Vector{Any}, Vector{FiniteElementContainers.RobinBCFunction}, @NamedTuple{torsion::Main.Carina.SolidMechanics{ConstitutiveModels.Hyperelastic{ConstitutiveModels.NeoHookean}, 3, 0}}, @NamedTuple{torsion::StaticArraysCore.SVector{3, Float64}}, FiniteElementContainers.H1Field{Float64, ROCArray{Float64, 1, AMDGPU.Runtime.Mem.HIPBuffer}, 3}, FiniteElementContainers.H1Field{Float64, ROCArray{Float64, 1, AMDGPU.Runtime.Mem.HIPBuffer}, 3}}, FiniteElementContainers.Parameters{Int64, Float64, Vector{Int64}, Vector{Float64}, Matrix{StaticArraysCore.SVector{3, Float64}}, Matrix{StaticArraysCore.SVector{3, Float64}}, Matrix{StaticArraysCore.SMatrix{3, 3, Float64, 9}}, Matrix{StaticArraysCore.SVector{3, Float64}}, Vector{FiniteElementContainers.InitialConditionFunction}, Vector{FiniteElementContainers.DirichletBCFunction}, Vector{Any}, Vector{Any}, Vector{Any}, Vector{FiniteElementContainers.RobinBCFunction}, @NamedTuple{torsion::Main.Carina.SolidMechanics{ConstitutiveModels.Hyperelastic{ConstitutiveModels.NeoHookean}, 3, 0}}, @NamedTuple{torsion::StaticArraysCore.SVector{3, Float64}}, FiniteElementContainers.H1Field{Float64, Vector{Float64}, 3}, FiniteElementContainers.H1Field{Float64, Vector{Float64}, 3}}, FiniteElementContainers.SparseMatrixAssembler{false, FiniteElementContainers.CSCMatrix(), false, false, Vector{Int64}, Vector{Float64}, FiniteElementContainers.VectorFunction{FiniteElementContainers.FunctionSpace{false, FiniteElementContainers.H1Field, Int64, Vector{Int64}, Float64, Vector{Float64}, 3, Vector{Int64}, @NamedTuple{torsion::ReferenceFiniteElements.ReferenceFE{ReferenceFiniteElements.Hex{ReferenceFiniteElements.Lagrange, 1}, ReferenceFiniteElements.GaussLegendre{2, 2}, Vector{StaticArraysCore.SVector{4, Int64}}, Matrix{Float64}, Vector{ReferenceFiniteElements.StaticH1OrL2Interpolants{Float64, 3, 8, 24}}, Matrix{ReferenceFiniteElements.StaticH1OrL2Interpolants{Float64, 3, 8, 24}}, 8}}}, 3}, FiniteElementContainers.H1Field{Float64, Vector{Float64}, 3}}, Main.Carina.QuasiStaticIntegrator{Main.Carina.NewtonSolver{Main.Carina.LBFGSLinearSolver{ROCArray{Float64, 1, AMDGPU.Runtime.Mem.HIPBuffer}, Main.Carina.JacobiPreconditioner{ROCArray{Float64, 1, AMDGPU.Runtime.Mem.HIPBuffer}}}}, FiniteElementContainers.SparseMatrixAssembler{false, FiniteElementContainers.CSCMatrix(), false, false, ROCArray{Int64, 1, AMDGPU.Runtime.Mem.HIPBuffer}, ROCArray{Float64, 1, AMDGPU.Runtime.Mem.HIPBuffer}, FiniteElementContainers.VectorFunction{FiniteElementContainers.FunctionSpace{false, FiniteElementContainers.H1Field, Int64, ROCArray{Int64, 1, AMDGPU.Runtime.Mem.HIPBuffer}, Float64, ROCArray{Float64, 1, AMDGPU.Runtime.Mem.HIPBuffer}, 3, Vector{Int64}, @NamedTuple{torsion::ReferenceFiniteElements.ReferenceFE{ReferenceFiniteElements.Hex{ReferenceFiniteElements.Lagrange, 1}, ReferenceFiniteElements.GaussLegendre{2, 2}, ROCArray{StaticArraysCore.SVector{4, Int64}, 1, AMDGPU.Runtime.Mem.HIPBuffer}, ROCArray{Float64, 2, AMDGPU.Runtime.Mem.HIPBuffer}, ROCArray{ReferenceFiniteElements.StaticH1OrL2Interpolants{Float64, 3, 8, 24}, 1, AMDGPU.Runtime.Mem.HIPBuffer}, ROCArray{ReferenceFiniteElements.StaticH1OrL2Interpolants{Float64, 3, 8, 24}, 2, AMDGPU.Runtime.Mem.HIPBuffer}, 8}}}, 3}, FiniteElementContainers.H1Field{Float64, ROCArray{Float64, 1, AMDGPU.Runtime.Mem.HIPBuffer}, 3}}, ROCArray{Float64, 1, AMDGPU.Runtime.Mem.HIPBuffer}}, FiniteElementContainers.PostProcessor{Exodus.ExodusDatabase{Int32, Int32, Int32, Float64}}, ROCBackend, Main.Carina.LumpedRecovery}, target::Float64, is_explicit::Bool)
-    @ Main.Carina ~/Repos/Carina.jl/src/simulation.jl:380
-  [5] evolve!(sim::Main.Carina.SingleDomainSimulation{FiniteElementContainers.Parameters{Int64, Float64, ROCArray{Int64, 1, AMDGPU.Runtime.Mem.HIPBuffer}, ROCArray{Float64, 1, AMDGPU.Runtime.Mem.HIPBuffer}, ROCArray{StaticArraysCore.SVector{3, Float64}, 2, AMDGPU.Runtime.Mem.HIPBuffer}, ROCArray{StaticArraysCore.SVector{3, Float64}, 2, AMDGPU.Runtime.Mem.HIPBuffer}, ROCArray{StaticArraysCore.SMatrix{3, 3, Float64, 9}, 2, AMDGPU.Runtime.Mem.HIPBuffer}, ROCArray{StaticArraysCore.SVector{3, Float64}, 2, AMDGPU.Runtime.Mem.HIPBuffer}, Vector{FiniteElementContainers.InitialConditionFunction}, Vector{FiniteElementContainers.DirichletBCFunction}, Vector{Any}, Vector{Any}, Vector{Any}, Vector{FiniteElementContainers.RobinBCFunction}, @NamedTuple{torsion::Main.Carina.SolidMechanics{ConstitutiveModels.Hyperelastic{ConstitutiveModels.NeoHookean}, 3, 0}}, @NamedTuple{torsion::StaticArraysCore.SVector{3, Float64}}, FiniteElementContainers.H1Field{Float64, ROCArray{Float64, 1, AMDGPU.Runtime.Mem.HIPBuffer}, 3}, FiniteElementContainers.H1Field{Float64, ROCArray{Float64, 1, AMDGPU.Runtime.Mem.HIPBuffer}, 3}}, FiniteElementContainers.Parameters{Int64, Float64, Vector{Int64}, Vector{Float64}, Matrix{StaticArraysCore.SVector{3, Float64}}, Matrix{StaticArraysCore.SVector{3, Float64}}, Matrix{StaticArraysCore.SMatrix{3, 3, Float64, 9}}, Matrix{StaticArraysCore.SVector{3, Float64}}, Vector{FiniteElementContainers.InitialConditionFunction}, Vector{FiniteElementContainers.DirichletBCFunction}, Vector{Any}, Vector{Any}, Vector{Any}, Vector{FiniteElementContainers.RobinBCFunction}, @NamedTuple{torsion::Main.Carina.SolidMechanics{ConstitutiveModels.Hyperelastic{ConstitutiveModels.NeoHookean}, 3, 0}}, @NamedTuple{torsion::StaticArraysCore.SVector{3, Float64}}, FiniteElementContainers.H1Field{Float64, Vector{Float64}, 3}, FiniteElementContainers.H1Field{Float64, Vector{Float64}, 3}}, FiniteElementContainers.SparseMatrixAssembler{false, FiniteElementContainers.CSCMatrix(), false, false, Vector{Int64}, Vector{Float64}, FiniteElementContainers.VectorFunction{FiniteElementContainers.FunctionSpace{false, FiniteElementContainers.H1Field, Int64, Vector{Int64}, Float64, Vector{Float64}, 3, Vector{Int64}, @NamedTuple{torsion::ReferenceFiniteElements.ReferenceFE{ReferenceFiniteElements.Hex{ReferenceFiniteElements.Lagrange, 1}, ReferenceFiniteElements.GaussLegendre{2, 2}, Vector{StaticArraysCore.SVector{4, Int64}}, Matrix{Float64}, Vector{ReferenceFiniteElements.StaticH1OrL2Interpolants{Float64, 3, 8, 24}}, Matrix{ReferenceFiniteElements.StaticH1OrL2Interpolants{Float64, 3, 8, 24}}, 8}}}, 3}, FiniteElementContainers.H1Field{Float64, Vector{Float64}, 3}}, Main.Carina.QuasiStaticIntegrator{Main.Carina.NewtonSolver{Main.Carina.LBFGSLinearSolver{ROCArray{Float64, 1, AMDGPU.Runtime.Mem.HIPBuffer}, Main.Carina.JacobiPreconditioner{ROCArray{Float64, 1, AMDGPU.Runtime.Mem.HIPBuffer}}}}, FiniteElementContainers.SparseMatrixAssembler{false, FiniteElementContainers.CSCMatrix(), false, false, ROCArray{Int64, 1, AMDGPU.Runtime.Mem.HIPBuffer}, ROCArray{Float64, 1, AMDGPU.Runtime.Mem.HIPBuffer}, FiniteElementContainers.VectorFunction{FiniteElementContainers.FunctionSpace{false, FiniteElementContainers.H1Field, Int64, ROCArray{Int64, 1, AMDGPU.Runtime.Mem.HIPBuffer}, Float64, ROCArray{Float64, 1, AMDGPU.Runtime.Mem.HIPBuffer}, 3, Vector{Int64}, @NamedTuple{torsion::ReferenceFiniteElements.ReferenceFE{ReferenceFiniteElements.Hex{ReferenceFiniteElements.Lagrange, 1}, ReferenceFiniteElements.GaussLegendre{2, 2}, ROCArray{StaticArraysCore.SVector{4, Int64}, 1, AMDGPU.Runtime.Mem.HIPBuffer}, ROCArray{Float64, 2, AMDGPU.Runtime.Mem.HIPBuffer}, ROCArray{ReferenceFiniteElements.StaticH1OrL2Interpolants{Float64, 3, 8, 24}, 1, AMDGPU.Runtime.Mem.HIPBuffer}, ROCArray{ReferenceFiniteElements.StaticH1OrL2Interpolants{Float64, 3, 8, 24}, 2, AMDGPU.Runtime.Mem.HIPBuffer}, 8}}}, 3}, FiniteElementContainers.H1Field{Float64, ROCArray{Float64, 1, AMDGPU.Runtime.Mem.HIPBuffer}, 3}}, ROCArray{Float64, 1, AMDGPU.Runtime.Mem.HIPBuffer}}, FiniteElementContainers.PostProcessor{Exodus.ExodusDatabase{Int32, Int32, Int32, Float64}}, ROCBackend, Main.Carina.LumpedRecovery})
-    @ Main.Carina ~/Repos/Carina.jl/src/simulation.jl:333
-  [6] run(input_file::String; backend::ROCBackend)
-    @ Main.Carina ~/Repos/Carina.jl/src/simulation.jl:57
-  [7] run
-    @ ~/Repos/Carina.jl/src/simulation.jl:45 [inlined]
-  [8] macro expansion
-    @ ./timing.jl:461 [inlined]
-  [9] (::var"#main##0#main##1"{String, String, String})(dir::String)
-    @ Main ~/Repos/Carina.jl/benchmark/harness.jl:313
- [10] mktempdir(fn::var"#main##0#main##1"{String, String, String}, parent::String; prefix::String)
-    @ Base.Filesystem ./file.jl:936
- [11] mktempdir (repeats 2 times)
-    @ ./file.jl:932 [inlined]
- [12] main()
-    @ Main ~/Repos/Carina.jl/benchmark/harness.jl:302
- [13] top-level scope
-    @ ~/Repos/Carina.jl/benchmark/harness.jl:345
- [14] include(mod::Module, _path::String)
-    @ Base ./Base.jl:306
- [15] exec_options(opts::Base.JLOptions)
-    @ Base ./client.jl:317
- [16] _start()
-    @ Base ./client.jl:550
-in expression starting at /home/mota/Repos/Carina.jl/benchmark/harness.jl:345
-!!! torsion-qs gpu-lbfgs exited with 1 (124 = timeout)
-=== [16:58:32] torsion-newmark cpu-cg-jacobi ===
+L-BFGS on quasi-static torsion: why it fails, on BOTH devices
+==============================================================
+
+Case: torsion-qs (530,523 DOF, neo-Hookean, 0.05 rad twist over 4 load steps).
+Solver: Newton with `linear solver: type: lbfgs`, history size 10, cap 500
+nonlinear iterations.  Measured 2026-08-07 on both backends.
+
+THIS IS NOT A GPU FAILURE.  Both arms were run; they fail the same way, at the
+same place, for the same reason.  Earlier revisions of the report listed only
+"GPU L-BFGS: fails", because GPU was the only arm that had been measured, and
+that phrasing wrongly implied the device was involved.
+
+
+The two runs are numerically identical where it matters
+--------------------------------------------------------
+First iterations, |R| (GPU left, CPU right -- same digits):
+
+    iter 1   2.92e+03   2.92e+03
+    iter 2   2.45e+03   2.45e+03
+    iter 3   2.22e+03   2.22e+03
+    iter 4   1.44e+03   1.44e+03
+    iter 5   1.16e+03   1.16e+03
+    iter 9   9.20e+02   9.20e+02
+    iter 11  6.15e+02   6.15e+02
+
+Terminal state after the 500-iteration cap:
+
+    GPU  iter 500  |R| = 6.03e+00  |r| = 1.23e-03  |ΔU| = 1.12e-05  step = 3.91e-03  LS = 9
+    CPU  iter 500  |R| = 6.13e+00  |r| = 1.25e-03  |ΔU| = 3.90e-04  step = 1.25e-01  LS = 4
+
+Both stall at |r| ~ 1.2e-3 against a target of 1e-10 relative / 1e-6 absolute
+-- roughly seven orders short -- and neither has descended in the preceding
+tens of iterations (GPU: 5.87, 5.87, 6.03, 6.01, 6.07, 6.03; CPU: 6.14, 6.09,
+6.07, 6.05, 6.69, 6.13).  They oscillate.
+
+
+Mechanism
+---------
+1. |r| falls 1.0 -> 0.1 within ~13 iterations, then crawls.  The easy,
+   well-conditioned part of the error goes quickly; what remains does not.
+
+2. The line search collapses.  By the end, iterations need LS = 8-10 Armijo
+   backtracks to find any acceptable step, accepting step ~1e-3 and moving
+   |ΔU| ~ 1e-5.  The quasi-Newton direction has stopped being usefully
+   downhill, so the search cuts it to nearly nothing.
+
+3. Root cause: quasi-static has no mass term.  L-BFGS builds an inverse-tangent
+   model from the last 10 secant pairs.  On THIS system, CG+Jacobi cannot
+   converge within 1000 iterations and even CPU AMG needs 787 -- so the
+   operator being modelled is one that Krylov methods need hundreds of
+   iterations to invert.  Ten rank-one updates cannot represent it.
+
+4. Contrast with Newmark, where L-BFGS is the fastest GPU option (109 s):
+   there the effective operator is K + c_M*M with c_M = 1/(beta*dt^2) ~ 1.6e9
+   at dt = 5e-5.  That shift makes the system strongly diagonally dominant --
+   close to the identity after Jacobi scaling -- and a low-rank quasi-Newton
+   model captures it well, converging in 284-312 iterations per step.  Same
+   solver, same code, same device.  Remove the mass term and it stalls.
+
+
+The hard error is a separate, cosmetic layer
+---------------------------------------------
+L-BFGS exhausts its 500-iteration cap on the FIRST of four load steps.  Newton
+reports step failure; adaptive stepping would normally halve dt and retry, but
+the benchmark deck leaves it disabled, so the run raises:
+
+    ERROR: LoadError: Step failed but decrease_factor = 1.0 (adaptive stepping
+    disabled). Specify minimum/maximum time step and decrease/increase factors.
+
+    [1] error(s::String)
+    [2] _decrease_step!   @ src/integrators.jl:698 [inlined]
+    [3] _advance_one_step! @ src/simulation.jl:424
+    [4] _subcycle!         @ src/simulation.jl:380
+    [5] evolve!            @ src/simulation.jl:333
+
+With adaptive stepping enabled this would not crash -- it would keep halving dt
+and either crawl forward at enormous cost or bottom out at min_dt.  The stall,
+not the error, is the finding.
+
+Neither run writes a JSONL record: the harness only appends on success.

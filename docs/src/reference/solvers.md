@@ -220,6 +220,19 @@ solver.linear_solver.type = "direct" is CPU-only.
 The L-BFGS path always builds a Jacobi preconditioner regardless of any
 `preconditioner` sub-section.
 
+!!! warning "L-BFGS does not work for quasi-static"
+    Use it for implicit **dynamics** only. On quasi-static problems it stalls
+    roughly seven orders short of tolerance and the step fails — on CPU and GPU
+    alike, so this is not a device limitation and no amount of `history size`
+    fixes it.
+
+    L-BFGS models the inverse tangent from its last few secant pairs. Implicit
+    dynamics adds the mass shift `c_M = 1/(βΔt²)`, which at small Δt leaves the
+    effective operator strongly diagonally dominant and easy to model at low
+    rank — there L-BFGS is the fastest option Carina has on GPU. Quasi-static
+    has no such term: the same system takes 787 AMG iterations to solve, and a
+    rank-10 model cannot represent it. Use `cg` + `amg` for quasi-static.
+
 !!! note "`assembled` is accepted but computed"
     `assembled` is a recognised key in the linear-solver section, but its value
     is not read — Carina sets it from the backend (`true` on CPU, `false` on
@@ -304,8 +317,11 @@ no preconditioning — that remains a valid, unremarkable choice.
 
 | | `direct` | CG | CG + Jacobi | CG + IC | CG + Chebyshev | CG + AMG | L-BFGS |
 |---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
-| **CPU** | **best (small–medium)** | weak | ok | good | ok | **best (large)** | good |
-| **GPU** | unavailable | weak | good | unavailable | ok | **best** | good |
+| **CPU** | **best (small–medium)** | weak | ok | good | ok | **best (large)** | dynamics only\* |
+| **GPU** | unavailable | weak | good | unavailable | ok | **best** | dynamics only\* |
+
+\* L-BFGS is the fastest option for implicit dynamics on GPU, but **fails on
+quasi-static** on either device — see the warning above.
 
 Practical guidance:
 
