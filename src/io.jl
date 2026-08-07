@@ -231,9 +231,6 @@ function _write_recovered_fields!(sim, step)
     ))
         nelem   = conns.nelems[b]
         coffset = conns.offsets[b]
-        state_old_b = FEC.block_view(params_cpu.state_old, b)
-        state_new_b = FEC.block_view(params_cpu.state_new, b)
-
         for e in 1:nelem
             conn = FEC.connectivity(ref_fe, conns.data, e, coffset)
             x_el = FEC._element_level_fields_flat(params_cpu.coords, ref_fe, conn)
@@ -242,8 +239,8 @@ function _write_recovered_fields!(sim, step)
 
             for q in 1:RFE.num_cell_quadrature_points(ref_fe)
                 interps = FEC._cell_interpolants(ref_fe, q)
-                state_old_q = FEC._quadrature_level_state(state_old_b, q, e)
-                state_new_q = FEC._quadrature_level_state(state_new_b, q, e)
+                state_old_q = FEC.state_variables(params_cpu.state_old, q, e, b)
+                state_new_q = FEC.state_variables(params_cpu.state_new, q, e, b)
 
                 N = RFE.cell_shape_function_value(ref_fe, q)
                 cell = FEC.map_interpolants(interps, x_el)
@@ -270,7 +267,7 @@ function _write_recovered_fields!(sim, step)
                     for i in 1:nnpe
                         NiJxW = N[i] * JxW
                         for s in 1:NS
-                            iv_nodal[s, conn[i]] += NiJxW * state_new_b[s, q, e]
+                            iv_nodal[s, conn[i]] += NiJxW * state_new_q[s]
                         end
                     end
                 end
