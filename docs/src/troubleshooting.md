@@ -57,8 +57,8 @@ will not cause this.
 
 **Check.** Compare CG iteration counts against a known-good configuration. An
 unpreconditioned FEM solve typically takes hundreds to thousands of iterations
-where Jacobi takes tens. On large CPU problems, `amg` flattens the count
-further; see [Solvers](reference/solvers.md).
+where Jacobi takes tens. On large problems, `amg` flattens the count further on
+either device; see [Solvers](reference/solvers.md).
 
 ## A material property seems not to apply
 
@@ -146,8 +146,10 @@ Verify the device independently with `AMDGPU.versioninfo()` or
 `CUDA.versioninfo()`.
 
 **`solver.linear_solver.type = "direct" is CPU-only.`** — the direct solver and
-the `ic` and `amg` preconditioners all need an assembled sparse matrix. On GPU
-use `cg` with `jacobi` or `chebyshev`, or `lbfgs`.
+the `ic` preconditioner both need an assembled sparse matrix on the device. On
+GPU use `cg` with `amg` (the fastest quasi-static option) or `jacobi`, or
+`lbfgs`. Note `amg` *is* supported on GPU: only its hierarchy setup runs on the
+host, and the V-cycle applies on the device.
 
 **A `BoundsError` deep in a kernel, part way through a long run.** This is the
 signature of GPU memory exhaustion rather than an indexing bug. Julia's garbage

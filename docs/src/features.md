@@ -66,13 +66,16 @@ two are matrix-free.
 | Jacobi | ✓ | ✓ |
 | Chebyshev polynomial | ✓ | ✓ |
 | Incomplete Cholesky (LDLᵀ) | ✓ | — |
-| Smoothed-aggregation AMG | ✓ | — |
+| Smoothed-aggregation AMG | ✓ | ✓ |
 
 The AMG preconditioner uses the six rigid-body modes as its near-nullspace,
 rebuilt from the **current** configuration at each hierarchy build, which keeps
 CG iteration counts nearly independent of the time step. Its hierarchy setup is
-lagged and reused. GPU AMG is *planned*; the GPU path currently relies on
-Jacobi or Chebyshev.
+lagged and reused. **On GPU** the hierarchy is built on the host and converted
+to device CSR, and the V(2,2)-cycle applies entirely on the device through
+KernelAbstractions kernels — the fine level is smoothed through the matrix-free
+stiffness action, so the fine matrix is never formed on the device. It is the
+fastest quasi-static option Carina has; see `benchmark_report.md`.
 
 **Composable termination criteria.** Convergence and failure are expressed as a
 tree of status tests — residual, update, iteration count, divergence,

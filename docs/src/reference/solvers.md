@@ -234,7 +234,7 @@ Configured under `solver.linear solver.preconditioner`.
 | `jacobi` | — | yes | yes | one vector scale | Diagonal scaling. Cheap, weak, always available. |
 | `ic` | `incomplete cholesky`, `ildl`, `incomplete ldlt` | yes | **no** | one triangular solve | Incomplete LDLᵀ. Strong for ill-conditioned systems. |
 | `chebyshev` | `chebyshev polynomial` | yes | yes | k matvecs | Polynomial preconditioner; needs only matvecs, so it works on GPU. |
-| `amg` | `algebraic multigrid`, `multigrid` | yes | **no** | one V-cycle | Smoothed-aggregation AMG with rigid-body-mode near-nullspace. |
+| `amg` | `algebraic multigrid`, `multigrid` | yes | yes | one V-cycle | Smoothed-aggregation AMG with rigid-body-mode near-nullspace. On GPU the hierarchy is built on the host and the V-cycle applies on the device. |
 | *(omitted)* | — | yes | yes | none | No preconditioning. |
 
 ### Chebyshev keys
@@ -259,11 +259,12 @@ of the conditioning that defeats Jacobi — on a 530k-DOF torsion problem it
 holds 5–17 CG iterations across a range of Δt where Jacobi grows from 30 to
 442.
 
-It requires the CPU assembled path:
-
-```
-preconditioner.type = "amg" requires the CPU assembled path (GPU AMG not yet implemented).
-```
+**It runs on both CPU and GPU.**  On GPU the hierarchy is built on the host
+(the sparse pattern lives there anyway) and converted to device CSR; the
+V(2,2)-cycle then applies entirely on the device through KernelAbstractions
+kernels, with the fine level smoothed through the matrix-free stiffness action
+so the fine matrix is never formed on the device.  It is the fastest
+quasi-static option Carina has — see `benchmark_report.md`.
 
 Two behaviours worth knowing. The near-nullspace (six rigid-body modes) is
 rebuilt from the **current** nodal coordinates `X + u` at every hierarchy
@@ -304,14 +305,18 @@ no preconditioning — that remains a valid, unremarkable choice.
 | | `direct` | CG | CG + Jacobi | CG + IC | CG + Chebyshev | CG + AMG | L-BFGS |
 |---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
 | **CPU** | **best (small–medium)** | weak | ok | good | ok | **best (large)** | good |
-| **GPU** | unavailable | weak | **good** | unavailable | good | unavailable | good |
+| **GPU** | unavailable | weak | good | unavailable | ok | **best** | good |
 
 Practical guidance:
 
 - **CPU, small to medium** — `direct`. No tuning, always converges.
 - **CPU, large** — `cg` + `amg`, or `cg` + `ic` as a simpler alternative.
-- **GPU** — `cg` + `jacobi` or `cg` + `chebyshev`; `lbfgs` is a good
-  matrix-free option.
+- **GPU, quasi-static** — `cg` + `amg`. It is the only GPU option that both
+  converges its linear systems and beats the CPU direct solver at scale, and
+  at 1.57M DOF it is the fastest option on either device.
+- **GPU, implicit dynamics at small Δt** — `cg` + `jacobi`. The mass term
+  conditions the system, so AMG's iteration reduction does not repay its
+  per-application cost; see `benchmark_report.md`.
 - **Never run plain `cg` with no preconditioner** on a real mesh. It is valid
   and very slow.
 
@@ -321,7 +326,6 @@ Practical guidance:
 |---|---|
 | GPU + `direct` | Hard error at startup. |
 | GPU + `ic` preconditioner | Requires an assembled matrix; unavailable. |
-| GPU + `amg` preconditioner | Hard error at startup. |
 | `central difference` + any `solver` block | Silently ignored; explicit has no nonlinear solve. |
 | NLCG / SD + `linear solver` | Ignored by design; these are matrix-free. |
 | Large Δt + `j2 plasticity` | Path-dependent; large steps miss the yield surface. Keep line search on and steps small. |

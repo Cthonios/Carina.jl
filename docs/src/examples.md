@@ -81,6 +81,7 @@ bin/carina examples/mechanics/explicit-dynamic/torsion/torsion_explicit.yaml --d
 ```
 
 The explicit examples benefit most — that path is matrix-free and scales to
-millions of degrees of freedom. Note that `direct` linear solves and the `ic`
-and `amg` preconditioners are CPU-only, so implicit examples using them will
-fail on GPU; see [Solvers](reference/solvers.md).
+millions of degrees of freedom. Implicit examples run on GPU too: `cg` with
+either `amg` or `jacobi` is supported. Only `direct` linear solves and the `ic`
+preconditioner are CPU-only, so implicit examples using those will fail on GPU;
+see [Solvers](reference/solvers.md).
