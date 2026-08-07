@@ -1,0 +1,122 @@
+Matrix-free stiffness action: ablation arms behind benchmark_report.md §9
+=========================================================================
+
+Problem: torsion-qs deck (benchmark/inputs/torsion-qs-gpu-cg-jacobi.yaml),
+530,523 DOF / 527,877 free, 160,000 HEX8, AMD Radeon RX 7600 (gfx1102),
+ROCm via AMDGPU.jl, Julia 1.12.6.  Date: 2026-08-06.
+
+Driver: benchmark/action_bench.jl -- builds the simulation with
+`backend = AMDGPU.ROCBackend()`, then calls
+`FEC.assemble_matrix_free_action!` in a loop with `KA.synchronize`, 5 warmup
+reps discarded, 50 timed reps, median reported.  The direction vector is
+1e-6 * randn(MersenneTwister(20260806), n) -- a FIXED SEED and deliberately
+NOT uniform: a uniform v is a rigid translation, so K*v collapses to a
+boundary layer and the checksum stops being able to detect dropped updates.
+
+`chk` is sum(abs, stiffness_action_storage) -- the race detector.  Arms that
+change it changed the arithmetic; arms that preserve it are numerically
+equivalent to the baseline.
+
+Byte figures use the report's §4 accounting (~856 B/element); they are shown
+only for continuity with §4 and are NOT the binding roofline (see §9).
+
+
+ARM A -- baseline, unmodified FEC main (5444cfb)
+------------------------------------------------
+`fec_atomic_add!` = `Atomix.@atomic field.data[index] += val`
+(FiniteElementContainers src/Utils.jl:5).
+
+    arm            : A-atomic
+    min   / action :   29.278 ms
+    median/ action :   29.665 ms
+    ns per element :   185.41 ns  (median)
+    achieved BW    :     4.62 GB/s
+    checksum       : 1.906160379497e+06
+
+Reproduces §4's independently measured 30.7 ms/CG-iteration and
+~191 ns/element, so the microbenchmark is measuring the §4 quantity.
+
+
+ARM B -- atomics removed (RACY, results WRONG; timing only)
+-----------------------------------------------------------
+Patch, FiniteElementContainers src/Utils.jl:5:
+    -    Atomix.@atomic field.data[index] += val
+    +    field.data[index] += val
+
+    arm            : B-nonatomic
+    min   / action :   29.716 ms
+    median/ action :   30.051 ms
+    ns per element :   187.82 ns  (median)
+    checksum       : 1.903397735121e+06
+
+VERDICT: removing every FP64 atomic buys NOTHING -- 30.05 ms vs 29.67 ms,
+i.e. 1.3% SLOWER, inside the +/-1.6 ms run-to-run band.  The checksum moved
+(1.906160e6 -> 1.903398e6), which confirms the race really occurred and the
+ablation really took effect.  §4's FP64-atomic-scatter hypothesis is refuted.
+
+
+ARM C -- same-process control: stiffness vs mass action (both unmodified)
+-------------------------------------------------------------------------
+`mass_action` has the identical connectivity gather, the identical 24-atomic
+scatter, the identical element count and launch geometry.  It differs ONLY in
+arithmetic per element.
+
+    stiffness_action   med   30.119 ms   min   29.367 ms   188.24 ns/elem    4.55 GB/s   chk 1.906160e+06
+    mass_action        med    2.385 ms   min    2.062 ms    14.90 ns/elem   57.43 GB/s   chk 2.124831e-06
+
+VERDICT: 12.6x apart.  ~92% of the stiffness action is arithmetic, not memory
+movement and not the scatter.  mass_action reaching 57 GB/s on the same access
+pattern also shows what this gather/scatter shape can actually sustain.
+
+
+ARM D -- material tangent not formed (results WRONG; timing only)
+------------------------------------------------------------------
+Patch, Carina src/physics.jl, in FEC.stiffness_action, replacing the
+`CM.material_tangent` + `extract_stiffness` pair with a synthetic dense 9x9:
+
+    _s  = props_el[2] + 1.0e-300 * ∇u_q[1, 1]
+    A_v = SMatrix{9, 9, Float64, 81}(ntuple(i -> _s * i, Val(81)))
+
+The 1e-300 term keeps the coordinate/field gathers and the gradient
+interpolation alive so they are not eliminated along with the tangent; the 81
+entries are runtime values so the triple product stays genuinely dense.
+(Val(81), not 81: `ntuple` with a plain Int is not unrolled past n=10 and
+lowers to a dynamic call, which is invalid IR in a device kernel -- it
+surfaces as an uncatchable signal 11 inside GPUCompiler's check_ir!, not as
+an InvalidIRError.)
+
+    stiffness_action   med    8.104 ms   min    7.822 ms    50.65 ns/elem   16.90 GB/s   chk 1.488115e+08
+    mass_action        med    2.374 ms   min    2.065 ms    14.84 ns/elem   57.69 GB/s   chk 2.124831e-06
+
+VERDICT: forming the 4th-order tangent is 30.119 - 8.104 = 22.0 ms, i.e. 73%
+of the whole action.
+
+
+ARM JVP -- the fix, in main (results CORRECT)
+----------------------------------------------
+`FEC.stiffness_action` now takes the directional derivative
+dP = ∂P/∂∇u : ∇v via one forward-mode dual pass over `pk1_stress`, instead of
+forming ∂P/∂∇u and contracting it.  See Carina src/physics.jl `_pk1_jvp`.
+
+    stiffness_action   med    9.503 ms   min    9.103 ms    59.40 ns/elem   14.41 GB/s   chk 1.906160e+06
+    mass_action        med    2.377 ms   min    2.076 ms    14.86 ns/elem   57.61 GB/s   chk 2.124831e-06
+
+VERDICT: 30.119 -> 9.503 ms, a 3.17x speedup, with the checksum IDENTICAL to
+arm A (1.906160e+06) -- the operator is unchanged to the digits printed.  It
+lands within 17% of arm D's 8.104 ms, which computed no constitutive
+derivative at all, so little remains in the constitutive part.
+
+
+Cross-run stability
+-------------------
+`mass_action` was timed in three separate processes (arms C, D, JVP) at
+2.385 / 2.374 / 2.377 ms -- a 0.5% spread.  Cross-run comparison of the
+stiffness numbers above is sound at the precision claimed.
+
+
+Cost decomposition of one baseline action (30.12 ms)
+-----------------------------------------------------
+    forming the 4th-order material tangent   22.0 ms   73%   (C - D)
+    dense 9x9 G*A_v*(G'v) triple product      5.7 ms   19%   (D - mass)
+    gather + scatter + launch                 2.4 ms    8%   (mass)
+    FP64 atomics specifically                 ~0 ms     0%   (A - B)
