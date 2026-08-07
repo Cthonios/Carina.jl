@@ -4,6 +4,7 @@
 
 import FiniteElementContainers as FEC
 import ConstitutiveModels as CM
+import ForwardDiff
 using StaticArrays
 using Tensors
 
@@ -218,6 +219,62 @@ end
 end
 
 # --------------------------------------------------------------------------- #
+# Directional derivative of PK1 stress:  dP = ∂P/∂∇u : ∇v
+# --------------------------------------------------------------------------- #
+#
+# A matrix-free action needs the tangent's action on ONE direction, never the
+# tangent itself.  Forming all 81 components of ∂P/∂∇u and then contracting
+# them with a single vector was measured at ~73% of the GPU action kernel's
+# runtime, with the 9×9 contraction that consumes the result another ~19%
+# (benchmark_report.md §4).  Taking the derivative along ∇v directly removes
+# both: one forward-mode dual pass over `pk1_stress` costs about two stress
+# evaluations, whatever the model.  This is the standard matrix-free Jacobian
+# application used by libCEED/MFEM/Ratel.
+
+struct _PK1JVPTag end
+
+@inline function _pk1_jvp(
+    model, props, state_old, state_new, dt,
+    ∇u::Tensor{2, 3, T, 9}, ∇v::Tensor{2, 3, T, 9},
+) where {T <: Number}
+    D = ForwardDiff.Dual{_PK1JVPTag, T, 1}
+    # Seed ∇u with ∇v as the single partial direction, so the dual part of the
+    # result is exactly ∂P/∂∇u : ∇v.  Val(9) keeps `ntuple` unrolled -- a plain
+    # Int length lowers to a dynamic call, which is invalid IR in a GPU kernel.
+    ∇u_d = Tensor{2, 3, D, 9}(ntuple(
+        i -> D(∇u.data[i], ForwardDiff.Partials{1, T}((∇v.data[i],))), Val(9)))
+    P_d = CM.pk1_stress(model, props, state_old, state_new, dt, ∇u_d, zero(D))
+    return Tensor{2, 3, T, 9}(ntuple(
+        i -> ForwardDiff.partials(P_d.data[i], 1), Val(9)))
+end
+
+# Stateless models (every `Hyperelastic`, NS = 0): differentiate `pk1_stress`
+# along ∇v.
+@inline function _stiffness_action_dP(
+    physics::SolidMechanics{Model, NP, 0},
+    ∇u_q, ∇v_q, state_old_q, state_new_q, dt, props_el,
+) where {Model, NP}
+    return _pk1_jvp(physics.constitutive_model, props_el,
+                    state_old_q, state_new_q, dt, ∇u_q, ∇v_q)
+end
+
+# Models carrying state (e.g. J2 plasticity): `pk1_stress` runs a return map
+# against Float64 state containers, which cannot hold dual numbers.  These keep
+# the original form-the-tangent-then-contract path -- correct, just not the
+# fast one.  Lifting the state payload to duals would let them share it.
+@inline function _stiffness_action_dP(
+    physics::SolidMechanics,
+    ∇u_q, ∇v_q, state_old_q, state_new_q, dt, props_el,
+)
+    A_q = CM.material_tangent(
+        physics.constitutive_model, props_el, state_old_q, state_new_q, dt, ∇u_q, 0.0
+    )
+    A_v = FEC.extract_stiffness(FEC.ThreeDimensional(), A_q)
+    dP  = A_v * SVector{9, eltype(∇v_q)}(∇v_q.data)
+    return Tensor{2, 3, eltype(∇v_q), 9}(dP.data)
+end
+
+# --------------------------------------------------------------------------- #
 # FEC interface: stiffness_action (K·v per quadrature point, no matrix formed)
 # --------------------------------------------------------------------------- #
 
@@ -235,14 +292,20 @@ end
     ∇u_q = FEC.interpolate_field_gradients(physics, cell, u_el)
     ∇u_q = FEC.modify_field_gradients(FEC.ThreeDimensional(), ∇u_q)
 
-    A_q = CM.material_tangent(
-        physics.constitutive_model, props_el, state_old_q, state_new_q, dt, ∇u_q, 0.0
+    # `G' * v_el` is ∇v in the same component order, so interpolating it the
+    # same way ∇u is interpolated gives the identical quantity; this form just
+    # keeps the direction a tensor all the way through.
+    ∇v_q = FEC.interpolate_field_gradients(physics, cell, v_el)
+    ∇v_q = FEC.modify_field_gradients(FEC.ThreeDimensional(), ∇v_q)
+
+    dP_q = _stiffness_action_dP(
+        physics, ∇u_q, ∇v_q, state_old_q, state_new_q, dt, props_el
     )
 
-    A_v = FEC.extract_stiffness(FEC.ThreeDimensional(), A_q)
-    G   = FEC.discrete_gradient(FEC.ThreeDimensional(), ∇N_X)
-    # K_q·v_el = JxW·G·A_v·(G'·v_el) — avoids forming K_q (24×24)
-    return JxW * G * (A_v * (G' * v_el))
+    dP_v = FEC.extract_stress(FEC.ThreeDimensional(), dP_q)
+    G    = FEC.discrete_gradient(FEC.ThreeDimensional(), ∇N_X)
+    # K_q·v_el = JxW·G·(∂P/∂∇u : ∇v) — neither K_q (24×24) nor ∂P/∂∇u is formed
+    return JxW * G * dP_v
 end
 
 # --------------------------------------------------------------------------- #
