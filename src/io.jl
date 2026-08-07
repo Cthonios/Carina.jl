@@ -231,7 +231,6 @@ function _write_recovered_fields!(sim, step)
     ))
         nelem   = conns.nelems[b]
         coffset = conns.offsets[b]
-        state_new_b = FEC.block_view(params_cpu.state_new, b)
         for e in 1:nelem
             conn = FEC.connectivity(ref_fe, conns.data, e, coffset)
             x_el = FEC._element_level_fields_flat(params_cpu.coords, ref_fe, conn)
@@ -268,7 +267,7 @@ function _write_recovered_fields!(sim, step)
                     for i in 1:nnpe
                         NiJxW = N[i] * JxW
                         for s in 1:NS
-                            iv_nodal[s, conn[i]] += NiJxW * state_new_b[s, q, e]
+                            iv_nodal[s, conn[i]] += NiJxW * state_new_q[s]
                         end
                     end
                 end

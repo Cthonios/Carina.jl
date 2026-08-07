@@ -51,7 +51,11 @@ ig, asm, p = sim.integrator, sim.integrator.asm, sim.params
 U = ig.U; n = length(U)
 fspace  = FEC.function_space(asm.dof)
 nblocks = length(fspace.ref_fes)
-nelems  = sum(size(FEC.block_view(p.state_old, b), 3) for b in 1:nblocks)
+# Element counts come from the connectivity, not the state field.  `Connectivity`
+# keeps its block metadata on the host across `adapt`, whereas `StateVariableField`
+# moves `nelems`/`nepes`/`offsets` to the device -- so `block_view(p.state_old, b)`
+# scalar-indexes GPU arrays here and throws.
+nelems  = sum(fspace.elem_conns.nelems[b] for b in 1:nblocks)
 backend = KA.get_backend(asm.stiffness_action_storage.data)
 
 v = similar(U)
