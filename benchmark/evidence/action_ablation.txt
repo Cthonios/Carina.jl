@@ -117,6 +117,78 @@ stiffness numbers above is sound at the precision claimed.
 Cost decomposition of one baseline action (30.12 ms)
 -----------------------------------------------------
     forming the 4th-order material tangent   22.0 ms   73%   (C - D)
-    dense 9x9 G*A_v*(G'v) triple product      5.7 ms   19%   (D - mass)
+    geometry + interpolation + contraction    5.7 ms   19%   (D - mass)
     gather + scatter + launch                 2.4 ms    8%   (mass)
     FP64 atomics specifically                 ~0 ms     0%   (A - B)
+
+NOTE on the 19% row -- it is a BUNDLE, not the contraction alone.  Arm D
+removes only the tangent; it still runs `map_interpolants` (the per-qp
+Jacobian inverse), the ∇u interpolation, `discrete_gradient` (forming the
+24x9 G), the 9x9 contraction and the final G*dP.  `mass_action` has none of
+the gradient machinery.  So D - mass covers all of it and these arms cannot
+separate the pieces.  An earlier revision of this file and of §9 labelled
+this row "dense 9x9 G*A_v*(G'v) triple product", which was wrong.
+
+NOTE on what the rewrite actually removed.  The tangent formation (22.0 ms)
+and the 9x9 contraction both disappear, but the JVP arm lands at 9.50 ms --
+1.40 ms ABOVE arm D, which still performs that contraction.  The dual-number
+pass over pk1_stress plus the second gradient interpolation for ∇v therefore
+cost about 1.4 ms MORE than the contraction they displace.  Net saving is
+30.12 - 9.50 = 20.6 ms, which is LESS than the 22.0 ms attributed to tangent
+formation alone.  Do not describe the rewrite as removing "the 73% and most
+of the 19%".
+
+
+=========================================================================
+ROUND 2 -- arms added in response to the Critic's re-review (2026-08-06)
+=========================================================================
+
+ARM B2 -- atomics removed again, this time on the POST-rewrite kernel
+----------------------------------------------------------------------
+Arm B was measured when the action cost ~30 ms and the gather/scatter floor
+was 8% of it.  After the rewrite the floor is ~25% of a 9.5 ms kernel, so the
+"atomics cost nothing" conclusion had to be re-established at the new
+operating point rather than assumed to carry over.  Same patch as arm B.
+
+    stiffness_action   med    9.637 ms   min    9.259 ms   60.23 ns/elem   chk 1.901813e+06
+    (current baseline) med    9.503 ms   min    9.103 ms   59.40 ns/elem   chk 1.906160e+06
+
+VERDICT: still no gain -- 9.637 vs 9.503 ms, again ~1.4% SLOWER and again
+inside the run-to-run band, with the checksum moved (1.906160e6 ->
+1.901813e6) confirming the race occurred.  The atomics dismissal holds at
+both operating points.
+
+
+ARM DEFORMED -- operator equivalence at FINITE STRAIN
+------------------------------------------------------
+Every arm above evaluates the action at U = 0, where the geometric part of
+∂P/∂∇u vanishes identically -- so an initial-state checksum cannot tell apart
+two kernels that differ only there.  These two runs solve one load step
+first (|U|_max = 3.140e-04), then time and checksum the action at that
+converged deformed state.  `benchmark/action_bench.jl 50 deformed`.
+
+  pre-rewrite kernel (src/physics.jl at 2c923d6):
+    stiffness_action   med   30.829 ms   min   29.868 ms   192.68 ns/elem   chk 1.906166e+06
+  post-rewrite kernel (7e40432, current):
+    stiffness_action   med    9.670 ms   min    9.268 ms    60.44 ns/elem   chk 1.906166e+06
+
+Repeated at FULL PRECISION, because `sum(abs, ·)` over 5.3e5 entries
+compresses a localized discrepancy hard: at |U|_max = 3.14e-4 the geometric
+part of ∂P/∂∇u is ~3e-4 relative per entry, but aggregation can shrink even a
+wholesale error in that term to ~1e-6-1e-5 relative, against a print
+resolution of ~5e-7 at %.6e.  Seven digits was therefore only a
+factor-of-a-few margin, not a decisive result.  `action_bench.jl` now prints
+%.15e:
+
+  pre-rewrite kernel (src/physics.jl at 2c923d6):
+    stiffness_action   med   31.235 ms   min   30.129 ms   195.22 ns/elem   chk 1.906165947916275e+06
+  post-rewrite kernel (7e40432, current):
+    stiffness_action   med    9.716 ms   min    9.287 ms    60.73 ns/elem   chk 1.906165947916275e+06
+
+VERDICT: BIT-IDENTICAL at finite strain -- all 16 significant digits agree --
+so the directional derivative reproduces the form-and-contract operator
+including the geometric terms that are invisible at U = 0.  Speedup
+31.235/9.716 = 3.21x, consistent with the 3.17-3.19x measured elsewhere.
+This, not the U = 0 checksum, is the device-side correctness evidence; the
+host-side 1e-12 test at ~1e-3 strain (test/matrix-free-operators.jl) is the
+independent confirmation.

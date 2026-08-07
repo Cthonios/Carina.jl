@@ -6,15 +6,18 @@ resolutions tracked in the gpu-amg branch history, commits d209ecd/094ca3b/b9f82
 **Amended 2026-08-06 (§9).**  Follow-up item 1 was carried out and its stated
 cause turned out to be wrong: the FP64 atomic scatter costs nothing, and the
 matrix-free action's real expense was forming the material tangent.  Replacing
-that with a directional derivative gave 3.17× on the kernel and 2.07×
+that with a directional derivative gave 3.17× on the kernel and ~2.1×
 end-to-end, which **overturns this report's "CPU AMG and GPU AMG are tied"
-conclusion** — GPU AMG is now 2.15× faster than CPU AMG.  §2's tables carry
+conclusion** — GPU AMG is now roughly 2.0–2.2× faster than CPU AMG (the
+"current" cells are single runs; see §2).  §2's tables carry
 both the as-benchmarked and current numbers; §4, §6 and §8 are corrected in
 place; §9 has the ablation.  The Critic reviewed the original campaign, not
 this amendment.
 
-Campaign brief: `~/Carina-GPU.md`.  Proposed solution, design rationale and
-rejected alternatives: `benchmark/design.md`.  Raw data:
+Campaign brief: `~/Carina-GPU.md` — **not present on this host as of
+2026-08-06**; it lived outside the repository and was not archived, so this
+citation is currently dangling.  Proposed solution, design rationale and
+rejected alternatives (in-repo, authoritative): `benchmark/design.md`.  Raw data:
 `benchmark/results/{baseline,proposed,scaling2,variance,detail,bisect,nbuilds-check,jvp}.jsonl`
 plus the evidence appendix `benchmark/evidence/`; harness:
 `benchmark/harness.jl` (one fresh process per run; iteration counts parsed
@@ -107,8 +110,8 @@ same solve at different cost.  CPU variants solve assembled, never call
 
 | variant            | as benchmarked (s) | current (s) | CG iters   | linear conv. | VRAM (GB) |
 |--------------------|-------------------:|------------:|-----------:|--------------|----------:|
-| **GPU CG+AMG (new)** | 299 (n=4)        | **141**     | **951–980** | yes         | 0.65      |
-| **GPU CG+Jacobi**  | 578 (n=3)          | **204**     | 16,000     | **capped**   | 0.22      |
+| **GPU CG+AMG (new)** | 299 (n=4)        | **141** (n=1) | **951–980** | yes       | 0.65      |
+| **GPU CG+Jacobi**  | 578 (n=3)          | **204** (n=1) | 16,000    | **capped**   | 0.22      |
 | CPU CG+AMG         | 302                | 302         | 787        | yes          | —         |
 | CPU CG+Jacobi      | 372 (n=2)          | 372         | 16,000     | **capped**   | —         |
 | CPU direct         | 443                | 443         | —          | (direct)     | —         |
@@ -134,9 +137,15 @@ but it was never competitive and nothing rests on its number.
 - ~~CPU AMG and GPU AMG are tied at this size~~ — **true as benchmarked
   (302 vs 299), no longer true.**  The CPU's Gauss–Seidel smoother still
   converges in fewer iterations (787 vs 951–980) than the device's
-  parallel-friendly damped Jacobi, but after §9 GPU AMG is **2.15× faster
-  than CPU AMG** (141 vs 302), and GPU CG+Jacobi alone (204) now also beats
-  CPU AMG.  Scaling widens this further (§3).
+  parallel-friendly damped Jacobi, but after §9 GPU AMG is **roughly 2.0–2.2×
+  faster than CPU AMG** (141 vs 302), and GPU CG+Jacobi alone (204) now also
+  beats CPU AMG.  The range, not a point estimate: the "current" cells are
+  single runs against a documented 8% before-spread on GPU AMG
+  (290/291/299/314), so 2.15× is the ratio of one measurement to one
+  measurement.  The direction is not in doubt — the smallest plausible
+  numerator and largest plausible denominator still leave GPU AMG ahead by
+  ~2× — but the third significant figure is not earned.  Scaling widens this
+  further (§3).
 - GPU AMG VRAM: 0.65 GB total vs 0.22 GB unpreconditioned — the device
   hierarchy costs ~0.43 GB, inside the predicted 0.3–0.6× of the never-formed
   fine matrix (~0.9 GB).
@@ -145,7 +154,7 @@ but it was never competitive and nothing rests on its number.
 
 | variant            | as benchmarked (s) | current (s) | CG iters | VRAM (GB) |
 |--------------------|-------------------:|------------:|---------:|----------:|
-| **GPU CG+Jacobi**  | 169                | **121**     | 2,300    | 0.26      |
+| **GPU CG+Jacobi**  | 169                | **121** (n=1) | 2,300  | 0.26      |
 | GPU L-BFGS         | 112                | not re-run  | —        | 0.34      |
 | CPU CG+Jacobi      | 150                | 150         | 2,558    | —         |
 | CPU CG+AMG         | 176                | 176         | 264      | —         |
@@ -187,7 +196,7 @@ after the §9 action rewrite.**  Only the 530k row has current numbers (GPU AMG
 improve by a similar factor and the CPU columns would not, so every
 GPU-favourable conclusion below holds *a fortiori*; no conclusion here depends
 on the GPU numbers being as large as printed.  Re-running the sweep is
-tracked as §6 item 3.
+tracked as §6 item 4.
 
 - **At 1.57M DOF the proposed solver is the fastest quasistatic option on
   the machine and the only AMG that runs at all.**  Stock
@@ -265,8 +274,9 @@ Byte accounting per iteration (basis of the achieved-bandwidth figures):
   of roofline**, or ~191 ns per element, against a CPU SpMV running at ~100%
   of its own machine.  **§9 measured what that 30 ms is actually spent on,
   and it is not memory traffic:** ~73% is forming the 4th-order material
-  tangent, ~19% is the 9×9 contraction that consumes it, ~8% is
-  gather+scatter+launch.  The kernel is FP64-compute-bound, so a bandwidth
+  tangent, ~19% is a bundle of geometry, gradient interpolation and the
+  contraction that consumes the tangent, ~8% is gather+scatter+launch.  The
+  kernel is FP64-compute-bound, so a bandwidth
   roofline is the wrong yardstick for it — a matrix-free method is *supposed*
   to trade bytes for flops, and on a part running FP64 at 1/32 rate that
   shows up as a small bandwidth fraction.  Read §9 before citing the 1.8%
@@ -324,12 +334,51 @@ the counter).
      tangent that does not depend on `∇u` at every quadrature point; it
      wants hoisting, which needs an FEC interface that evaluates once per
      element.
-   Prior art, still relevant to items 5 and 7: Pazner, Kolev & Camier,
+   Prior art, still relevant to items 6 and 8: Pazner, Kolev & Camier,
    "End-to-end GPU acceleration of low-order-refined preconditioning"
    (IJHPCA 2023); Brown *et al.*, "Performance portable solid mechanics via
    matrix-free p-multigrid" (Ratel); and hypre's GPU BoomerAMG guidance
    (PMIS coarsening, ℓ1-Jacobi/Chebyshev smoothers, never Gauss–Seidel).
-2. **Ablate the explicit kernel the way §9 ablated the implicit one.**  §8's
+2. **The remaining implicit-kernel wins**, now that the action is 9.50 ms
+   against a 2.38 ms gather/scatter/launch floor.  The 7.1 ms above that floor
+   is arithmetic, and a FLOP budget puts it in perspective: the RX 7600's FP64
+   peak is ~21.75 TFLOP/s ÷ 32 ≈ **0.68 TFLOP/s**, so 7.1 ms buys ~3,800
+   FLOP/quadrature-point, against an estimated ~1,600–1,900 actually needed
+   (geometry ~350, two gradient interpolations ~290, one-partial dual stress
+   ~500–750, dense 24×9 `G·dP` ~430).  **The kernel is therefore already at
+   roughly 40–50% of FP64 peak, and FP64 throughput — not bandwidth, not the
+   scatter — is plausibly the binding ceiling.**  That reframes what is left:
+   the wins are in doing fewer FP64 flops, or in not doing them in FP64.
+   In rough payoff order:
+   - **(a) FP32 action inside the preconditioner.**  The V-cycle's smoothing
+     and residuals do not need FP64; wrapping an FP32 action in flexible CG
+     keeps the outer solve in FP64.  Arithmetic gets ~32× cheaper on this
+     part, so the kernel would be bounded below by its 2.38 ms memory floor —
+     up to ~4.0× on the action, and ~2× on the AMG solve phase (of which
+     ~57 ms of each 74.2 ms iteration is fine actions).  Largest single item
+     on this list.
+   - **(b) Hand-written analytic directional derivative** for NeoHookean,
+     removing the ~2–3× dual-number overhead on the stress evaluation
+     (~1.5–2 ms).  Costs generality — it is per-model, and the Hencky work
+     would need its own — so measure (a) first.
+   - **(c) Precompute per-quadrature-point `∇N_X`/`JxW`** instead of
+     recomputing the Jacobian inverse every action: ~102 MB of extra traffic
+     replacing ~1 ms of arithmetic.  **Whether this pays depends entirely on
+     the achieved read bandwidth, and the margin is thin.**  At the 57 GB/s
+     the scatter path sustains, 102 MB costs 1.79 ms — a net *loss*.  It only
+     wins if the read runs far closer to peak, which it plausibly does: this
+     is a coalesced streaming read of a contiguous per-quadrature-point array,
+     not the indirect gather/scatter that limits `mass_action`, so ~0.35–0.5 ms
+     near the 288 GB/s peak is the target.  Measure the achieved bandwidth of
+     that read before implementing.  Trading flops for bytes is the right
+     direction on a 1/32-rate part — the opposite of the usual matrix-free
+     instinct — but not at any price.
+   - **(d) Exploit `G`'s structure** in the final contraction: `discrete_gradient`
+     builds a 24×9 matrix with 3 nonzeros per row and it is then multiplied
+     densely (~430 → ~120 FLOP/qp).
+   - **(e) Profile** for occupancy and register pressure, which ablation
+     cannot reach.  See the note on `rocprofv3` availability in §9.
+3. **Ablate the explicit kernel the way §9 ablated the implicit one.**  §8's
    "~13× headroom" claim is withdrawn because it divided achieved into peak
    *bandwidth* for a kernel that is not bandwidth-bound.  The honest
    replacement is a measurement, not a revised estimate: time an explicit step
@@ -338,24 +387,24 @@ the counter).
    Explicit evaluates stress rather than a tangent, so there is no 73% to
    reclaim — but the size of what *is* there is currently unknown, and this is
    the cheapest open measurement in this list.
-3. **Re-run the scaling sweep** (§3): the 823k and 1.57M rows predate §9, so
+4. **Re-run the scaling sweep** (§3): the 823k and 1.57M rows predate §9, so
    the GPU columns there understate current performance.  The conclusions are
    unaffected in direction, but the table should not stay stale.
-4. **Host-memory remediations** (§3): Int32 assembler pattern indices
+5. **Host-memory remediations** (§3): Int32 assembler pattern indices
    (halves the 25–35 GB COO pattern), dedup-to-CSR at construction (removes
    the per-element-entry triplets), and a pattern-free `asm_cpu` mode for GPU
    runs that never assemble on the host.  These, not device limits, gate
    multi-M-DOF problems on 60 GB-class hosts.
-5. **Smoother tuning**: CPU AMG's Gauss–Seidel converges in 787 iterations
+6. **Smoother tuning**: CPU AMG's Gauss–Seidel converges in 787 iterations
    where the device's damped Jacobi needs 951–980 (§2) — ~20% headroom via
    Chebyshev-polynomial smoothing (machinery exists), ν/cycle-shape tuning,
    or l1-Jacobi.
-6. **Newmark large-dt regime**: AMG should win Newmark once dt grows enough
+7. **Newmark large-dt regime**: AMG should win Newmark once dt grows enough
    that c_M stops conditioning the system; the crossover dt was not mapped.
-7. **CUDA validation**: the implementation is KernelAbstractions-portable and
+8. **CUDA validation**: the implementation is KernelAbstractions-portable and
    contains no ROCm-specific paths, but only ROCm was exercised; a CUDA run
    of the GPU test suite would close the portability claim.
-8. **Upstream candidates**: the `_slab_galerkin` memory fix (AlgebraicMultigrid.jl
+9. **Upstream candidates**: the `_slab_galerkin` memory fix (AlgebraicMultigrid.jl
    would benefit directly) and the `KA.@index` qualified-macro CPU-backend
    miscompilation (KernelAbstractions.jl issue).
 
@@ -436,8 +485,10 @@ raw records `benchmark/results/explicit-scaling.jsonl`.
   `Bᵀ C B v` product — is **refuted for the implicit side by §9**, where
   removing the atomics changed nothing and the constitutive work turned out
   to be 92% of the cost.  The same explanation therefore cannot be assumed
-  for explicit either: both kernels are dominated by FP64 arithmetic on a
-  part that runs FP64 at 1/32 rate.
+  for explicit either.  That the explicit kernel is *also* FP64-arithmetic-
+  bound is a plausible **hypothesis, not a measurement** — it has never been
+  ablated, and §6 item 3 is the experiment that would settle it.  Stating it
+  as fact here would repeat exactly the error §9 corrects.
 - **Headroom.**  This report previously claimed explicit was "leaving ~13× on
   the table relative to roofline."  **Withdraw that number.**  It divides
   achieved bandwidth into peak bandwidth for a kernel that is not
@@ -447,7 +498,7 @@ raw records `benchmark/results/explicit-scaling.jsonl`.
   much of its 40.2 ns/element is reducible.  What §9 does establish is that
   the implicit action had ~3× of genuine headroom and it has now been taken;
   whether explicit has a comparable constitutive-side win is untested and is
-  the natural next experiment (see §9's closing note).  On a datacenter GPU
+  the natural next experiment (§6 item 3).  On a datacenter GPU
   (full-rate FP64, 1.6–5.3 TB/s) both ceilings move by an order of magnitude.
 
 ## 9. The action kernel: ablation, and a 3.17× rewrite
@@ -459,9 +510,14 @@ established and what replaced it.  Raw arm-by-arm output, including the exact
 source patch behind each arm, is in `benchmark/evidence/action_ablation.txt`;
 the driver is `benchmark/action_bench.jl`.
 
-**Method.**  `rocprof` is unavailable on this host — Fedora 44 packages only
-`rocprofiler-register` and `roctracer`, with no `rocprof`/`rocprofv3` binary in
-the repositories — so the diagnosis was made by ablation instead: patch out one
+**Method.**  Fedora 44 packages only `rocprofiler-register` and `roctracer`,
+with no `rocprof`/`rocprofv3` binary in its repositories, so no profiler was
+available *from the distribution*.  (It is obtainable by other routes — AMD
+ships `rocprofv3` in its own ROCm repositories, usable from a container on this
+host, and there are pip wheels; nothing here should be read as "profiling is
+impossible on this machine," only that it was not on hand.  Occupancy and
+register pressure in particular cannot be established by ablation and will need
+one.)  The diagnosis was therefore made by ablation: patch out one
 suspected cost at a time, accept that the results become wrong, and keep only
 the timing.  Each arm builds the torsion-QS problem on device, then times
 `assemble_matrix_free_action!` in isolation (5 warmup reps discarded, 50 timed,
@@ -479,6 +535,15 @@ baseline arm reproduces §4's independently measured ~191 ns/element at
 | C  `mass_action`, unmodified         |  2.38 |  14.9 | gather + scatter + launch floor |
 | D  material tangent not formed       |  8.10 |  50.7 | cost of forming ∂P/∂∇u |
 | —  **after the rewrite below**       |  **9.50** | **59.4** | |
+| B2 atomics → plain `+=`, *post-rewrite* | 9.64 | 60.2 | atomics at the new operating point |
+
+Arm B2 exists because arm B was measured when the scatter was 8% of a 30 ms
+kernel; after the rewrite it is ~25% of a 9.5 ms one, so "atomics cost
+nothing" had to be re-established rather than assumed to carry over.  It
+does: 9.64 vs 9.50 ms, again ~1.4% slower and again inside the band, with the
+checksum moved (1.906160e6 → 1.901813e6).  The dismissal holds at both
+operating points — but note it is a statement about *these* two points, not a
+proof that a conflict-free scatter can never pay.
 
 `mass_action` (arm C) is the control that makes this readable: identical
 connectivity gather, identical 24-atomic scatter, identical element count and
@@ -488,12 +553,19 @@ cross-run comparison here is sound.
 
 **Result — one baseline action (30.12 ms) decomposes as:**
 
-| component | ms | share |
-|-----------|---:|------:|
-| forming the 4th-order material tangent | 22.0 | **73%** |
-| dense 9×9 `G·A_v·(Gᵀv)` triple product |  5.7 | 19% |
-| gather + scatter + launch              |  2.4 |  8% |
-| FP64 atomics                           | ~0   | **0%** |
+| component | ms | share | from |
+|-----------|---:|------:|------|
+| forming the 4th-order material tangent | 22.0 | **73%** | C − D |
+| geometry + interpolation + contraction |  5.7 | 19% | D − mass |
+| gather + scatter + launch              |  2.4 |  8% | mass |
+| FP64 atomics                           | ~0   | **0%** | A − B |
+
+The 19% row is a **bundle these arms cannot separate**, not the contraction
+alone.  Arm D removes only the tangent; it still runs `map_interpolants` (the
+per-quadrature-point Jacobian inverse), the `∇u` interpolation,
+`discrete_gradient` (forming the 24×9 `G`), the 9×9 contraction, and the final
+`G·dP`.  `mass_action` has none of the gradient machinery, so the difference
+covers all of it.  Splitting this row needs its own arms.
 
 Arm B is the refutation: removing *every* FP64 atomic left the kernel 1.3%
 slower — inside the ±1.6 ms run-to-run band — while moving the checksum
@@ -513,8 +585,20 @@ along ∇v directly —
     dP = ∂P/∂∇u : ∇v
 
 — via one forward-mode dual pass over `pk1_stress` (`_pk1_jvp`), seeding ∇u
-with ∇v as the single partial direction.  That removes the 73% *and* most of
-the 19%, since `A_v` is never built and the 9×9 contraction disappears with it.
+with ∇v as the single partial direction.  `A_v` is never built, and the 9×9
+contraction disappears with it.
+
+**But the rewrite is not free, and the table above says so.**  The JVP kernel
+lands at 9.50 ms — **1.40 ms *above* arm D**, which still performs the
+contraction the rewrite eliminates.  The dual-number pass plus the second
+gradient interpolation for ∇v therefore cost ~1.4 ms *more* than the
+contraction they displace.  Net saving is 30.12 − 9.50 = **20.6 ms, less than
+the 22.0 ms attributed to tangent formation alone**.  The correct summary is:
+the rewrite removes the tangent formation and pays ~1.4 ms for the privilege —
+not that it removes "the 73% and most of the 19%."  That ~1.4 ms is itself a
+target (§6 item 2(b): a hand-written analytic directional derivative would avoid
+the dual overhead).
+
 This is the standard matrix-free Jacobian application used by
 libCEED/MFEM/Ratel.  Cost is about two stress evaluations regardless of model,
 so it does not depend on any model having a hand-written tangent — though
@@ -527,14 +611,27 @@ models keep the form-and-contract path: `pk1_stress` runs a return map against
 Float64 state containers that cannot hold dual numbers, so J2 plasticity is
 correct but not yet faster.
 
-**Correctness.**  The action is unchanged as an operator, and three
-independent checks say so:
-- `test/matrix-free-operators.jl` already asserted `‖K·v − action(v)‖/‖K·v‖ <
-  1e-12` against the *assembled* stiffness, which still forms the full analytic
-  tangent.  It passes — so the dual-number derivative and the hand-written
-  analytic tangent agree to roundoff.
-- The device checksum after the rewrite is 1.906160e+06, **identical** to the
-  baseline arm A.
+**Correctness.**  The action is unchanged as an operator:
+- **At finite strain, on the device:** with the problem first solved one load
+  step (|U|_max = 3.14e-4), the pre- and post-rewrite kernels produce a
+  **bit-identical** checksum — 1.906165947916275e+06 from both, all 16
+  significant digits — at 31.24 vs 9.72 ms.  Printed to full precision
+  deliberately: `sum(abs, ·)` over 5.3e5 entries compresses a localized
+  discrepancy hard, so the 7-digit form this report first quoted left only a
+  factor-of-a-few margin on the geometric term.  At full precision there is no
+  margin question.  This is the binding evidence.  An initial-state checksum is **not** — at U = 0 the
+  geometric part of ∂P/∂∇u vanishes identically, so two kernels differing only
+  there would agree anyway.  (The U = 0 checksums do also match; that fact
+  simply proves less than it appears to.)
+- `test/matrix-free-operators.jl` asserts `‖K·v − action(v)‖/‖K·v‖ < 1e-12`
+  against the *assembled* stiffness, which still forms the full analytic
+  tangent, at a converged ~1e-3-strain state.  It passes — so the dual-number
+  derivative and the hand-written analytic tangent agree to roundoff.  This is
+  a host-side check.
+- Per-solve CG iteration *lists* match the baseline records run for run (AMG's
+  951-list; Newmark's [181, 205, 193, …]).  Note the QS Jacobi row's
+  "16,000 → 16,000" is **vacuous** as evidence — both sides hit the 1000-
+  iteration cap, so equality there is guaranteed regardless of the operator.
 - Full suite: 810/810, unchanged.
 
 **End-to-end (torsion-QS, 530k DOF; `benchmark/results/jvp.jsonl`).**  Nothing
@@ -542,22 +639,37 @@ about convergence moved — same CG totals, same Newton counts per step, same
 VRAM — which is the signature of an operator that is mathematically identical
 and merely cheaper:
 
-| variant | before (s) | after (s) | speedup | CG iters | Newton |
-|---------|-----------:|----------:|--------:|---------:|--------|
-| GPU CG+AMG, total       | 291.06 | **140.75** | **2.07×** | 951 → 951       | [3,3,3,3] both |
+| variant | before (s) | after, n=1 (s) | speedup | CG iters | Newton |
+|---------|-----------:|---------------:|--------:|---------:|--------|
+| GPU CG+AMG, total       | 291.06 (n=4: 290–314) | **140.75** | **2.07×** | 951 → 951       | [3,3,3,3] both |
 | GPU CG+AMG, solve phase | 194.71 |  **70.57** | **2.76×** | — | — |
-| GPU CG+Jacobi, total    | 576.96 | **204.30** | **2.82×** | 16,000 → 16,000 | [4,4,4,4] both |
-| GPU Newmark CG+Jacobi   | 169.01 | **120.97** | **1.40×** | 2,300 → 2,300   | [3,3,3,3] both |
+| GPU CG+Jacobi, total    | 576.96 (n=3: 576–581) | **204.30** | **2.82×** | 16,000 → 16,000 | [4,4,4,4] both |
+| GPU Newmark CG+Jacobi   | 169.01 (n=1) | **120.97** | **1.40×** | 2,300 → 2,300   | [3,3,3,3] both |
+
+**Every "after" cell is a single run.**  The "before" AMG spread is 8%
+(290/291/299/314, §1), so 2.07× is really ~2.0–2.2×; the chosen baseline
+(291.06 s) is one of the two fast reps, so the ratio understates rather than
+inflates.  The AMG comparison is also like-for-like on the 951-vs-980
+nondeterminism §1 documents — both the 291.06 s baseline and the 140.75 s
+rep took the 951-iteration trajectory.  Repeats would firm up the third
+significant figure; nothing here depends on it.
 
 The solve-phase ratio (2.76×) is the honest one for the kernel change; the
 total is diluted by ~40 s of JIT and ~11 s of host-side AMG setup, neither of
 which this touches.  Newmark gains least because its effective operator also
 applies `mass_action`, which was already at the arm-C floor.
 
+One caveat on the iteration-count argument: matching counts are strong
+evidence for AMG (951 exactly, and the per-solve lists agree) and for Newmark
+([3,3,3,3] with matching per-solve lists), but **vacuous for QS Jacobi** —
+both sides hit the 1000-iteration cap, so 16,000 → 16,000 was guaranteed
+regardless of what the operator did.
+
 **What this changes upstream in this report.**  §2's headline comparison was
 "CPU AMG and GPU AMG are tied at this size" (302 s vs 299 s).  They are no
-longer tied: GPU AMG is now **2.15× faster than CPU AMG** (140.75 s vs
-302.06 s), and GPU CG+Jacobi alone (204 s) now beats CPU AMG too.  The CPU
+longer tied: GPU AMG is now **roughly 2.0–2.2× faster than CPU AMG**
+(140.75 s vs 302.06 s, single run against the 8% before-spread), and GPU
+CG+Jacobi alone (204 s) now beats CPU AMG too.  The CPU
 figures are unchanged and were not re-run, because the CPU path solves
 assembled and never calls `stiffness_action`.  §4's efficiency discussion and
 §8's headroom claim are corrected in place.
