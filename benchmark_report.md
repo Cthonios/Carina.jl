@@ -14,7 +14,7 @@ Every number here traces to a raw record in `benchmark/results/`.
 
 | Problem class | Speedup over the best CPU option | Notes |
 |---|---|---|
-| **Quasi-static implicit** | **2.2× total, 3.0–5.0× in the solve phase** | Grows with problem size. At 1.57M DOF the GPU is the only device that runs at all — CPU AMG exhausts host memory. |
+| **Quasi-static implicit** | **2.4× total, 3.7–5.0× in the solve phase** | Grows with problem size. At 1.57M DOF the GPU is the only device that runs at all — CPU AMG exhausts host memory. The 530k figure includes the Float32 V-cycle smoother (§2); the larger sizes in §4 predate it and are therefore conservative. |
 | **Implicit dynamics** (small Δt) | **1.3–1.4×** | Modest by nature: the mass term already conditions the system, so there is less for a better solver to win. |
 | **Explicit dynamics** | **3.4×** | Saturates at ~3.4× from ~500k DOF upward; that is ~80% of the memory-bandwidth ratio between the two devices, which is the ceiling. |
 
@@ -120,7 +120,8 @@ converge to rtol 1e-8 — reported as measured.
 
 | variant | total (s) | solve phase (s) | CG iters | linear conv. | VRAM (GB) |
 |---|---:|---:|---:|---|---:|
-| **GPU CG+AMG** | **138** (n=2) | **70.5** | 951 | yes | 0.65 |
+| **GPU CG+AMG** | **125** | **57.7** | 952 | yes | 0.65 |
+| GPU CG+AMG, FP64 smoother | 138 (n=2) | 70.4 | 951 | yes | 0.65 |
 | GPU CG+Jacobi | 203 | 145.4 | 16,000 | **capped** | 0.22 |
 | GPU CG+Chebyshev | 221 | 159.9 | 3,556 | yes | 0.22 |
 | CPU CG+AMG | 302 | 211.0 | 787 | yes | — |
@@ -129,8 +130,19 @@ converge to rtol 1e-8 — reported as measured.
 | CPU CG+IC | 1,011 | 920.5 | 8,226 | yes | — |
 | L-BFGS (CPU *and* GPU) | **fails** | — | — | stalls; step failure | — |
 
-- **GPU AMG is 2.2× faster than CPU AMG** (138 vs 302) and 3.2× faster than
-  the CPU direct solver. In the solve phase alone it is 3.0× (70.5 vs 211.0).
+- **GPU AMG is 2.4× faster than CPU AMG** (125 vs 302) and 3.5× faster than
+  the CPU direct solver. In the solve phase alone it is 3.7× (57.7 vs 211.0).
+- **The V-cycle smooths with a Float32 action**, which is where 13 s of that
+  came from. The fine level of the V-cycle *is* the matrix-free action — five
+  applications per cycle against CG's one, 74% of a preconditioned CG iteration
+  (§6) — and the action is FP64-compute-bound on a card that runs FP64 at 1/32
+  rate. CG's own matvec stays Float64, so the operator being solved is exact and
+  only the preconditioner is approximate; the V-cycle remains a fixed linear
+  operator, so plain CG is still valid. The row above it is the same code with
+  the smoother left in Float64. **CG iterations are unchanged (952 vs 951)** —
+  the reduced-precision smoother is not a weaker one. Both rows measured
+  back-to-back on the same machine; records in
+  `benchmark/results/{fp32-smoother,fp64-baseline}.jsonl`.
 - It is also the only GPU variant that converges its linear systems. Jacobi
   hits the iteration cap on every solve and needs an extra Newton iteration per
   step (4 vs 3) as a result.
@@ -201,6 +213,10 @@ Solve phase only, which removes the fixed compilation cost:
 | 530k | 70.5 s | 211.0 s (AMG) | **3.0×** |
 | 823k | 17.9 s | 76.2 s (AMG) | **4.3×** |
 | 1.57M | 34.5 s | 172.2 s (Jacobi) | **5.0×** |
+
+Every row here predates the Float32 V-cycle smoother and is therefore
+conservative; re-measuring 530k with it gives 57.7 s and 3.7× (§2). The two
+larger sizes have not been re-run.
 
 - **The GPU advantage grows with problem size**, from 3.0× to 5.0× in solver
   work across this range.
@@ -317,16 +333,56 @@ Three findings worth carrying forward:
   (J2 plasticity) still form the tangent, because `pk1_stress` runs a return map
   against Float64 containers that cannot hold dual numbers.
 
+### Where the time goes inside a preconditioned CG iteration
+
+The action is applied six times per CG iteration, not once: `_amg_vcycle!`
+passes the matrix-free action to `_smooth!` for both sweeps and uses it again
+for the fine residual, so a V(2,2) cycle costs five. `benchmark/vcycle_bench.jl`
+separates them by ablating the fine matvec to a zero fill — wrong correction,
+valid timing, the same method used above:
+
+| component | ms | share of iteration |
+|---|---:|---:|
+| matrix-free action (6×: 1 CG + 5 smoother) | 51.9 | 74.3% |
+| assembled skeleton (coarse SpMV, R/P, Jacobi kernels, dense coarse solve) | 18.0 | 25.7% |
+| **per CG iteration** | **69.9** | |
+
+This predicts 69.9 ms against the 70.4 s / 951 iters = 74.1 ms measured in §2,
+i.e. 94% accounted; the balance is CG's own vector operations and the
+per-Newton diagonal refresh (44.3 ms, ~12 calls, ~0.5 s total). The hierarchy
+build is 12.2 s and happens once — staleness never fires on this problem, as CG
+holds at 74–83 iterations throughout.
+
+The consequence is that **the preconditioner's cost is the action's cost**, not
+the assembled hierarchy's. That is what makes precision the lever rather than
+sparse-matrix bandwidth, and it is why the Float32 smoother in §2 works.
+
 ---
 
 ## 7. Open work, in priority order
 
-1. **FP32 action inside the preconditioner.** The V-cycle's smoothing and
-   residuals do not need FP64; an FP32 action wrapped in flexible CG keeps the
-   outer solve in FP64. Arithmetic becomes ~32× cheaper on that part, so the
-   kernel would bottom out at its 2.4 ms memory floor — bounded ~4× on the
-   action and ~2× on the AMG solve phase. Given §6 this is much the largest
-   remaining item.
+1. **Finish the FP32 preconditioner.** The first step is done and measured
+   (§2, §6): the V-cycle smooths with a Float32 constitutive derivative, worth
+   1.22× on the solve phase, with the operator left exact so no flexible CG was
+   needed. It came in below the ~2× originally projected here, for a reason
+   worth recording — **only the constitutive JVP was narrowed.** Geometry,
+   interpolation and the Gᵀ contraction stay Float64, and §6 lumps all four into
+   the same 7.1 ms it attributes to arithmetic, so the action gained 1.57×
+   (9.92 → 6.31 ms) rather than the ~4× a pure arithmetic bound would allow.
+   Two pieces remain, in order:
+   - **The assembled skeleton**, now 32% of a CG iteration and entirely
+     Float64. It is bandwidth-bound CSR SpMV, so Float32 storage in `DeviceCSR`
+     buys up to 2× on that share — and halves the hierarchy's VRAM, which
+     matters more at the sizes §4 cannot reach.
+   - **The rest of the action**: geometry and the contraction. Overlaps with
+     item 3 below, which would remove the geometry cost outright rather than
+     make it cheaper — measure that first.
+
+   Note that the Float32 path only pays if the constitutive model honours it.
+   `NeoHookean.pk1_stress` had to be fixed upstream first: Float64 literals
+   promoted Float32 inputs back to Float64, silently, with correct results and
+   no speedup. `_use_fp32_smoother` now probes for this and falls back with a
+   warning rather than paying for conversions that buy nothing.
 2. **Analytic directional derivative** for NeoHookean, removing the dual-number
    overhead (~1.5–2 ms of the 9.5). Costs generality — it is per-model — so
    measure item 1 first.
@@ -392,12 +448,19 @@ Two conclusions from earlier versions of this report have since been overturned
 by measurement, noted here because they circulated:
 
 - GPU AMG was reported as **tied** with CPU AMG (299 s vs 302 s). That was
-  before the action rewrite; it is now 2.2× faster.
+  before the action rewrite; it is now 2.4× faster.
 - The FP64 atomic scatter was named as the reason the action underused the
   device. Ablation refuted it (§6); forming the material tangent was the real
   cost.
+- The AMG V-cycle's cost was assumed to be its assembled hierarchy — coarse
+  SpMV and the smoother's sparse kernels. Ablating the fine matvec refuted it
+  (§6): the V-cycle's fine level *is* the matrix-free action, five applications
+  per cycle, and 74% of a preconditioned CG iteration is that action. This is
+  what redirected the FP32 work from the CSR levels to the constitutive kernel.
 
 Raw records: `benchmark/results/current.jsonl` holds the implicit numbers quoted
 here, `explicit-scaling.jsonl` the explicit sweep, `threadcheck.jsonl` the thread
-scaling. Earlier tags (`baseline`, `proposed`, `scaling2`, `variance`, `detail`,
-`bisect`, `nbuilds-check`, `jvp`) are kept so the history stays auditable.
+scaling, and `fp32-smoother.jsonl` / `fp64-baseline.jsonl` the back-to-back pair
+behind §2's top two rows. Earlier tags (`baseline`, `proposed`, `scaling2`,
+`variance`, `detail`, `bisect`, `nbuilds-check`, `jvp`) are kept so the history
+stays auditable.
