@@ -223,9 +223,32 @@ being weaker.
 The gain is smallest on the cubes because they need far fewer iterations per
 solve (118 and 136 total, against 952), so their run is dominated by the
 host-side hierarchy build — 20.0 s at 823k and 45.5 s at 1.57M, against 12.1 s
-at 530k — which the smoother does not touch. That build is the same host
-assembly that §7 item 4 is about, and at these sizes it is now the largest
-single line item in a GPU AMG run.
+at 530k — which the smoother does not touch.
+
+That build is **smoothed-aggregation setup, not host assembly**, which is worth
+stating because the two suggest opposite remedies. Ablated by stage with
+`benchmark/amg_build_bench.jl` at 823k DOF:
+
+| stage | s | share |
+|---|---:|---:|
+| `_sa_hierarchy_lowmem` (strength, aggregation, slab Galerkin) | 11.48 | 72.1% |
+| `assemble_stiffness!` on the host | 1.83 | 11.5% |
+| symmetrize `(K + K')/2` | 0.93 | 5.8% |
+| COO → `SparseMatrixCSC` | 0.82 | 5.1% |
+| device upload (CSR conversion + allocation) | 0.57 | 3.6% |
+| λ_max power iteration | 0.29 | 1.8% |
+| rigid-body near-nullspace | 0.01 | 0.0% |
+
+So §7 item 4's remedies — Int32 pattern indices, dedup-to-CSR, a pattern-free
+host assembler — address **host memory**, which is real and is what sets the
+~3M DOF ceiling, but would reclaim at most a fifth of this build's *time*.
+
+One caveat on how much the build's share matters: these cube cases run two load
+steps. The hierarchy is built once and lagged (staleness never fires at any
+size measured), so a production analysis with tens of steps amortizes it over
+proportionally more solve work. The build dominating here is partly an artifact
+of a short benchmark, and the solve-phase column above is the figure that
+carries over.
 
 - **The GPU advantage grows with problem size**, from 3.7× to 5.8× in solver
   work across this range.
@@ -397,8 +420,11 @@ sparse-matrix bandwidth, and it is why the Float32 smoother in §2 works.
      make it cheaper — measure that first.
    - **The host-side hierarchy build** is now the largest single line item on
      the cubes (20.0 s at 823k, 45.5 s at 1.57M against solve phases of 16.3 s
-     and 29.4 s). It is item 4's territory, and §4 makes the case that it has
-     overtaken the solve as the thing to attack at scale.
+     and 29.4 s). It is *not* item 4's territory, despite both being host-side:
+     §4 ablates it as 72% smoothed-aggregation setup against 22% assembly and
+     format conversion. Item 4 would barely dent it. Note also that it is built
+     once per run and lagged, so a production analysis with many load steps
+     amortizes it in a way these two-step cubes do not.
 
    Note that the Float32 path only pays if the constitutive model honours it.
    `NeoHookean.pk1_stress` had to be fixed upstream first: Float64 literals
