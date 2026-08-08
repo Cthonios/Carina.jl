@@ -179,6 +179,59 @@ $(precond)
         end
     end
 
+    @testset "reduced-precision smoother action" begin
+        # `stiffness_action_fp32` is what the GPU AMG V-cycle smooths with
+        # (`_use_fp32_smoother`).  It is device-agnostic, so its behaviour is
+        # testable on CPU where CI can reach it.  Three things must hold, and
+        # each has a distinct silent-failure mode behind it.
+        mktempdir() do dir
+            sim = run_sim!(build_sim(dir, qs_yaml("      type: jacobi"),
+                                     "action_fp32.yaml"; matrix_free=true))
+            ig = sim.integrator; asm = ig.asm; p = sim.params; U = ig.U
+
+            v = [sin(0.37 * i) for i in 1:length(U)]
+            y64 = similar(v); y32 = similar(v)
+            Carina._stiffness_matvec_qs!(y64, v, asm, U, p)
+            Carina._stiffness_matvec_qs_fp32!(y32, v, asm, U, p)
+
+            # (1) It is a faithful approximation of the same operator.
+            @test norm(y32 - y64) / norm(y64) < 1e-5
+
+            # (2) It is not the *same* operator.  Bit-identity here would mean
+            # the narrowing silently fell back to Float64 -- the run would stay
+            # correct and the speedup would be zero, with nothing to notice.
+            @test y32 != y64
+
+            # (3) The model honours the requested precision.  Without this the
+            # first two still pass while the arithmetic runs in Float64.
+            fspace = Carina.FEC.function_space(asm.dof)
+            Carina.FEC.foreach_block(fspace, p) do physics, ref_fe, b
+                props_el = Carina.FEC.properties(p.properties, 1, b)
+                @test Carina._fp32_action_is_effective(physics, props_el)
+                return nothing
+            end
+        end
+
+        # LinearElastic has its own small-strain `stiffness_action` that skips
+        # the geometric push-forward.  The NS = 0 reduced-precision method would
+        # shadow it and quietly change the physics, so it must dispatch to the
+        # exact kernel -- bit-identical, not merely close.
+        mktempdir() do dir
+            le_yaml = replace(qs_yaml("      type: jacobi"),
+                              "cube: neohookean" => "cube: linear elastic",
+                              "    neohookean:"  => "    linear elastic:")
+            sim = run_sim!(build_sim(dir, le_yaml, "action_le.yaml";
+                                     matrix_free=true))
+            ig = sim.integrator; asm = ig.asm; p = sim.params; U = ig.U
+
+            v = [cos(0.29 * i) for i in 1:length(U)]
+            y64 = similar(v); y32 = similar(v)
+            Carina._stiffness_matvec_qs!(y64, v, asm, U, p)
+            Carina._stiffness_matvec_qs_fp32!(y32, v, asm, U, p)
+            @test y32 == y64
+        end
+    end
+
     @testset "Newmark effective-stiffness operator" begin
         # The dynamic path applies K + c_M*M matrix-free through
         # _eff_stiffness_matvec! / _apply_eff_stiffness!, a different operator

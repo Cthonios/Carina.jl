@@ -314,6 +314,58 @@ function _stiffness_matvec_qs!(y, v, asm, U, p)
     return y
 end
 
+# Reduced-precision twin of the above, for AMG smoothing only.  Identical
+# gather/scatter and identical geometry; only the constitutive directional
+# derivative drops to Float32 (see `stiffness_action_fp32` in physics.jl).
+function _stiffness_matvec_qs_fp32!(y, v, asm, U, p)
+    FEC.assemble_matrix_free_action!(asm, stiffness_action_fp32, U, v, p)
+    copyto!(y, FEC.hvp(asm, v))
+    return y
+end
+
+# Decide once per run whether the AMG smoother should use the Float32 action.
+#
+# The gate is not "did the user ask for it" but "does the model actually honour
+# it".  A constitutive model written with Float64 literals promotes silently and
+# returns a Float64 stress, which would leave the run correct, exactly as slow,
+# and two conversions per quadrature point worse off — the failure mode has no
+# symptom, so it is checked rather than assumed.  Probed against the CPU params
+# because scalar-indexing `p.properties` on the device is not allowed, and the
+# GPU AMG path already requires those references.
+_use_fp32_smoother(::Preconditioner, asm) = false
+
+function _use_fp32_smoother(::GPUAMGPreconditioner, asm)
+    _fp32_smoother_ok[] !== nothing && return _fp32_smoother_ok[]
+    asm_cpu = _cpu_asm_ref[]
+    p_cpu   = _cpu_params_ref[]
+    if asm_cpu === nothing || p_cpu === nothing
+        _fp32_smoother_ok[] = false
+        return false
+    end
+    ok = true
+    offenders = String[]
+    fspace = FEC.function_space(asm_cpu.dof)
+    FEC.foreach_block(fspace, p_cpu) do physics, ref_fe, b
+        props_el = FEC.properties(p_cpu.properties, 1, b)
+        if !_fp32_action_is_effective(physics, props_el)
+            ok = false
+            push!(offenders, string(typeof(physics.constitutive_model)))
+        end
+        return nothing
+    end
+    if ok
+        _carina_logf(4, :solve, "    AMG smoother: Float32 action")
+    else
+        @warn "AMG smoother falling back to Float64: these models promote " *
+              "Float32 inputs back to Float64, so the reduced-precision " *
+              "action would cost more than it saves. Make their `pk1_stress` " *
+              "constants type-generic (e.g. `one(J)/2` rather than `0.5`) " *
+              "to enable it." models = unique(offenders)
+    end
+    _fp32_smoother_ok[] = ok
+    return ok
+end
+
 # --------------------------------------------------------------------------- #
 # Chebyshev preconditioner: 4th-kind with optimal weights
 #
@@ -485,22 +537,27 @@ _setup_linear_ops(ig, ::LBFGSLinearSolver,  p)  = nothing
 _setup_linear_ops(ig, ::NoLinearSolver,     p)  = nothing
 
 # Generic preconditioner → LinearOperator for matrix-free path.
-# matvec! is the system operator A (needed by Chebyshev; ignored by Jacobi).
-_mf_precond_op(::NoPreconditioner, n, matvec!)          = nothing
-_mf_precond_op(p::JacobiPreconditioner, n, matvec!)     = _jacobi_precond_op(p, n)
-_mf_precond_op(p::GPUAMGPreconditioner, n, matvec!) =
+# `matvec!` is the system operator A (needed by Chebyshev; ignored by Jacobi).
+# `smooth!` is the operator the preconditioner is allowed to approximate: the
+# AMG V-cycle applies it five times per call and never feeds it to Krylov, so it
+# may be the reduced-precision action.  Everything else takes the exact one.
+_mf_precond_op(::NoPreconditioner, n, matvec!, smooth!)          = nothing
+_mf_precond_op(p::JacobiPreconditioner, n, matvec!, smooth!)     = _jacobi_precond_op(p, n)
+_mf_precond_op(p::GPUAMGPreconditioner, n, matvec!, smooth!) =
     LinearOperator(Float64, n, n, true, true,
-        (y, v) -> (_amg_vcycle!(y, v, p.hierarchy, matvec!,
+        (y, v) -> (_amg_vcycle!(y, v, p.hierarchy, smooth!,
                                 KA.get_backend(p.inv_diag)); y))
-_mf_precond_op(p::ChebyshevPreconditioner, n, matvec!)  =
+_mf_precond_op(p::ChebyshevPreconditioner, n, matvec!, smooth!)  =
     _chebyshev_precond_op(p, n, matvec!; inv_sqrt_d=p.work3)
 
 function _setup_linear_ops(ig::QuasiStaticIntegrator, ls::KrylovLinearSolver, p)
     U = ig.U; n = length(U)
     ls.assembled && return (nothing, nothing)
     matvec! = (y, v) -> _stiffness_matvec_qs!(y, v, ig.asm, U, p)
+    smooth! = _use_fp32_smoother(ls.precond, ig.asm) ?
+        (y, v) -> _stiffness_matvec_qs_fp32!(y, v, ig.asm, U, p) : matvec!
     K_op = LinearOperator(Float64, n, n, true, true, matvec!)
-    return K_op, _mf_precond_op(ls.precond, n, matvec!)
+    return K_op, _mf_precond_op(ls.precond, n, matvec!, smooth!)
 end
 
 function _setup_linear_ops(ig::NewmarkIntegrator, ls::KrylovLinearSolver, p)
@@ -513,7 +570,12 @@ function _setup_linear_ops(ig::NewmarkIntegrator, ls::KrylovLinearSolver, p)
     sc = _action_scratch!(ls, ig.asm)
     matvec! = (y, v) -> _eff_stiffness_matvec!(y, v, ig.asm, Uu, c_M, p, sc)
     K_eff_op = LinearOperator(Float64, n, n, true, true, matvec!)
-    return K_eff_op, _mf_precond_op(ls.precond, n, matvec!)
+    # The smoother keeps the exact action here: K_eff = K + c_M·M needs a
+    # reduced-precision `mass_action` to match, which does not exist yet, and
+    # the measured 74.4% action share (benchmark/vcycle_bench.jl) is a
+    # quasi-static figure — implicit dynamics defaults to Jacobi anyway
+    # (benchmark_report.md §3), so there is no evidence this path would pay.
+    return K_eff_op, _mf_precond_op(ls.precond, n, matvec!, matvec!)
 end
 
 # --------------------------------------------------------------------------- #

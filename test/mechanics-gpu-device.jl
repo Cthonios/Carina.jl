@@ -300,19 +300,34 @@ $solver
             n = length(ls.precond.inv_diag)
             z = Carina.KA.allocate(backend, Float64, n); fill!(z, 0.0)
             r = Carina.KA.allocate(backend, Float64, n); fill!(r, 1.0)
-            # The REAL matrix-free fine action, as production V-cycles use —
+            # The REAL matrix-free fine actions, as production V-cycles use —
             # a placeholder here would exempt 5 of the ~7 kernel launches per
-            # application from the allocation check.
-            mv!(y, x) = Carina._stiffness_matvec_qs!(y, x, ig.asm, ig.U,
-                                                     sim_amg.params)
-            Carina._amg_vcycle!(z, r, h, mv!, backend)   # warm-up/compile
-            Main.AMDGPU.synchronize()
-            live0 = Main.AMDGPU.memory_stats().live
-            for _ in 1:20
-                Carina._amg_vcycle!(z, r, h, mv!, backend)
+            # application from the allocation check.  Both precisions are
+            # checked: the quasi-static path smooths with the Float32 action
+            # (`_use_fp32_smoother`), so testing only the Float64 one would
+            # leave the kernel production actually runs unexamined.
+            mv64!(y, x) = Carina._stiffness_matvec_qs!(y, x, ig.asm, ig.U,
+                                                       sim_amg.params)
+            mv32!(y, x) = Carina._stiffness_matvec_qs_fp32!(y, x, ig.asm, ig.U,
+                                                            sim_amg.params)
+            for mv! in (mv64!, mv32!)
+                Carina._amg_vcycle!(z, r, h, mv!, backend)   # warm-up/compile
+                Main.AMDGPU.synchronize()
+                # Quiesce before sampling.  Without this the baseline picks up
+                # device buffers from the solve above whose finalizers have not
+                # run yet; collecting one inside the measurement window makes
+                # `live` *drop*, which fails an equality test that is there to
+                # catch growth.  A GC here makes the comparison mean what it
+                # says, and the equality (not `<=`) is deliberate — the apply
+                # path is allocation-free, so anything else is a regression.
+                GC.gc(true); Main.AMDGPU.synchronize()
+                live0 = Main.AMDGPU.memory_stats().live
+                for _ in 1:20
+                    Carina._amg_vcycle!(z, r, h, mv!, backend)
+                end
+                Main.AMDGPU.synchronize()
+                @test Main.AMDGPU.memory_stats().live == live0
             end
-            Main.AMDGPU.synchronize()
-            @test Main.AMDGPU.memory_stats().live == live0
         end
     end
 end

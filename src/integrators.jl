@@ -46,6 +46,9 @@ const _cpu_asm_ref         = Ref{Any}(nothing)  # CPU assembler reference for GP
 const _cpu_params_ref      = Ref{Any}(nothing)  # CPU params reference for GPU Cholesky
 const _backend_ref         = Ref{KA.Backend}(KA.CPU())  # active KernelAbstractions backend
 const _nonlinear_status_test = Ref{Any}(nothing)  # parsed termination criteria
+# Whether the AMG smoother's Float32 action is honoured by every model in the
+# mesh; `nothing` until probed once per run by `_use_fp32_smoother`.
+const _fp32_smoother_ok      = Ref{Union{Nothing, Bool}}(nothing)
 
 # Math errors from constitutive models (e.g. J2 plasticity raising a negative
 # number to a fractional power) that should be treated as evaluation failures
@@ -63,6 +66,7 @@ function _init_assembly_cache!(asm, is_linear::Bool)
     _gpu_cholesky_L[]                = nothing
     _cpu_asm_ref[]                   = nothing
     _cpu_params_ref[]                = nothing
+    _fp32_smoother_ok[]              = nothing
     empty!(_K_cache)
     empty!(_M_cache)
     # Matrix-free assemblers (central difference) leave these buffers empty.

@@ -309,6 +309,146 @@ end
 end
 
 # --------------------------------------------------------------------------- #
+# Reduced-precision action, for the AMG smoother only
+# --------------------------------------------------------------------------- #
+#
+# A preconditioner is allowed to be approximate; the operator CG solves is not.
+# The V-cycle applies the matrix-free action five times per call (ν = 2, so two
+# pre-smooth sweeps + one fine residual + two post-smooth) against CG's one, and
+# `benchmark/vcycle_bench.jl` measures those five at 74.4% of a preconditioned
+# CG iteration — 59.6 ms of a 69.3 ms iteration at 530k DOF.  They are
+# FP64-compute-bound on a consumer GPU (FP64 runs at 1/32 rate on RDNA3), so
+# evaluating the constitutive work in Float32 attacks the dominant cost while
+# leaving the operator exact: `_setup_linear_ops` hands this function to the
+# smoother alone, and CG's own matvec keeps calling `FEC.stiffness_action`.
+# Because the reduced-precision V-cycle is still a fixed linear operator, plain
+# CG remains valid — no flexible variant is needed.
+#
+# Geometry stays Float64.  `map_interpolants` inverts the element Jacobian; it
+# is a small share of the kernel (benchmark_report.md §7 item 3) and it is the
+# part whose conditioning tracks element shape rather than the material, which
+# is where a sliver tetrahedron would hurt most.  The narrowing happens at the
+# constitutive boundary and widens straight back.
+
+@inline _to_prec(::Type{T}, A::Tensor{2, 3, S, 9}) where {T, S} =
+    Tensor{2, 3, T, 9}(ntuple(i -> T(A.data[i]), Val(9)))
+
+# `FEC.properties` hands back a `PropertyFieldView` -- a length-carrying view
+# into the flat per-block property storage, not a statically sized vector -- so
+# the width comes from the physics type's `NP` instead.  `Val(NP)` keeps the
+# `ntuple` unrolled; a runtime length lowers to a dynamic call, which is invalid
+# IR inside a GPU kernel.
+@inline _props_to_prec(::Type{T}, props, ::Val{N}) where {T, N} =
+    SVector{N, T}(ntuple(i -> T(props[i]), Val(N)))
+
+"""
+    stiffness_action_fp32(physics, interps, x_el, t, dt, u_el, u_el_old, v_el,
+                          state_old_q, state_new_q, props_el)
+
+Same contract as `FEC.stiffness_action`, with the constitutive directional
+derivative evaluated in `Float32`.  Intended for AMG smoothing, never for the
+operator handed to Krylov.  Falls back to the exact kernel for any model that
+cannot use it (see the methods below).
+"""
+function stiffness_action_fp32 end
+
+@inline function stiffness_action_fp32(
+    physics::SolidMechanics{Model, NP, 0},
+    interps, x_el,
+    t, dt,
+    u_el, u_el_old, v_el,
+    state_old_q, state_new_q,
+    props_el,
+) where {Model, NP}
+    cell = FEC.map_interpolants(interps, x_el)
+    (; ∇N_X, JxW) = cell
+
+    ∇u_q = FEC.interpolate_field_gradients(physics, cell, u_el)
+    ∇u_q = FEC.modify_field_gradients(FEC.ThreeDimensional(), ∇u_q)
+
+    ∇v_q = FEC.interpolate_field_gradients(physics, cell, v_el)
+    ∇v_q = FEC.modify_field_gradients(FEC.ThreeDimensional(), ∇v_q)
+
+    # Properties must be narrowed too.  A Float64 κ multiplying a Float32
+    # kinematic quantity promotes the whole expression back to Float64 — the
+    # kernel would then be correct, and exactly as slow as before, with no
+    # error to show for it.  `_fp32_action_is_effective` guards the same
+    # failure inside the constitutive model itself.
+    dP32 = _stiffness_action_dP(
+        physics,
+        _to_prec(Float32, ∇u_q), _to_prec(Float32, ∇v_q),
+        state_old_q, state_new_q, Float32(dt),
+        _props_to_prec(Float32, props_el, Val(NP)),
+    )
+    dP_q = _to_prec(eltype(∇u_q), dP32)
+
+    dP_v = FEC.extract_stress(FEC.ThreeDimensional(), dP_q)
+    G    = FEC.discrete_gradient(FEC.ThreeDimensional(), ∇N_X)
+    return JxW * G * dP_v
+end
+
+# LinearElastic carries its own small-strain `stiffness_action` below, which
+# deliberately bypasses the geometric push-forward.  The NS = 0 method above
+# would shadow that and silently change the physics, so send it to the exact
+# kernel.  Stated as a separate method rather than a branch because it must be
+# strictly more specific than both neighbours to avoid a dispatch ambiguity.
+@inline stiffness_action_fp32(
+    physics::SolidMechanics{CM.LinearElastic, NP, 0},
+    interps, x_el, t, dt, u_el, u_el_old, v_el,
+    state_old_q, state_new_q, props_el,
+) where {NP} =
+    FEC.stiffness_action(physics, interps, x_el, t, dt, u_el, u_el_old, v_el,
+                         state_old_q, state_new_q, props_el)
+
+# Models carrying state (NS > 0, e.g. J2 plasticity) run a return map against
+# Float64 state containers and already take the form-the-tangent path in
+# `_stiffness_action_dP`.  Nothing to narrow; use the exact kernel.
+@inline stiffness_action_fp32(
+    physics::SolidMechanics,
+    interps, x_el, t, dt, u_el, u_el_old, v_el,
+    state_old_q, state_new_q, props_el,
+) =
+    FEC.stiffness_action(physics, interps, x_el, t, dt, u_el, u_el_old, v_el,
+                         state_old_q, state_new_q, props_el)
+
+"""
+    _fp32_action_is_effective(physics, props_el) -> Bool
+
+Does this model's `pk1_stress` actually evaluate in `Float32` when handed
+`Float32` inputs?
+
+A constitutive model written with Float64 literals (`0.5`, `1. / 3.`) promotes
+on first contact and returns a Float64 stress.  The result is still correct, so
+nothing fails — the reduced-precision path just costs two conversions and buys
+nothing.  This has to be probed rather than inferred: `_pk1_jvp` rebuilds its
+result as `Tensor{2, 3, T, 9}` from the seeded input type, so the type coming
+out of the JVP is Float32 whether or not the arithmetic inside it was.  Ask the
+model directly instead.
+
+Returns `true` for models that never take the reduced-precision path at all
+(LinearElastic, and anything with state): they dispatch to the exact kernel
+regardless, so there is nothing to waste and no reason to hold back a mixed
+mesh whose other blocks do benefit.
+"""
+function _fp32_action_is_effective end
+
+function _fp32_action_is_effective(
+    physics::SolidMechanics{Model, NP, 0}, props_el,
+) where {Model, NP}
+    ∇u = zero(Tensor{2, 3, Float32, 9})   # J = 1: valid for every model
+    P  = CM.pk1_stress(physics.constitutive_model,
+                       _props_to_prec(Float32, props_el, Val(NP)),
+                       nothing, nothing, 0.0f0, ∇u, 0.0f0)
+    return eltype(P) === Float32
+end
+
+_fp32_action_is_effective(
+    ::SolidMechanics{CM.LinearElastic, NP, 0}, props_el,
+) where {NP} = true
+
+_fp32_action_is_effective(::SolidMechanics, props_el) = true
+
+# --------------------------------------------------------------------------- #
 # Small-strain specializations for LinearElastic
 #
 # ConstitutiveModels.LinearElastic.pk1_stress computes P = J·σ·F⁻ᵀ, the
