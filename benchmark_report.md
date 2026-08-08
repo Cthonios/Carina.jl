@@ -14,7 +14,7 @@ Every number here traces to a raw record in `benchmark/results/`.
 
 | Problem class | Speedup over the best CPU option | Notes |
 |---|---|---|
-| **Quasi-static implicit** | **2.4× total, 3.7–5.0× in the solve phase** | Grows with problem size. At 1.57M DOF the GPU is the only device that runs at all — CPU AMG exhausts host memory. The 530k figure includes the Float32 V-cycle smoother (§2); the larger sizes in §4 predate it and are therefore conservative. |
+| **Quasi-static implicit** | **2.4× total, 3.7–5.8× in the solve phase** | Grows with problem size. At 1.57M DOF the GPU is the only device that runs at all — CPU AMG exhausts host memory. |
 | **Implicit dynamics** (small Δt) | **1.3–1.4×** | Modest by nature: the mass term already conditions the system, so there is less for a better solver to win. |
 | **Explicit dynamics** | **3.4×** | Saturates at ~3.4× from ~500k DOF upward; that is ~80% of the memory-bandwidth ratio between the two devices, which is the ceiling. |
 
@@ -200,25 +200,34 @@ times are not comparable to the torsion rows above — the trend is the point).
 
 | size | GPU AMG | GPU Jacobi | CPU AMG | CPU Jacobi |
 |---|---:|---:|---:|---:|
-| 530k (torsion) | **138** s / 951 | 203 s / 16,000c | 302 s / 787 | 372 s / 16,000c |
-| 823k (cube64) | **97** s / 118 | 104 s / 2,670 | 164 s / 100 | 169 s / 2,670 |
-| 1.57M (cube80) | **161** s / 136 | 183 s / 3,320 | **out of memory** | 312 s / 3,320 |
+| 530k (torsion) | **125** s / 952 | 203 s / 16,000c | 302 s / 787 | 372 s / 16,000c |
+| 823k (cube64) | **96** s / 118 | 104 s / 2,670 | 164 s / 100 | 169 s / 2,670 |
+| 1.57M (cube80) | **158** s / 136 | 183 s / 3,320 | **out of memory** | 312 s / 3,320 |
 
 ("c" = CG iteration cap hit; linear systems not converged to tolerance.)
 
 Solve phase only, which removes the fixed compilation cost:
 
-| size | GPU AMG | best CPU | ratio |
-|---|---:|---:|---:|
-| 530k | 70.5 s | 211.0 s (AMG) | **3.0×** |
-| 823k | 17.9 s | 76.2 s (AMG) | **4.3×** |
-| 1.57M | 34.5 s | 172.2 s (Jacobi) | **5.0×** |
+| size | GPU AMG | best CPU | ratio | GPU AMG, FP64 smoother |
+|---|---:|---:|---:|---:|
+| 530k | 57.7 s | 211.0 s (AMG) | **3.7×** | 70.4 s |
+| 823k | 16.3 s | 76.2 s (AMG) | **4.7×** | 17.9 s |
+| 1.57M | 29.4 s | 172.2 s (Jacobi) | **5.8×** | 34.5 s |
 
-Every row here predates the Float32 V-cycle smoother and is therefore
-conservative; re-measuring 530k with it gives 57.7 s and 3.7× (§2). The two
-larger sizes have not been re-run.
+The last column is the same code with the V-cycle smoother in Float64 (§2), so
+the two GPU columns isolate that change: 1.22× / 1.10× / 1.17×. CG iteration
+counts are unchanged at every size (952/118/136 against 951/118/136), which is
+the point — the reduced-precision smoother is cheaper per application without
+being weaker.
 
-- **The GPU advantage grows with problem size**, from 3.0× to 5.0× in solver
+The gain is smallest on the cubes because they need far fewer iterations per
+solve (118 and 136 total, against 952), so their run is dominated by the
+host-side hierarchy build — 20.0 s at 823k and 45.5 s at 1.57M, against 12.1 s
+at 530k — which the smoother does not touch. That build is the same host
+assembly that §7 item 4 is about, and at these sizes it is now the largest
+single line item in a GPU AMG run.
+
+- **The GPU advantage grows with problem size**, from 3.7× to 5.8× in solver
   work across this range.
 - **AMG iteration counts stay flat** (118 → 136) while Jacobi's grow
   (2,670 → 3,320). That h-independence is the property AMG exists for, and it
@@ -370,13 +379,26 @@ sparse-matrix bandwidth, and it is why the Float32 smoother in §2 works.
    the same 7.1 ms it attributes to arithmetic, so the action gained 1.57×
    (9.92 → 6.31 ms) rather than the ~4× a pure arithmetic bound would allow.
    Two pieces remain, in order:
-   - **The assembled skeleton**, now 32% of a CG iteration and entirely
-     Float64. It is bandwidth-bound CSR SpMV, so Float32 storage in `DeviceCSR`
-     buys up to 2× on that share — and halves the hierarchy's VRAM, which
-     matters more at the sizes §4 cannot reach.
+   - **The assembled skeleton** — **tried, and it does not pay.** Storing every
+     assembled level, P₁/R₁ and the coarse solve in Float32 was implemented and
+     measured: the skeleton went 18.0 → 17.0 ms (inside the run-to-run spread),
+     the solve phase got *worse* (57.7 → 59.1 s) and CG needed two more
+     iterations, against a real 141 MB of VRAM saved (0.651 → 0.510 GB). It was
+     reverted. The reasoning that motivated it — "bandwidth-bound SpMV, so half
+     the bytes is half the time" — is wrong for this hierarchy: smoothed
+     aggregation coarsens to a dimension-6 coarse grid in four levels, so those
+     SpMVs are launch-latency-bound, not bandwidth-bound. The skeleton's 17 ms
+     is mostly *fine-sized* traffic — R₁/P₁ and the smoother's broadcasts —
+     whose cost is set by the Float64 fine vectors, which have to stay Float64.
+     Record: `benchmark/results/fp32-csr.jsonl`. Worth revisiting only if VRAM
+     ever becomes the binding constraint, which §4 says it is not.
    - **The rest of the action**: geometry and the contraction. Overlaps with
      item 3 below, which would remove the geometry cost outright rather than
      make it cheaper — measure that first.
+   - **The host-side hierarchy build** is now the largest single line item on
+     the cubes (20.0 s at 823k, 45.5 s at 1.57M against solve phases of 16.3 s
+     and 29.4 s). It is item 4's territory, and §4 makes the case that it has
+     overtaken the solve as the thing to attack at scale.
 
    Note that the Float32 path only pays if the constitutive model honours it.
    `NeoHookean.pk1_stress` had to be fixed upstream first: Float64 literals
