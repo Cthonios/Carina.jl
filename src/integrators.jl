@@ -459,8 +459,11 @@ function setup_jacobian!(ig::QuasiStaticIntegrator{<:NewtonSolver{<:KrylovLinear
             FEC.assemble_stiffness!(asm, FEC.stiffness, U, p)
             af.is_linear && (af.compute_stiffness = false)
         end
-        _update_jacobi_precond_assembled!(ls.precond, FEC.stiffness(asm))
-        _update_chebyshev_precond_assembled!(ls.precond, FEC.stiffness(asm))
+        # One COO -> CSC conversion, shared; see the note in the Newmark
+        # `setup_jacobian!` above.
+        K = FEC.stiffness(asm)
+        _update_jacobi_precond_assembled!(ls.precond, K)
+        _update_chebyshev_precond_assembled!(ls.precond, K)
     else
         # Matrix-free path: update preconditioner from true diag(K) via
         # the diagonal extraction kernel.  For linear elastic, cache after
@@ -504,9 +507,22 @@ function setup_jacobian!(ig::NewmarkIntegrator{<:NewtonSolver{<:KrylovLinearSolv
                 af.compute_factorization = true
             end
             @. asm.stiffness_storage += c_M * asm.mass_storage
-            _update_jacobi_precond_assembled!(ls.precond, FEC.stiffness(asm))
-            _update_chebyshev_precond_assembled!(ls.precond, FEC.stiffness(asm))
-            _update_amg_precond_assembled!(ls.precond, FEC.stiffness(asm), c_M, _current_coords(p))
+            # Convert COO -> CSC ONCE.  At most one of the three updates below
+            # does anything -- the other two resolve to the `::Preconditioner`
+            # no-op fallbacks -- but Julia evaluates arguments eagerly, so
+            # calling `FEC.stiffness(asm)` in each argument slot built the same
+            # 40M-nonzero sparse matrix three times and threw two away.
+            # Measured at 530k DOF: 509 ms a call, so ~1.0 s wasted per Newton
+            # iteration, ~15% of the step (benchmark/cpu_step_profile.jl).
+            K_eff = FEC.stiffness(asm)
+            _update_jacobi_precond_assembled!(ls.precond, K_eff)
+            _update_chebyshev_precond_assembled!(ls.precond, K_eff)
+            # `_current_coords` allocates a full nodal vector (X + u); only the
+            # AMG update reads it, and the others are no-ops that would discard
+            # it.  Guarded the same way `_linear_solve!` already guards its own
+            # call, which this line was inconsistent with.
+            x_cur = ls.precond isa AMGPreconditioner ? _current_coords(p) : nothing
+            _update_amg_precond_assembled!(ls.precond, K_eff, c_M, x_cur)
         catch e
             e isa _MATH_ERRORS || rethrow()
             _carina_logf(4, :solve, "setup_jacobian!: caught %s", typeof(e))
