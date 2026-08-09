@@ -1,0 +1,137 @@
+%YAML 1.1
+---
+# Albany/LCM -- torsion, implicit dynamics (Newmark), 530k DOF.
+#
+# Cross-code counterpart of Carina's `torsion-newmark-*` decks and Norma's
+# `norma-newmark.yaml`.  Derived from
+# tests/LCM/DynamicsTempus/Torsion/nobcs.yaml, which is the same free-free
+# torsion problem with the same rigid-torsion initial condition; the changes
+# here are the mesh (STK3D generated box -> the Exodus cylinder all three codes
+# share), the time step, and dropping stress output so I/O does not enter the
+# timing.
+#
+# `Method: Ioss` reads a serial Exodus file; parallel runs read the decomposed
+# torsion.g.<nranks>.<rank> files produced by seacas `decomp`.
+ANONYMOUS:
+  Scaling:
+    Scale: 1.0
+  Problem:
+    Name: Mechanics 3D
+    Phalanx Graph Visualization Detail: 0
+    MaterialDB Filename: 'lcm-material.yaml'
+    Solution Method: Transient Tempus
+    Initial Condition:
+      Function: Constant
+      Function Data: [0.0, 0.0, 0.0]
+    # Angular velocity growing linearly along z: v = (-a z y, a z x, 0), the
+    # same field Carina and Norma prescribe as "a=8000; -a*y*z" etc.
+    Initial Condition Dot:
+      Function: About Linear Z
+      Function Data: [8000.0]
+    Response Functions:
+      Number: 0
+  Discretization:
+    Method: Ioss
+    Exodus Input File Name: 'torsion.g'
+    Exodus Output File Name: 'lcm-newmark.e'
+    Exodus Solution Name: disp
+    Exodus Residual Name: resid
+    Separate Evaluators by Element Block: true
+    Number Of Time Derivatives: 2
+    # Large enough that no step writes; output is not part of what is timed.
+    Exodus Write Interval: 1000000
+  Piro:
+    Tempus:
+      Integrator Name: Tempus Integrator
+      Tempus Integrator:
+        Integrator Type: Integrator Basic
+        Stepper Name: Tempus Stepper
+        Solution History:
+          Storage Type: Unlimited
+          Storage Limit: 20
+        Time Step Control:
+          Initial Time: 0.0
+          Final Time: 2.0e-04
+          Initial Time Index: 0
+          Final Time Index: 10000
+          Initial Time Step: 5.0e-05
+          Output Time List: ''
+          Output Index List: ''
+      Tempus Stepper:
+        Stepper Type: 'Newmark Implicit a-Form'
+        Newmark Parameters:
+          Beta: 0.25
+          Gamma: 0.50
+        Solver Name: NOX Solver
+        NOX Solver:
+          NOX:
+            Direction:
+              Method: Newton
+              Newton:
+                Forcing Term Method: Constant
+                Rescue Bad Newton Solve: true
+            Line Search:
+              Method: Full Step
+              Full Step:
+                Full Step: 1.0
+            Nonlinear Solver: Line Search Based
+            Printing:
+              Output Precision: 3
+              Output Processor: 0
+              Output Information:
+                Error: true
+                Warning: true
+                Outer Iteration: true
+                Parameters: false
+                Details: false
+                Linear Solver Details: false
+                Stepper Iteration: true
+                Stepper Details: false
+                Stepper Parameters: false
+            Solver Options:
+              Status Test Check Type: Complete
+            Status Tests:
+              Test Type: Combo
+              Combo Type: OR
+              Number of Tests: 3
+              Test 0:
+                Test Type: RelativeNormF
+                Tolerance: 1.0e-10
+              Test 1:
+                Test Type: NormF
+                Tolerance: 1.0e-06
+              Test 2:
+                Test Type: MaxIters
+                Maximum Iterations: 128
+      # Belos GMRES + Ifpack2 ILUT, unchanged from the reference deck.
+      # Not matched to Carina's CG+Jacobi/AMG: each code is run with the
+      # linear solver its own torsion test ships with, since the point is
+      # to compare codes as they are meant to be used, not to force one
+      # code's solver choice onto another.
+      Stratimikos:
+        Linear Solver Type: Belos
+        Linear Solver Types:
+          Belos:
+            VerboseObject:
+              Verbosity Level: none
+            Solver Type: Block GMRES
+            Solver Types:
+              Block GMRES:
+                Convergence Tolerance: 1.0e-06
+                Output Frequency: 1
+                Output Style: 1
+                Verbosity: 33
+                Maximum Iterations: 200
+                Block Size: 1
+                Num Blocks: 200
+                Flexible Gmres: false
+        Preconditioner Type: Ifpack2
+        Preconditioner Types:
+          Ifpack2:
+            Prec Type: ILUT
+            Overlap: 2
+            Ifpack2 Settings:
+              'fact: drop tolerance': 0.0
+              'fact: ilut level-of-fill': 1.0
+              'fact: level-of-fill': 1
+...

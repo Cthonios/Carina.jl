@@ -1,0 +1,16 @@
+# The mesh is the repo copy, linked in by run_crosscode.py; not duplicated here.
+torsion.g
+
+# Decomposed mesh pieces (regenerate with seacas `decomp`), Exodus output,
+# generated per-step decks, and per-run logs.  The mesh itself and the inputs
+# are checked in; these are all reproducible artifacts.
+torsion.g.*
+*.e
+*.e.*
+carina-*-n*.yaml
+norma-newmark-n*.yaml
+lcm-newmark-n*.yaml
+logs/
+decomp*.log
+crosscode-run.log
+rerun.log
