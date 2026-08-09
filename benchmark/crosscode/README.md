@@ -95,29 +95,54 @@ assembled = backend isa KA.CPU
 
 so a CPU run always assembles a sparse matrix and applies it with
 `SparseArrays.mul!`, while GPU and explicit runs use the matrix-free action.
-Julia's `SparseMatrixCSC` SpMV is single-threaded, measured directly at the
-size this problem builds (530k × 530k, 43M nonzeros):
+Julia's `SparseMatrixCSC` SpMV is single-threaded. Measured on the actual
+K_eff this problem builds (530,523 DOF, 40.2M nonzeros) by
+`benchmark/cpu_operator_bench.jl`:
 
-```
-threads=1   SpMV min 0.033 s
-threads=24  SpMV min 0.033 s
-```
+| | 1 thread | 24 threads | scaling |
+|---|---:|---:|---:|
+| assembled SpMV | 13.78 ms | 14.12 ms | **1.0×** |
+| matrix-free action | 353.85 ms | 32.75 ms | **10.8×** |
+
+The two agree to `3.7e-16` — the same K_eff applied to the same vector — so
+this is a like-for-like timing, and also a correctness check on the CPU
+matrix-free path.
 
 `benchmark_report.md` §3 records 2,558 CG iterations over 4 steps for this
-variant, i.e. ~640 per step. At 0.033 s each that is **~21 s/step of
-irreducibly serial SpMV against a measured 18.5 s/step total** — the same
-order, so the serial SpMV accounts for essentially the whole per-step cost, and
-nothing else in the step can matter until it is fixed.
+variant, ~640 per step, so the serial SpMV is **~9.0 s of a measured 18.5 s
+step, about half**.
 
-This is the single actionable result in this report. Carina already has a
-working matrix-free CPU path — `test/matrix-free-operators.jl` flips
-`assembled = false` and exercises it on CPU precisely because CI has no GPU —
-and the explicit kernel proves the matrix-free element loop threads at 9.9× on
-this hardware. The assembled path is a policy choice on one line, not a
-capability limit. Whether matrix-free actually wins on CPU depends on the cost
-of a CPU action versus a 33 ms SpMV and has not been measured; what is certain
-is that the current path cannot scale past ~1.3× no matter how many cores it is
-given.
+### Matrix-free is not the fix
+
+An earlier draft of this file asserted the SpMV was essentially the whole step
+and that switching CPU to the matrix-free path was a one-line fix. Both claims
+were wrong, and the measurement above is what corrects them.
+
+The first came from timing a `sprand` matrix of the same size and density
+rather than the real one: 33 ms against the true 13.8 ms. A random sparsity
+pattern has far worse locality than an assembled FE operator, so it
+overstated the cost by 2.4× and inflated the SpMV's share to ~100%.
+
+The second is refuted outright. Matrix-free threads well — 10.8×, in line with
+the explicit kernel's 9.9× — but it starts 25.7× behind and is still **2.32×
+slower than the SpMV at 24 threads**. Flipping `assembled` on CPU would make
+this path slower, not faster. Matrix-free wins on the GPU because FP64 SpMV
+bandwidth is the scarce resource there and arithmetic is nearly free; on a CPU
+with 24 threads against a well-ordered 40M-nonzero matrix, that trade runs the
+other way.
+
+### What the fix would actually be
+
+A **threaded SpMV**, not a different operator. The row-parallel CSR form is
+standard and is what Tpetra gives LCM; Julia's `SparseArrays` simply does not
+provide it. That is a bounded piece of work against a known 14 ms kernel.
+
+Note also that Amdahl caps the payoff: with the SpMV at ~48% of the step and
+everything else perfectly parallel, the ceiling is ~2.0×, and the measured
+scaling is 1.25×. So the SpMV is the largest serial block but not the only one
+— the remaining ~9.5 s/step (preconditioner application, CG vector operations,
+residual assembly, Newton overhead) has not been profiled, and some of it is
+evidently serial too. Threading the SpMV alone would not reach LCM's 4.6×.
 
 ---
 
