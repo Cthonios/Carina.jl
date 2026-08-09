@@ -68,6 +68,8 @@ function _init_assembly_cache!(asm, is_linear::Bool)
     _cpu_params_ref[]                = nothing
     _fp32_smoother_ok[]              = nothing
     _tangent_is_symmetric[]          = nothing
+    _direct_chol[]                   = nothing
+    _direct_use_lu[]                 = false
     empty!(_K_cache)
     empty!(_M_cache)
     # Matrix-free assemblers (central difference) leave these buffers empty.

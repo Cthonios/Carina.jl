@@ -658,17 +658,68 @@ end
 # Sign convention: K_eff · ΔU = ig.R_eff  (ig.R_eff is already negated residual)
 # --------------------------------------------------------------------------- #
 
+# Reusable CHOLMOD factor for the direct path, and a sticky flag set once a
+# Cholesky attempt has failed.  Both reset per run by `_init_assembly_cache!`.
+const _direct_chol   = Ref{Any}(nothing)
+const _direct_use_lu = Ref(false)
+
+# Cholesky when the tangent is symmetric positive definite, LU otherwise.
+#
+# This was an unconditional `lu(K)`, justified by a note claiming assembly was
+# "~1e-7 asymmetric (AD material tangent)" and that `cholesky(Symmetric(K))`
+# therefore gave a ~50% solve error.  Neither holds: measured asymmetry is
+# 1.0e-16, and Cholesky agrees with LU to 1.9e-15 from either triangle while
+# being more accurate against the original matrix.  `issymmetric(K)` does return
+# false, since it tests exact equality -- the likely source of the original
+# diagnosis.
+#
+# The factor is built ONCE and refactorized in place thereafter.  This is not an
+# optimization but a correctness requirement: `_factorize_direct` runs per
+# Newton iteration, and calling `cholesky` each time allocates a fresh ~6.3 GB
+# supernodal factor.  CHOLMOD allocates outside Julia's heap, so Julia sees a
+# small wrapper, feels no memory pressure and never collects; an 8-step run
+# reached 59.5 GB and was OOM-killed at step 6.  `cholesky!` reuses the one
+# factor, which is valid here because values change every Newton iteration but
+# the sparsity pattern does not.
+#
+# Measured at 530k DOF / 40.2M nonzeros, 24 threads, over repeated
+# factorizations with RSS sampled per repetition:
+#
+#                    per factorization   steady RSS   ||Kx-b||/||b||
+#   lu                     37.8 s           9.6 GB       1.67e-14
+#   cholesky! in place      6.7 s          16.4 GB       4.91e-15
+#
+# So 5.6x faster and more accurate, at ~6.8 GB of retained factor.  RSS is flat
+# across repetitions, which is the property that matters.
+function _factorize_direct(K)
+    if !_direct_use_lu[] && _check_tangent_symmetry!(K)
+        try
+            if _direct_chol[] === nothing
+                _direct_chol[] = cholesky(Symmetric(K, :L))
+            else
+                cholesky!(_direct_chol[], Symmetric(K, :L))
+            end
+            return _direct_chol[]
+        catch e
+            e isa LinearAlgebra.PosDefException || rethrow()
+            # Buckling, softening, an everted element: the tangent is no longer
+            # positive definite.  Drop the factor and stay on LU for the rest of
+            # the run rather than paying a failed factorization every iteration.
+            _direct_use_lu[] = true
+            _direct_chol[]   = nothing
+            _carina_log(4, :solve,
+                        "Tangent lost positive definiteness; switching to LU.")
+        end
+    end
+    return lu(K)
+end
+
 function _linear_solve!(::DirectLinearSolver, ig, p, _ops)
     K  = FEC.stiffness(ig.asm)
     af = _asm_flags
     t  = @elapsed begin
         if af.compute_factorization
-            # NOTE: K is SPD in theory, but FEC's assembly produces a slightly
-            # asymmetric matrix (~1e-7 relative) due to the AD material tangent
-            # path.  Cholesky(Symmetric(K)) reads only one triangle, giving a
-            # ~50% solve error.  Use LU until the assembly is exactly symmetric,
-            # then switch to cholesky(Symmetric(K)) for ~2× speedup.
-            F = lu(K)
+            F = _factorize_direct(K)
             if af.is_linear
                 _factorization_cache[] = F
                 af.compute_factorization = false
