@@ -46,6 +46,81 @@ function _build_gpu_cholesky!(gpu_asm, p_gpu)
 end
 
 # --------------------------------------------------------------------------- #
+# Threaded CSR operator for the assembled (CPU) Krylov path.
+#
+# `SparseArrays.mul!` on a `SparseMatrixCSC` is single-threaded and cannot
+# easily be otherwise: CSC walks columns and scatters into `y`, so parallel
+# columns collide on the same outputs.  CSR walks rows and reduces into `y[i]`,
+# which is conflict-free -- that is why Tpetra gives Albany/LCM a parallel SpMV
+# and Julia's stdlib does not (benchmark/crosscode/README.md §3).
+#
+# Two facts make this nearly free here.  The assembled tangent is symmetric to
+# roundoff -- measured 1.0e-16 relative in the infinity norm, for quasi-static
+# (c_M = 0) as well as Newmark -- and for a symmetric matrix the CSC arrays ARE
+# the CSR arrays, so no transpose is needed.  And `_csr_mul!` already exists in
+# gpu_amg.jl as a KernelAbstractions kernel, so the CPU backend threads it with
+# no new kernel code.
+#
+# Measured at 530k DOF / 40.2M nonzeros, 24 threads:
+#   Symmetric(S, :L) mul!   15.31 ms   <- what CG applied before
+#   SparseArrays CSC mul!   14.23 ms
+#   threaded CSR mul!        9.43 ms
+#
+# The remaining ceiling is memory bandwidth, not cores: 9.43 ms moves ~490 MB,
+# i.e. ~52 GB/s against 50-90 GB/s achievable on this box, so CSR scales only
+# 1.35x from 1 to 24 threads and no amount of further threading will help.
+
+# Tolerance on ||K - K'||_inf / ||K||_inf below which the operator is treated as
+# symmetric.  Measured values are ~1e-16; 1e-10 leaves ample margin while still
+# catching a genuinely non-symmetric tangent (a non-associative flow rule, say),
+# for which CG is not a valid solver in the first place.
+const _SYM_TOL = 1e-10
+
+# Reinterpret a symmetric CSC matrix's arrays as CSR, without transposing.
+function _symmetric_csc_as_csr(backend, K::SparseArrays.SparseMatrixCSC)
+    rowptr = KA.allocate(backend, Int32, length(K.colptr))
+    colval = KA.allocate(backend, Int32, length(K.rowval))
+    nzval  = KA.allocate(backend, Float64, length(K.nzval))
+    copyto!(rowptr, Int32.(K.colptr))
+    copyto!(colval, Int32.(K.rowval))
+    copyto!(nzval, K.nzval)
+    return DeviceCSR(size(K, 1), size(K, 2), rowptr, colval, nzval)
+end
+
+# Checked once per run: if the tangent is not symmetric, CG is invalid and the
+# caller must be told rather than quietly handed a wrong operator.
+const _tangent_is_symmetric = Ref{Union{Nothing, Bool}}(nothing)
+
+function _check_tangent_symmetry!(K::SparseArrays.SparseMatrixCSC)
+    _tangent_is_symmetric[] !== nothing && return _tangent_is_symmetric[]
+    nK = LinearAlgebra.norm(K, Inf)
+    asym = nK == 0.0 ? 0.0 : LinearAlgebra.norm(K - K', Inf) / nK
+    ok = asym <= _SYM_TOL
+    ok || @warn "Assembled tangent is not symmetric; falling back to the " *
+                "explicitly symmetrized operator. CG assumes symmetry, so a " *
+                "tangent this asymmetric may not converge." asymmetry = asym
+    _tangent_is_symmetric[] = ok
+    return ok
+end
+
+"""
+    _assembled_operator(K, n)
+
+The operator to hand Krylov for an assembled solve: a threaded CSR apply when
+the tangent is symmetric, and the previous `Symmetric((K + K')/2, :L)` when it
+is not.  The fallback keeps non-symmetric tangents working exactly as before.
+"""
+function _assembled_operator(K::SparseArrays.SparseMatrixCSC, n::Int)
+    if _check_tangent_symmetry!(K)
+        backend = KA.CPU()
+        csr = _symmetric_csc_as_csr(backend, K)
+        return LinearOperator(Float64, n, n, true, true,
+                              (y, v) -> (_csr_mul!(y, csr, v, backend); y))
+    end
+    return Symmetric((K + K') / 2, :L)
+end
+
+# --------------------------------------------------------------------------- #
 # Helper: preconditioner updates
 # --------------------------------------------------------------------------- #
 
@@ -608,6 +683,12 @@ end
 
 # x_cur (current nodal coordinates) is consumed only by the AMG method, which
 # rebuilds its near-nullspace from it; the other preconditioners ignore it.
+# Which preconditioners actually read the matrix in `_build_precond_op`.
+# Jacobi works from `precond.inv_diag`, already filled by `setup_jacobian!`.
+_precond_reads_matrix(::Preconditioner)             = true
+_precond_reads_matrix(::NoPreconditioner)           = false
+_precond_reads_matrix(::JacobiPreconditioner)       = false
+
 function _build_precond_op(::NoPreconditioner, K_sparse, n, x_cur)
     return nothing
 end
@@ -677,9 +758,14 @@ function _linear_solve!(ls::KrylovLinearSolver, ig::QuasiStaticIntegrator, p, op
     t_kry = @elapsed begin
         if ls.assembled
             K_raw = FEC.stiffness(asm)
-            K_sparse = Symmetric((K_raw + K_raw') / 2, :L)
+            A_op = _assembled_operator(K_raw, n)
             if af.compute_factorization
                 x_cur = ls.precond isa AMGPreconditioner ? _current_coords(p) : nothing
+                # Only IC, AMG and Chebyshev read the matrix in
+                # `_build_precond_op`; Jacobi and none ignore it, so they never
+                # pay for the symmetrized copy.
+                K_sparse = _precond_reads_matrix(ls.precond) ?
+                    Symmetric((K_raw + K_raw') / 2, :L) : K_raw
                 M_op_asm = _build_precond_op(ls.precond, K_sparse, n, x_cur)
                 if af.is_linear
                     _precond_op_cache[] = M_op_asm
@@ -689,10 +775,10 @@ function _linear_solve!(ls::KrylovLinearSolver, ig::QuasiStaticIntegrator, p, op
                 M_op_asm = _precond_op_cache[]
             end
             if M_op_asm === nothing
-                Krylov.krylov_solve!(ls.workspace, K_sparse, R;
+                Krylov.krylov_solve!(ls.workspace, A_op, R;
                                      atol=0.0, rtol=ls.rtol, itmax=ls.itmax, history=true)
             else
-                Krylov.krylov_solve!(ls.workspace, K_sparse, R;
+                Krylov.krylov_solve!(ls.workspace, A_op, R;
                                      M=M_op_asm, atol=0.0, rtol=ls.rtol, itmax=ls.itmax, history=true)
             end
         else
@@ -738,9 +824,14 @@ function _linear_solve!(ls::KrylovLinearSolver, ig::NewmarkIntegrator, p, ops)
         try
             if ls.assembled
                 K_eff_raw = FEC.stiffness(asm)
-                # Symmetrize: FEC assembly is ~1e-7 asymmetric (AD tangent).
-                K_eff_sparse = Symmetric((K_eff_raw + K_eff_raw') / 2, :L)
+                # Threaded CSR apply when the tangent is symmetric, which it is
+                # to roundoff (measured 1.0e-16, not the ~1e-7 an older comment
+                # here claimed).  Only the IC branch below needs the matrix
+                # itself; everything else applies it, so only that branch pays
+                # for the symmetrized copy.
+                A_op = _assembled_operator(K_eff_raw, length(R))
                 if ls.precond isa ICPreconditioner
+                    K_eff_sparse = Symmetric((K_eff_raw + K_eff_raw') / 2, :L)
                     if af.compute_factorization
                         F_ic = lldl(K_eff_sparse)
                         if af.is_linear
@@ -753,12 +844,12 @@ function _linear_solve!(ls::KrylovLinearSolver, ig::NewmarkIntegrator, p, ops)
                     ΔU_vec, cg_hist = IterativeSolvers.cg(K_eff_sparse, R;
                         Pl=F_ic, abstol=0.0, reltol=ls.rtol, log=true)
                 elseif ls.precond isa AMGPreconditioner
-                    ΔU_vec, cg_hist = IterativeSolvers.cg(K_eff_sparse, R;
+                    ΔU_vec, cg_hist = IterativeSolvers.cg(A_op, R;
                         Pl=ls.precond.P, abstol=0.0, reltol=ls.rtol,
                         maxiter=ls.itmax, log=true)
                     _amg_track_iters!(ls.precond, length(cg_hist.data[:resnorm]))
                 else
-                    ΔU_vec, cg_hist = IterativeSolvers.cg(K_eff_sparse, R;
+                    ΔU_vec, cg_hist = IterativeSolvers.cg(A_op, R;
                         abstol=0.0, reltol=ls.rtol, log=true)
                 end
                 _carina_logf(8, :solve, "    CG: %d iters : |r|_CG = %.2e : %s",
