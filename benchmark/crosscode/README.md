@@ -40,111 +40,140 @@ does not — and the difference cancels all of them. Machine: Ryzen 9 9900X
 
 ## 2. Results
 
-| code | solver | device | ways | per-step |
-|---|---|---|---:|---:|
-| **Carina** | CG+Jacobi | GPU | — | **7.07 s** |
-| Carina | CG+Chebyshev | GPU | — | 8.60 s |
-| Carina | L-BFGS | GPU | — | 9.74 s |
-| **LCM** | Belos GMRES + ILUT | CPU | 12 rank | **14.40 s** |
-| LCM | Belos GMRES + ILUT | CPU | 24 rank | 16.27 s |
-| Carina | CG+Jacobi | CPU | 12 thr | 18.14 s |
-| **Carina** | CG+Jacobi | CPU | 24 thr | **18.53 s** |
-| Carina | CG+Jacobi | CPU | 4 thr | 19.91 s |
-| Norma | Hessian min / Newton | CPU | 24 thr | 22.70 s |
-| Carina | CG+Jacobi | CPU | 1 thr | 23.08 s |
-| Carina | CG+AMG | CPU | 24 thr | 26.08 s |
-| Carina | CG+IC | CPU | 24 thr | 26.92 s |
-| Norma | Hessian min / Newton | CPU | 1 thr | 39.78 s |
-| LCM | Belos GMRES + ILUT | CPU | 1 rank | 66.40 s |
-| Carina | direct | CPU | 24 thr | 114.43 s |
+Carina's CPU numbers below are **after** the three fixes in §3, which the
+first version of this benchmark surfaced. The "before" column is what the
+cross-code comparison originally measured.
 
-- **Carina GPU is the fastest configuration measured**, 7.07 s/step: 2.6× its
-  own best CPU and 2.0× LCM's best. That is the GPU campaign's thesis holding
-  against two mature codes on identical input.
-- **Core for core Carina leads**: 23.08 s/step against Norma's 39.78 (1.72×)
-  and LCM's 66.40 (2.88×).
-- **LCM's best beats Carina's best on CPU**, 14.40 vs 18.53 s/step (1.29×).
-  Not because its per-core work is faster — it is 2.9× slower per core — but
-  because it converts 12 ranks into 4.6× while Carina converts 24 threads into
-  1.25×. §3 is about that.
+| code | solver | device | ways | per-step | before §3 |
+|---|---|---|---:|---:|---:|
+| **Carina** | CG+Jacobi | GPU | — | **7.07 s** | 7.07 |
+| Carina | CG+Chebyshev | GPU | — | 8.60 s | 8.60 |
+| Carina | L-BFGS | GPU | — | 9.74 s | 9.74 |
+| **Carina** | CG+Jacobi | CPU | 24 thr | **10.79 s** | 18.53 |
+| **LCM** | Belos GMRES + ILUT | CPU | 12 rank | **14.40 s** | — |
+| Carina | CG+Jacobi | CPU | 1 thr | 14.99 s | 23.08 |
+| LCM | Belos GMRES + ILUT | CPU | 24 rank | 16.27 s | — |
+| Carina | CG+AMG | CPU | 24 thr | 21.29 s | 26.08 |
+| Norma | Hessian min / Newton | CPU | 24 thr | 22.70 s | — |
+| Carina | direct | CPU | 24 thr | 23.08 s | 114.43 |
+| Carina | CG+IC | CPU | 24 thr | 24.32 s | 26.92 |
+| Norma | Hessian min / Newton | CPU | 1 thr | 39.78 s | — |
+| LCM | Belos GMRES + ILUT | CPU | 1 rank | 66.40 s | — |
+
+- **Carina GPU is still the fastest configuration measured**, 7.07 s/step, now
+  1.5× its own best CPU and 2.0× LCM's best.
+- **Carina's best CPU now beats LCM's best**, 10.79 against 14.40 s/step
+  (1.33×), where it was 1.29× behind before §3.
+- **Core for core Carina leads by more**: 14.99 s/step against Norma's 39.78
+  (2.65×) and LCM's 66.40 (4.43×).
+- **A single Carina CPU thread is now within 4% of LCM's twelve ranks**
+  (14.99 vs 14.40), which is the sharpest way to state what the fixes did.
 - LCM at 24 ranks is *slower* than at 12: the box has 12 physical cores, so the
   second hardware thread per core buys nothing here.
-- Norma and Carina CPU are closer than either is to the GPU — 22.70 vs 18.53,
-  a 1.22× gap, smaller than Carina's own spread across preconditioners.
+- The direct solver moved most in relative terms, 114.43 → 23.08 s/step, and is
+  now competitive with the iterative variants rather than five times worse.
+- Norma is untouched by any of this and is the honest control: it and Carina's
+  CPU path were within 1.22× before, and are 2.1× apart after.
 
 ---
 
-## 3. Carina's CPU implicit path does not thread
+## 3. What the comparison found in Carina
 
-| threads | per-step | speedup | parallel efficiency |
-|---:|---:|---:|---:|
-| 1 | 23.08 s | 1.00× | — |
-| 4 | 19.91 s | 1.16× | 29% |
-| 12 | 18.14 s | 1.27× | 11% |
-| 24 | 18.53 s | 1.25× | 5% |
+The first run of this benchmark showed Carina's CPU implicit path scaling only
+1.25× over 24 threads, against 9.9× for the explicit kernel
+(`benchmark_report.md` §5). Chasing that gap found three defects. None was a
+parallelism problem; two were wasted work and one was a stale premise repeated
+in three places.
 
-A monotone curve that plateaus almost immediately — not noise. Set against
-`benchmark_report.md` §5, which measures **9.9×** at 24 threads for the explicit
-kernel on this same mesh, the contrast localises the cause precisely.
+### The measurement that started it
 
-The two paths differ in exactly one thing. `src/input_parsing.jl:977` reads
+`benchmark/cpu_step_profile.jl` accounted for only 10.90 s of a step the run log
+measured at 19.50 s. The missing 8.6 s was the first defect.
 
-```julia
-assembled = backend isa KA.CPU
-```
+### 1. The same sparse matrix built three times
 
-so a CPU run always assembles a sparse matrix and applies it with
-`SparseArrays.mul!`, while GPU and explicit runs use the matrix-free action.
-Julia's `SparseMatrixCSC` SpMV is single-threaded. Measured on the actual
-K_eff this problem builds (530,523 DOF, 40.2M nonzeros) by
-`benchmark/cpu_operator_bench.jl`:
+`setup_jacobian!` passed `FEC.stiffness(asm)` separately into each of three
+preconditioner updates. At most one does work — the others resolve to
+`::Preconditioner` no-op fallbacks — but Julia evaluates arguments eagerly, so
+the COO → CSC conversion ran three times and two results were discarded. At
+530k DOF that conversion is 509 ms over 40.2M nonzeros: ~1.0 s wasted per
+Newton iteration, ~16% of the step. The quasi-static path had the same shape.
+
+A sweep for the pattern elsewhere found no other instances. The repeated
+`FEC.diagonal(asm)` pairs are *not* this bug — each follows a different
+`assemble_diagonal!` — and the matrix-free `_update_*_precond_*!` family passes
+references rather than computed values.
+
+### 2. A serial operator where a parallel one was available
+
+`SparseArrays.mul!` on a `SparseMatrixCSC` is single-threaded and cannot easily
+be otherwise: CSC walks columns and scatters into `y`, so parallel columns
+collide. CSR walks rows and reduces into `y[i]`, which is conflict-free — the
+reason Tpetra gives LCM a parallel SpMV and Julia's stdlib does not.
 
 | | 1 thread | 24 threads | scaling |
 |---|---:|---:|---:|
-| assembled SpMV | 13.78 ms | 14.12 ms | **1.0×** |
-| matrix-free action | 353.85 ms | 32.75 ms | **10.8×** |
+| `Symmetric(S,:L)` mul! (what CG applied) | — | 15.31 ms | — |
+| `SparseArrays` CSC mul! | 14.47 ms | 14.20 ms | 1.0× |
+| threaded CSR mul! | 12.71 ms | **9.43 ms** | 1.35× |
 
-The two agree to `3.7e-16` — the same K_eff applied to the same vector — so
-this is a like-for-like timing, and also a correctness check on the CPU
-matrix-free path.
+Switching cost nothing to build: `_csr_mul!` already existed in `gpu_amg.jl` as
+a KernelAbstractions kernel, and the CPU backend threads it.
 
-`benchmark_report.md` §3 records 2,558 CG iterations over 4 steps for this
-variant, ~640 per step, so the serial SpMV is **~9.0 s of a measured 18.5 s
-step, about half**.
+### 3. One stale claim, three decisions
+
+The code asserted in three places that FEC's assembly is "~1e-7 asymmetric (AD
+material tangent)". It is not. Measured asymmetry is **1.0e-16**, in
+quasi-static (`c_M = 0`) as much as Newmark. The likely origin is that
+`issymmetric(K)` returns `false` — it tests exact equality, so a 1e-16
+perturbation trips it. That one misread predicate propagated into:
+
+- symmetrizing `(K+K')/2` per Newton iteration, at 626 ms a call;
+- forcing `Symmetric((K+K')/2, :L)` as the Krylov operator, which also blocks
+  the CSR form above, since a symmetric matrix's CSC arrays *are* its CSR
+  arrays and no transpose is needed;
+- choosing `lu` over `cholesky` in the direct solver — 37.8 s against 6.7 s a
+  factorization, and Cholesky is *more* accurate (4.91e-15 vs 1.67e-14).
 
 ### Matrix-free is not the fix
 
-An earlier draft of this file asserted the SpMV was essentially the whole step
-and that switching CPU to the matrix-free path was a one-line fix. Both claims
-were wrong, and the measurement above is what corrects them.
+An earlier draft of this file asserted the serial SpMV was essentially the whole
+step and that switching CPU to the matrix-free path was a one-line fix. Both
+claims were wrong.
 
-The first came from timing a `sprand` matrix of the same size and density
-rather than the real one: 33 ms against the true 13.8 ms. A random sparsity
-pattern has far worse locality than an assembled FE operator, so it
-overstated the cost by 2.4× and inflated the SpMV's share to ~100%.
+The first came from timing a `sprand` matrix of matching size and density rather
+than the real one: 33 ms against the true 13.8 ms. Random sparsity has far worse
+locality than an assembled FE operator, so it overstated the cost by 2.4× and
+inflated the SpMV's share from ~48% to ~100%.
 
-The second is refuted outright. Matrix-free threads well — 10.8×, in line with
-the explicit kernel's 9.9× — but it starts 25.7× behind and is still **2.32×
-slower than the SpMV at 24 threads**. Flipping `assembled` on CPU would make
-this path slower, not faster. Matrix-free wins on the GPU because FP64 SpMV
-bandwidth is the scarce resource there and arithmetic is nearly free; on a CPU
-with 24 threads against a well-ordered 40M-nonzero matrix, that trade runs the
-other way.
+The second is refuted by measurement. Matrix-free threads well — 10.8×, in line
+with the explicit kernel — but starts 25.7× behind and is still **2.32× slower
+than the SpMV at 24 threads**. Matrix-free wins on the GPU because FP64 SpMV
+bandwidth is the scarce resource and arithmetic is nearly free; on a CPU with 24
+threads against a well-ordered 40M-nonzero matrix the trade runs the other way.
 
-### What the fix would actually be
+### What remains, and is a real ceiling
 
-A **threaded SpMV**, not a different operator. The row-parallel CSR form is
-standard and is what Tpetra gives LCM; Julia's `SparseArrays` simply does not
-provide it. That is a bounded piece of work against a known 14 ms kernel.
+Thread scaling improved from 1.25× to 1.39×, not to LCM's 4.6×, and it will not
+go much further. The SpMV is **memory-bandwidth bound**: 9.43 ms moves ~490 MB,
+about 52 GB/s against the 50–90 GB/s this box achieves. One core nearly
+saturates dual-channel DDR5, so core count was never the lever. The next gain
+would have to move fewer bytes — Int32 column indices would cut ~160 MB per
+apply, which is the one place the host-memory work and the speed work coincide.
 
-Note also that Amdahl caps the payoff: with the SpMV at ~48% of the step and
-everything else perfectly parallel, the ceiling is ~2.0×, and the measured
-scaling is 1.25×. So the SpMV is the largest serial block but not the only one
-— the remaining ~9.5 s/step (preconditioner application, CG vector operations,
-residual assembly, Newton overhead) has not been profiled, and some of it is
-evidently serial too. Threading the SpMV alone would not reach LCM's 4.6×.
+### A note on how the Cholesky change nearly went wrong
 
----
+The first attempt at defect 3 called `cholesky` per Newton iteration. Each call
+allocates a fresh ~6.3 GB supernodal factor, and CHOLMOD allocates outside
+Julia's heap — Julia sees a small wrapper, feels no pressure, and never
+collects. The run reached 59.5 GB and was OOM-killed at step 6 of 8, taking the
+session with it. The single-factorization benchmark that justified the change
+measured time and never memory, which is the dimension that broke.
+
+The shipped version builds the factor once and refactorizes in place with
+`cholesky!`, valid because values change every Newton iteration while the
+sparsity pattern does not. RSS is then flat across repetitions — the property
+that matters — and it is faster still, since symbolic analysis is not repeated.
 
 ## 4. Caveats
 
@@ -157,6 +186,10 @@ evidently serial too. Threading the SpMV alone would not reach LCM's 4.6×.
 - The GMRES+ILUT preconditioner LCM ships for this test is not the same
   algorithm as Carina's CG+Jacobi. Iteration counts are not comparable across
   codes; only wall time per step is.
+- Only Carina's CPU rows changed between the two columns in §2. Norma and LCM
+  were measured once and are untouched, which makes them the control: if the
+  Carina improvements were a measurement artifact rather than real, the
+  unchanged codes would have drifted too, and they did not.
 - Quasi-static and explicit regimes are not covered. Norma has `QuasiStatic`
   and `CentralDifference` and LCM has an explicit Tempus input, so both are
   reachable; the implicit case was done first because all three codes already
