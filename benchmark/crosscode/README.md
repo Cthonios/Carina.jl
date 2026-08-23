@@ -264,9 +264,56 @@ different resources -- and Carina's best configuration is **4.76 s/step**,
 2.3x its own best CPU and 3.0x LCM's best.  Rows in `results.jsonl` carry
 `commit: 85928c5`.
 
+### A third card as falsification test: V100 (2026-08-23, at `b5326a1`)
+
+The "now memory-bound" claim above makes a prediction on other full-rate-FP64
+hardware, so the same decks ran unchanged on a V100-PCIE-32GB
+(ascicgpu24, driver 580, CUDA.jl auto-selects the 12.9 runtime for sm_70 --
+CUDA 13 dropped Volta).  Pure DRAM-bandwidth scaling (1555/900 GB/s)
+predicts the A100 kernel times x1.73; the V100 measured:
+
+| kernel (min over 50 reps) | A100 | V100 | ratio |
+|---|---:|---:|---:|
+| stiffness action | 2.88 ms | 6.07 ms | 2.11x |
+| mass action | 1.49 ms | 3.46 ms | 2.32x |
+
+No Volta-specific register cliff: the action sits at 1.74x its own
+mass-kernel floor (A100: 1.93x), and both checksums match the other two
+cards to the last digit.  But *both* kernels -- including mass, which does
+almost no arithmetic -- run 20-35% worse than bandwidth scaling.  The
+missing factor is L2 capacity: 40 MB on the A100 against 6 MB on the V100,
+and the dominant traffic in both kernels is the redundant 24-DOF
+connectivity gather, whose reuse the A100 catches in L2 and the V100 sends
+to HBM.  So the diagnosis survives, refined: the kernels are bound by the
+memory system, not just the DRAM pins, and the shared-gather work item
+gains a second motivation.
+
+End to end (same invariants: 4,455 CG iterations, `|U|_max = 3.98e-02`):
+
+| variant (per-step) | RX 7600 | V100 | A100 |
+|---|---:|---:|---:|
+| GPU CG+Jacobi | 6.17 s | 10.46 s | 4.76 s |
+| GPU CG+Chebyshev | 7.89 s | 9.06 s | 6.63 s |
+| GPU L-BFGS | 8.21 s | **7.09 s** | 5.06 s |
+
+Two things worth keeping.  First, the variant ordering flips on the V100:
+CG+Jacobi, the winner on both other cards, is worst here, and L-BFGS wins.
+Jacobi leans hardest on the action kernel (4,455 CG iterations per 8
+steps), so a 2.1x kernel slowdown costs it most; the falsification test
+doubles as a reminder that the best solver variant is hardware-dependent.
+Second, the V100 loses to the $270 RX 7600 on two of three variants despite
+a 1.4x faster action kernel.  The gap is bigger than any kernel time
+explains: everything the host still drives inside the step loop -- kernel
+launches at thousands of CG iterations per step, line search, per-iteration
+bookkeeping -- runs on 2.1 GHz Skylake cores here against the 5.7 GHz Zen 5
+driving the 7600.  Untangling launch overhead from host sections needs a
+profile, but either way it is an argument for keeping the CPU out of the
+step loop.  Rows in `results.jsonl` carry `host: ascicgpu24`.
+
 ## 5. Caveats
 
-- One problem, one size, one machine (plus the A100 cross-check of §4).
+- One problem, one size, one machine (plus the A100 and V100 cross-checks
+  of §4).
   Nothing here says anything about
   scaling, about other physics, or about these codes on a cluster.
 - Albany/LCM is doing more work per step in a general sense: it is a
