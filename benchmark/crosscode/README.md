@@ -63,7 +63,9 @@ cross-code comparison originally measured.
 - **Carina GPU is still the fastest configuration measured**, 7.07 s/step at
   the commit this table snapshots.  (§4: an A100 initially did barely
   better — 6.71 — the reason was Carina's kernel, not the hardware, and
-  fixing it brought the A100 to 4.76 s/step and the RX 7600 to 6.17.)
+  fixing it brought the A100 to 4.76 s/step and the RX 7600 to 6.17; the
+  operator-fusion round that followed brought the A100 to 2.96 and the
+  RX 7600 to 5.52.)
 - **Carina's best CPU now beats LCM's best**, 10.79 against 14.40 s/step
   (1.33×), where it was 1.29× behind before §3.
 - **Core for core Carina leads by more**: 14.99 s/step against Norma's 39.78
@@ -352,6 +354,44 @@ outlier because it is the only card without a large last-level cache.
 (The stiffness action does not follow the same ordering because on the
 7600 it is 70% FP64-arithmetic-bound -- two limits, one kernel, which card
 you run picks which limit binds.)
+
+### Both targets removed (2026-08-23, commits `b4712e6` + `247586f`)
+
+The profile's two targets fell the same day.  `NewmarkAction(c_M)` applies
+`(K + c_M·M)·v` in one element pass -- one gather, one quadrature loop, one
+atomic scatter, and one launch+sync per CG iteration where there were two of
+everything.  Form mattered once again: the first version composed the two
+existing kernels through dispatch and NVPTX failed to fold the duplicated
+element-Jacobian inversion (8.76 ms on the V100, worse than the 5.95 ms
+stiffness term should dominate); an explicit body sharing the mapped cell
+lands at 6.50 ms, the whole mass term costing +0.55 ms.  On the A100 the
+fused kernel is 2.45 ms -- the mass term now costs +0.16 ms against 1.57 ms
+as a separate kernel.  Second, `NewmarkDiagonal(c_M)` returns the
+per-quadrature-point diagonal of `K + c_M·M` directly (diag(JxW·G·A·G')
+needs only the tangent entries pairing a component with itself), so the
+preconditioner update never forms a 24×24 element matrix: 587 → 12.4 ms on
+the V100 (47×), 290 → 6.5 ms on the A100 (45×), 44 → 21 ms on the 7600
+(2.1× -- there the tangent FLOPs, common to both, dominate).  Fused-vs-
+two-pass agreement is 3e-16; every run below holds the invariants (4,455 CG
+iterations, `|U|_max = 3.98e-02`).
+
+| variant (per-step) | RX 7600 | V100 | A100 |
+|---|---:|---:|---:|
+| GPU CG+Jacobi | 6.17 -> 5.52 s | 10.46 -> **5.40 s** | 4.76 -> **2.96 s** |
+| GPU CG+Chebyshev | 7.89 -> 7.20 s | 9.06 -> 7.11 s | 6.63 -> 3.01 s |
+| GPU L-BFGS | 8.21 -> 8.47 s | 7.09 -> 7.88 s | 5.06 -> 4.96 s |
+
+Carina's best configuration is now **2.96 s/step** (A100, CG+Jacobi), 3.6x
+its own best CPU -- and 2.3x faster than the same hardware ran two days
+earlier.  The gains land exactly where the profile said the costs were:
+the V100, whose step was 19% mass kernel + 17% diagonal assembly, nearly
+halves on Jacobi and now ties the RX 7600 (5.40 vs 5.52) despite its host
+handicap; the A100's Chebyshev, which applies the operator inside the
+smoother polynomial too, gains 2.2x.  L-BFGS, which uses neither fix, is
+unchanged within its run-to-run scatter (the V100 measured 7.09 / 8.62 /
+7.88 s across three runs of identical code -- that variant's difference is
+host-dominated and noisy on GPFS-homed machines).  Rows in `results.jsonl`
+carry `commit: 247586f` (`b4712e6` for L-BFGS).
 
 ## 5. Caveats
 
