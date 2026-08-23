@@ -724,10 +724,14 @@ end
     cell = FEC.map_interpolants(interps, x_el)
     (; N, JxW) = cell
 
-    ρ = props_el[1]
-    # Correct M·v in interleaved DOF ordering:
-    #   (M·v)[3*(n-1)+d] = N[n] * Σ_m N[m] * v_el[3*(m-1)+d]
-    # i.e. per-direction dot products, NOT a single dot over all DOFs.
+    return _mass_qp_action(N, JxW, props_el[1], v_el)
+end
+
+# Correct M·v in interleaved DOF ordering:
+#   (M·v)[3*(n-1)+d] = ρ·JxW · N[n] * Σ_m N[m] * v_el[3*(m-1)+d]
+# i.e. per-direction dot products, NOT a single dot over all DOFs.
+# Shared by `FEC.mass_action` and the fused `NewmarkAction`.
+@inline function _mass_qp_action(N, JxW, ρ, v_el)
     N_nodes = size(N, 1)
     s1 = sum(N[m] * v_el[3 * (m - 1) + 1] for m in 1:N_nodes)
     s2 = sum(N[m] * v_el[3 * (m - 1) + 2] for m in 1:N_nodes)
@@ -757,11 +761,42 @@ loop, and the atomic scatter that separate `stiffness_action` and
 `mass_action` assemblies each pay in full.  Dispatches through
 `FEC.stiffness_action` and `FEC.mass_action`, so every constitutive
 specialization (including the small-strain LinearElastic overloads) is
-honored unchanged; the shared interpolation work between the two terms is
-folded by the compiler, not by hand.
+honored unchanged.
+
+The stateless hyperelastic path gets an explicit single-pass body: NVPTX does
+not reliably fold the element-Jacobian inversion duplicated between the two
+dispatched calls (the fallback below measured 8.76 ms against 5.88 ms for the
+stiffness term alone on a V100), so the hot path shares `cell` by hand.  The
+fallback composes `FEC.stiffness_action` and `FEC.mass_action` through
+dispatch, which is what keeps the LinearElastic and stateful-model
+specializations correct without restating their tangent conventions here.
 """
 struct NewmarkAction{T <: Number} <: Function
     c_M::T
+end
+
+@inline function (action::NewmarkAction)(
+    physics::SolidMechanics{<:CM.Hyperelastic, NP, 0},
+    interps, x_el,
+    t, dt,
+    u_el, u_el_old, v_el,
+    state_old_q, state_new_q,
+    props_el,
+) where {NP}
+    cell = FEC.map_interpolants(interps, x_el)
+    (; N, ∇N_X, JxW) = cell
+
+    ∇u_q = FEC.interpolate_field_gradients(physics, cell, u_el)
+    ∇u_q = FEC.modify_field_gradients(FEC.ThreeDimensional(), ∇u_q)
+    ∇v_q = FEC.interpolate_field_gradients(physics, cell, v_el)
+    ∇v_q = FEC.modify_field_gradients(FEC.ThreeDimensional(), ∇v_q)
+
+    dP_q = _stiffness_action_dP(
+        physics, ∇u_q, ∇v_q, state_old_q, state_new_q, dt, props_el
+    )
+    Kv_q = _scatter_qp(∇N_X, dP_q, JxW)
+    Mv_q = _mass_qp_action(N, JxW, props_el[1], v_el)
+    return Kv_q + action.c_M * Mv_q
 end
 
 @inline function (action::NewmarkAction)(
