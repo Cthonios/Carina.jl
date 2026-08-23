@@ -32,6 +32,7 @@ import json
 import os
 import re
 import shutil
+import socket
 import subprocess
 import sys
 import time
@@ -45,6 +46,11 @@ MPIBIN = "/usr/lib64/openmpi/bin"
 RESULTS = os.path.join(HERE, "results.jsonl")
 
 DT = 5.0e-5
+
+# Which GPU backend Carina's gpu-* decks select; --gpu-device overrides.
+# The checked-in decks say `device: rocm` for the Radeon box; on an NVIDIA
+# host pass --gpu-device cuda and the deck line is rewritten before the run.
+GPU_DEVICE = "rocm"
 
 
 def ensure_mesh():
@@ -96,6 +102,7 @@ def carina_case(variant, nsteps, threads):
     y = re.sub(r"input mesh file: .*", "input mesh file: torsion.g", y)
     y = re.sub(r"output mesh file: .*",
                "output mesh file: carina-%s.e" % variant, y)
+    y = y.replace("device: rocm", "device: %s" % GPU_DEVICE)
     with open(deck, "w") as f:
         f.write(y)
     # `bin/carina` is the supported entry point: it owns the launcher
@@ -148,7 +155,11 @@ def main():
     # the two runs share their fixed cost, and it showed up as a *negative*
     # per-step for the first GPU row of the first batch.
     ap.add_argument("--warmup", action="store_true")
+    ap.add_argument("--gpu-device", default="rocm",
+                    help="backend for Carina gpu-* decks (rocm or cuda)")
     args = ap.parse_args()
+    global GPU_DEVICE
+    GPU_DEVICE = args.gpu_device
     ensure_mesh()
     steps = [int(s) for s in args.steps.split(",")]
     only = set(args.only.split(","))
@@ -225,6 +236,10 @@ def main():
             # warmup=false that duplicate a warmup=true row are superseded:
             # they are the cold-cache measurements kept for the record.
             "warmup": bool(args.warmup),
+            # Rows without a host field predate it and are the Ryzen 9 9900X
+            # / RX 7600 box every earlier section describes.
+            "host": socket.gethostname(),
+            "gpu_device": GPU_DEVICE if dev == "gpu" else None,
             "n_dofs": 530523, "dt": DT,
         }
         with open(RESULTS, "a") as f:
