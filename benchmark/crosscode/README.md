@@ -60,9 +60,10 @@ cross-code comparison originally measured.
 | Norma | Hessian min / Newton | CPU | 1 thr | 39.78 s | — |
 | LCM | Belos GMRES + ILUT | CPU | 1 rank | 66.40 s | — |
 
-- **Carina GPU is still the fastest configuration measured**, 7.07 s/step, now
-  1.5× its own best CPU and 2.0× LCM's best.  (§4: an A100 does barely
-  better — 6.71 — and the reason is Carina's kernel, not the hardware.)
+- **Carina GPU is still the fastest configuration measured**, 7.07 s/step at
+  the commit this table snapshots.  (§4: an A100 initially did barely
+  better — 6.71 — the reason was Carina's kernel, not the hardware, and
+  fixing it brought the A100 to 4.76 s/step and the RX 7600 to 6.17.)
 - **Carina's best CPU now beats LCM's best**, 10.79 against 14.40 s/step
   (1.33×), where it was 1.29× behind before §3.
 - **Core for core Carina leads by more**: 14.99 s/step against Norma's 39.78
@@ -225,6 +226,43 @@ charged Jacobi ~3.6 s/step (10.36 -> 6.71).  Both row sets are in
 `results.jsonl` (`workdir: scratch` marks the local-disk rows, which are the
 canonical ones); on shared-filesystem machines the benchmark must run from
 node-local storage.
+
+
+### The wall, removed (2026-08-22, commits `053b490` + `85928c5`)
+
+The register diagnosis above was actionable, and an ablation ladder ran the
+same day.  (1) A `maxregs` recompilation sweep on the A100 was flat from 96
+to 255 registers and 3-5x worse below 64: forcing occupancy never pays, the
+live state itself had to shrink.  (2) A closed-form NeoHookean directional
+derivative replaced the ForwardDiff dual pass -- and the *form* mattered more
+than the fact of being analytic: staged tensor temporaries ran 2.3x slower
+than the dual pass on CUDA at near-identical static SASS, while the same
+derivative collected into `dP = c1 F^-T + c2 W + c3 dF + c4 F` beats the dual
+pass on both vendors.  (3) The real win: the discrete-gradient operator G --
+a 3Nx9 matrix, 216 doubles for HEX8, built per quadrature point and used
+once -- was eliminated in favor of a direct contraction.  Even the mass
+kernel, whose only arithmetic is N'N*v, hit the 255-register cap: the
+element machinery, not the constitutive math, was spending the registers.
+
+On the A100 the spill frame collapsed from ~4 KB to 248 bytes per thread and
+the action went **7.17 -> 2.88 ms** (within 2x of the mass-action memory
+floor).  On the RX 7600 the action barely moved (9.36 -> 8.66 ms): RDNA3 was
+never spill-bound -- its 1/32-rate FP64 arithmetic is its wall, and only
+reduced precision can move it further.  One change, two vendors, two
+different binding constraints revealed.  End to end, same 4,455 CG
+iterations and `|U|_max` on every row:
+
+| variant (per-step) | RX 7600 | A100 |
+|---|---:|---:|
+| GPU CG+Jacobi | 7.07 -> **6.17 s** | 6.71 -> **4.76 s** |
+| GPU CG+Chebyshev | 8.60 -> 7.89 s | 8.95 -> 6.63 s |
+| GPU L-BFGS | 9.74 -> 8.21 s | 8.32 -> 5.06 s |
+
+The A100 now leads the RX 7600 by 1.30x on the best variant -- still far
+from the 5.4x bandwidth ratio, because the two cards are limited by
+different resources -- and Carina's best configuration is **4.76 s/step**,
+2.3x its own best CPU and 3.0x LCM's best.  Rows in `results.jsonl` carry
+`commit: 85928c5`.
 
 ## 5. Caveats
 
