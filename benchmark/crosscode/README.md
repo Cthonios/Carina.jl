@@ -310,6 +310,49 @@ driving the 7600.  Untangling launch overhead from host sections needs a
 profile, but either way it is an argument for keeping the CPU out of the
 step loop.  Rows in `results.jsonl` carry `host: ascicgpu24`.
 
+### Where a step actually goes: CUPTI profile of one production step (2026-08-23)
+
+`CUDA.@profile` around one full Newmark step on the V100 (3 Newton
+iterations, 579 CG iterations, one Exodus write; 10.33 s trace, GPU busy
+70.5%):
+
+| component | time | share |
+|---|---:|---:|
+| stiffness action, 579 x 5.88 ms | 3.41 s | 33% |
+| mass action, 583 x 3.31 ms | 1.93 s | 19% |
+| Jacobi diagonal assembly, 3 x 585 ms | 1.76 s | 17% |
+| all other kernels combined | 0.15 s | 1.5% |
+| GPU idle (host: Exodus write + per-iteration sync logic) | 3.05 s | 30% |
+
+Three conclusions, one refutation:
+
+1. **Launch overhead is a non-issue.**  All 11,200 launches cost 55 ms
+   combined; the slow-host penalty conjectured above is *not* launch
+   dispatch.  It is the ~30% GPU-idle bucket: 1,215 device-to-host scalar
+   copies (a convergence-check synchronization every CG iteration) plus
+   the per-step Exodus write, all serialized on 2.1 GHz cores.
+2. **The mass action is a separate full element kernel every CG
+   iteration.**  Newmark applies `A v = c M v + K v` as two kernels that
+   walk the same connectivity, gather the same 24 DOF, and scatter to the
+   same nodes.  The mass kernel is nearly pure gather/scatter traffic --
+   fusing it into the stiffness action should recover most of its 19% on
+   every card.
+3. **The Jacobi preconditioner costs 585 ms per Newton iteration** --
+   3.7 us/element, ~100x the action kernel per element.  It computes the
+   full 24x24 element matrix (an assembled-path site that still builds G)
+   and keeps 24 numbers of it.  A diagonal-only kernel is ~10x less work.
+
+The refutation closes the cross-vendor cache story.  The RX 7600's mass
+action measures 2.47 ms -- *faster than the V100's 3.31* on a third of the
+bandwidth -- because Navi 33 carries a 32 MB Infinity Cache.  The
+effective-cache ordering A100 (40 MB L2) > RX 7600 (32 MB IC) > V100
+(6 MB L2) exactly matches the mass-kernel ordering 1.49 < 2.47 < 3.46 ms:
+the gather-dominated kernels are cache-capacity-bound, and the V100 is the
+outlier because it is the only card without a large last-level cache.
+(The stiffness action does not follow the same ordering because on the
+7600 it is 70% FP64-arithmetic-bound -- two limits, one kernel, which card
+you run picks which limit binds.)
+
 ## 5. Caveats
 
 - One problem, one size, one machine (plus the A100 and V100 cross-checks
