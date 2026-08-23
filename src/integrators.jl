@@ -472,7 +472,7 @@ function setup_jacobian!(ig::QuasiStaticIntegrator{<:NewtonSolver{<:KrylovLinear
         # the diagonal extraction kernel.  For linear elastic, cache after
         # first call (K is constant).
         if !af.is_linear || af.compute_factorization
-            _update_jacobi_precond_qs!(ls.precond, asm, U, ls.ones_v, p)
+            _update_jacobi_precond_qs!(ls.precond, asm, U, p)
             _update_chebyshev_precond_qs!(ls.precond, asm, U, p)
             _update_gpu_amg_precond_qs!(ls.precond, asm, U, p)
             af.is_linear && (af.compute_factorization = false)
@@ -538,10 +538,9 @@ function setup_jacobian!(ig::NewmarkIntegrator{<:NewtonSolver{<:KrylovLinearSolv
         if !af.is_linear || af.compute_factorization
             # Jacobi works off the free-DOF diagonal, Chebyshev drives the
             # all-DOF action operator: different buffers, not interchangeable.
-            _update_jacobi_precond_eff!(ls.precond, asm, Uu, ls.ones_v, c_M, p, ls.scratch)
-            _update_chebyshev_precond_eff!(ls.precond, asm, Uu, c_M, p,
-                                           _action_scratch!(ls, asm))
-            _update_gpu_amg_precond_eff!(ls.precond, asm, Uu, c_M, p, ls.scratch)
+            _update_jacobi_precond_eff!(ls.precond, asm, Uu, c_M, p)
+            _update_chebyshev_precond_eff!(ls.precond, asm, Uu, c_M, p)
+            _update_gpu_amg_precond_eff!(ls.precond, asm, Uu, c_M, p)
             af.is_linear && (af.compute_factorization = false)
         end
     end

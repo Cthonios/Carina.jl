@@ -262,7 +262,7 @@ end
 # Per-Newton-iteration updates: refresh the fine diagonal (used by the
 # V-cycle's fine smoother), then lazily rebuild the hierarchy.
 function _update_gpu_amg_precond_qs!(precond::GPUAMGPreconditioner, asm, U, p)
-    FEC.assemble_diagonal!(asm, FEC.stiffness, U, p)
+    FEC.assemble_diagonal!(asm, StiffnessDiagonal(), U, p)
     d = FEC.diagonal(asm)
     @. precond.inv_diag = 1.0 / max(abs(d), eps(Float64))
     _build_gpu_amg_hierarchy!(precond, 0.0, U)
@@ -271,65 +271,43 @@ end
 _update_gpu_amg_precond_qs!(::Preconditioner, args...) = nothing
 
 function _update_gpu_amg_precond_eff!(precond::GPUAMGPreconditioner, asm, U,
-                                      c_M, p, scratch)
-    FEC.assemble_diagonal!(asm, FEC.stiffness, U, p)
-    copyto!(scratch, FEC.diagonal(asm))
-    FEC.assemble_diagonal!(asm, FEC.mass, U, p)
-    d_mass = FEC.diagonal(asm)
-    @. precond.inv_diag = 1.0 / max(abs(scratch + c_M * d_mass), eps(Float64))
+                                      c_M, p)
+    FEC.assemble_diagonal!(asm, NewmarkDiagonal(c_M), U, p)
+    d = FEC.diagonal(asm)
+    @. precond.inv_diag = 1.0 / max(abs(d), eps(Float64))
     _build_gpu_amg_hierarchy!(precond, c_M, U)
     return nothing
 end
 _update_gpu_amg_precond_eff!(::Preconditioner, args...) = nothing
 
 
-# All-DOF scratch for the matrix-free action path, sized on first use.
-#
-# `ls.scratch` is built from the free-DOF template, which is the right size for
-# the diagonal-based preconditioner updates but NOT for the action storage: that
-# spans every DOF, constrained ones included.  Handing `ls.scratch` to
-# `_apply_eff_stiffness!` therefore threw a BoundsError on the first matvec of
-# any matrix-free Newmark solve.  Keep the two buffers separate rather than
-# widening `scratch`, which `_update_jacobi_precond_eff!` still needs free-DOF
-# sized.
-function _action_scratch!(ls::KrylovLinearSolver, asm)
-    n = length(asm.stiffness_action_storage.data)
-    if length(ls.action_scratch) != n
-        ls.action_scratch = similar(ls.scratch, n)
-    end
-    return ls.action_scratch
+# Compute (K + c_M·M)·v in one fused matrix-free assembly, storing the result
+# in asm storage.  Both terms walk the same connectivity, so `NewmarkAction`
+# evaluates them in a single element pass — one gather, one scatter.
+function _apply_eff_stiffness!(asm, U, v, c_M, p)
+    FEC.assemble_matrix_free_action!(asm, NewmarkAction(c_M), U, v, p)
 end
 
-# Compute (K + c_M·M)·v via matrix-free actions, storing result in asm storage.
-# `scratch` must be all-DOF sized — see _action_scratch!.
-function _apply_eff_stiffness!(asm, U, v, c_M, p, scratch)
-    FEC.assemble_matrix_free_action!(asm, FEC.stiffness_action, U, v, p)
-    copyto!(scratch, asm.stiffness_action_storage.data)
-    FEC.assemble_matrix_free_action!(asm, FEC.mass_action, U, v, p)
-    @. asm.stiffness_action_storage.data = scratch + c_M * asm.stiffness_action_storage.data
-end
-
-# Matrix-free Jacobi preconditioner: diag(K + c_M·M) via diagonal extraction.
-function _update_jacobi_precond_eff!(precond::JacobiPreconditioner, asm, U, ones_v, c_M, p, scratch)
-    FEC.assemble_diagonal!(asm, FEC.stiffness, U, p)
-    copyto!(scratch, FEC.diagonal(asm))
-    FEC.assemble_diagonal!(asm, FEC.mass, U, p)
-    d_mass = FEC.diagonal(asm)
-    @. precond.inv_diag = 1.0 / max(abs(scratch + c_M * d_mass), eps(Float64))
+# Matrix-free Jacobi preconditioner: diag(K + c_M·M) in one diagonal-only
+# assembly — no element matrix, no second pass for the mass diagonal.
+function _update_jacobi_precond_eff!(precond::JacobiPreconditioner, asm, U, c_M, p)
+    FEC.assemble_diagonal!(asm, NewmarkDiagonal(c_M), U, p)
+    d = FEC.diagonal(asm)
+    @. precond.inv_diag = 1.0 / max(abs(d), eps(Float64))
     return nothing
 end
 _update_jacobi_precond_eff!(::Preconditioner, args...) = nothing
 
 # GPU matrix-free displacement Jacobian: y = (K + c_M·M)·v
-function _eff_stiffness_matvec!(y, v, asm, U, c_M, p, scratch)
-    _apply_eff_stiffness!(asm, U, v, c_M, p, scratch)
+function _eff_stiffness_matvec!(y, v, asm, U, c_M, p)
+    _apply_eff_stiffness!(asm, U, v, c_M, p)
     copyto!(y, FEC.hvp(asm, v))
     return y
 end
 
-# QS matrix-free Jacobi: true diag(K) via diagonal extraction kernel.
-function _update_jacobi_precond_qs!(precond::JacobiPreconditioner, asm, U, ones_v, p)
-    FEC.assemble_diagonal!(asm, FEC.stiffness, U, p)
+# QS matrix-free Jacobi: true diag(K) via the diagonal-only kernel.
+function _update_jacobi_precond_qs!(precond::JacobiPreconditioner, asm, U, p)
+    FEC.assemble_diagonal!(asm, StiffnessDiagonal(), U, p)
     d = FEC.diagonal(asm)
     @. precond.inv_diag = 1.0 / max(abs(d), eps(Float64))
     return nothing
@@ -346,7 +324,7 @@ _update_chebyshev_precond_assembled!(::Preconditioner, _) = nothing
 # D⁻¹/² is stored in work3 for use by _chebyshev_precond_op.
 function _update_chebyshev_precond_qs!(precond::ChebyshevPreconditioner, asm, U, p)
     n = length(U)
-    FEC.assemble_diagonal!(asm, FEC.stiffness, U, p)
+    FEC.assemble_diagonal!(asm, StiffnessDiagonal(), U, p)
     d = FEC.diagonal(asm)
     inv_sqrt_d = precond.work3
     @. inv_sqrt_d = 1.0 / sqrt(max(abs(d), eps(Float64)))
@@ -359,17 +337,15 @@ end
 _update_chebyshev_precond_qs!(::Preconditioner, args...) = nothing
 
 # Newmark matrix-free path: estimate λ_max of D⁻¹K_eff.
-function _update_chebyshev_precond_eff!(precond::ChebyshevPreconditioner, asm, U, c_M, p, scratch)
+function _update_chebyshev_precond_eff!(precond::ChebyshevPreconditioner, asm, U, c_M, p)
     n = length(U)
-    FEC.assemble_diagonal!(asm, FEC.stiffness, U, p)
-    d_k = copy(FEC.diagonal(asm))
-    FEC.assemble_diagonal!(asm, FEC.mass, U, p)
-    d_m = FEC.diagonal(asm)
+    FEC.assemble_diagonal!(asm, NewmarkDiagonal(c_M), U, p)
+    d = FEC.diagonal(asm)
     inv_sqrt_d = precond.work3
-    @. inv_sqrt_d = 1.0 / sqrt(max(abs(d_k + c_M * d_m), eps(Float64)))
-    inv_diag = similar(d_k)
-    @. inv_diag = 1.0 / max(abs(d_k + c_M * d_m), eps(Float64))
-    matvec! = (y, v) -> _eff_stiffness_matvec!(y, v, asm, U, c_M, p, scratch)
+    @. inv_sqrt_d = 1.0 / sqrt(max(abs(d), eps(Float64)))
+    inv_diag = similar(d)
+    @. inv_diag = 1.0 / max(abs(d), eps(Float64))
+    matvec! = (y, v) -> _eff_stiffness_matvec!(y, v, asm, U, c_M, p)
     _estimate_lambda_max!(precond, matvec!, inv_diag, n)
     return nothing
 end
@@ -642,8 +618,7 @@ function _setup_linear_ops(ig::NewmarkIntegrator, ls::KrylovLinearSolver, p)
     # point for the matvec.
     Uu = _displacement(ig); n = length(Uu); c_M = ig.c_M
     ls.assembled && return (nothing, nothing)
-    sc = _action_scratch!(ls, ig.asm)
-    matvec! = (y, v) -> _eff_stiffness_matvec!(y, v, ig.asm, Uu, c_M, p, sc)
+    matvec! = (y, v) -> _eff_stiffness_matvec!(y, v, ig.asm, Uu, c_M, p)
     K_eff_op = LinearOperator(Float64, n, n, true, true, matvec!)
     # The smoother keeps the exact action here: K_eff = K + c_M·M needs a
     # reduced-precision `mass_action` to match, which does not exist yet, and

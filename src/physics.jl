@@ -743,6 +743,145 @@ end
 end
 
 # --------------------------------------------------------------------------- #
+# Newmark effective action: (K + c_M·M)·v fused into one element pass
+# --------------------------------------------------------------------------- #
+
+"""
+    NewmarkAction(c_M)
+
+Per-quadrature-point action of the Newmark effective operator
+`(K + c_M·M)·v`, as a single callable with the `FEC.stiffness_action`
+signature.  Krylov applies this operator every CG iteration; evaluating both
+terms in one element pass shares the connectivity gather, the quadrature
+loop, and the atomic scatter that separate `stiffness_action` and
+`mass_action` assemblies each pay in full.  Dispatches through
+`FEC.stiffness_action` and `FEC.mass_action`, so every constitutive
+specialization (including the small-strain LinearElastic overloads) is
+honored unchanged; the shared interpolation work between the two terms is
+folded by the compiler, not by hand.
+"""
+struct NewmarkAction{T <: Number} <: Function
+    c_M::T
+end
+
+@inline function (action::NewmarkAction)(
+    physics, interps, x_el,
+    t, dt,
+    u_el, u_el_old, v_el,
+    state_old_q, state_new_q,
+    props_el,
+)
+    Kv_q = FEC.stiffness_action(physics, interps, x_el, t, dt,
+                                u_el, u_el_old, v_el,
+                                state_old_q, state_new_q, props_el)
+    Mv_q = FEC.mass_action(physics, interps, x_el, t, dt,
+                           u_el, u_el_old, v_el,
+                           state_old_q, state_new_q, props_el)
+    return Kv_q + action.c_M * Mv_q
+end
+
+# --------------------------------------------------------------------------- #
+# Diagonal-only stiffness kernels (Jacobi / Chebyshev / AMG fine smoothers)
+# --------------------------------------------------------------------------- #
+
+# diag(JxW·G·A_v·G') without forming G, the intermediate 24×9 product, or the
+# 24×24 element matrix:
+#   diag[3(n-1)+i] = JxW · Σ_{j,l} ∇N_X[n,j] · A_v[i+3(j-1), i+3(l-1)] · ∇N_X[n,l]
+# in the same column-major vec ordering `_scatter_qp` uses.
+@inline function _diag_qp(∇N_X::SMatrix{N, 3}, A_v, JxW) where {N}
+    return SVector{3 * N, typeof(JxW)}(ntuple(Val(3 * N)) do k
+        n = (k - 1) ÷ 3 + 1
+        i = k - 3 * (n - 1)
+        acc = zero(JxW)
+        for j in 1:3, l in 1:3
+            acc = acc + ∇N_X[n, j] * A_v[i + 3 * (j - 1), i + 3 * (l - 1)] * ∇N_X[n, l]
+        end
+        JxW * acc
+    end)
+end
+
+# The linearization point must match the assembled `FEC.stiffness` kernels
+# entry for entry: finite-deformation models take the tangent at ∇u, the
+# small-strain LinearElastic overload at ∇u = 0.
+@inline function _stiffness_tangent(
+    physics::SolidMechanics, props_el, state_old_q, state_new_q, dt, ∇u_q,
+)
+    return CM.material_tangent(
+        physics.constitutive_model, props_el, state_old_q, state_new_q, dt, ∇u_q, 0.0
+    )
+end
+
+@inline function _stiffness_tangent(
+    physics::SolidMechanics{CM.LinearElastic, NP, NS},
+    props_el, state_old_q, state_new_q, dt, ∇u_q,
+) where {NP, NS}
+    return CM.material_tangent(
+        physics.constitutive_model, props_el, state_old_q, state_new_q, dt, zero(∇u_q), 0.0
+    )
+end
+
+"""
+    StiffnessDiagonal()
+    NewmarkDiagonal(c_M)
+
+Per-quadrature-point diagonal of the element stiffness (respectively of the
+Newmark effective stiffness `K + c_M·M`), with the `FEC.stiffness` signature
+but returning a vector, so `FEC.assemble_diagonal!` never forms a 24×24
+element matrix.  The full-matrix route computes every element-matrix entry
+per quadrature point and keeps only the diagonal; on the GPU that kernel
+measured ~100× the per-element cost of the matrix-free action
+(benchmark/crosscode/README.md §4).  The diagonal of `JxW·G·A_v·G'` needs
+only the A_v entries that pair a component with itself, and the
+consistent-mass diagonal is `ρ·JxW·N[n]²` per component, so `NewmarkDiagonal`
+delivers the whole effective diagonal in one assembly pass.
+"""
+struct StiffnessDiagonal <: Function end
+
+struct NewmarkDiagonal{T <: Number} <: Function
+    c_M::T
+end
+
+@inline function (::StiffnessDiagonal)(
+    physics::SolidMechanics,
+    interps, x_el,
+    t, dt,
+    u_el, u_el_old,
+    state_old_q, state_new_q,
+    props_el,
+)
+    cell = FEC.map_interpolants(interps, x_el)
+    (; ∇N_X, JxW) = cell
+    ∇u_q = FEC.interpolate_field_gradients(physics, cell, u_el)
+    ∇u_q = FEC.modify_field_gradients(FEC.ThreeDimensional(), ∇u_q)
+    A_q = _stiffness_tangent(physics, props_el, state_old_q, state_new_q, dt, ∇u_q)
+    A_v = FEC.extract_stiffness(FEC.ThreeDimensional(), A_q)
+    return _diag_qp(∇N_X, A_v, JxW)
+end
+
+@inline function (dg::NewmarkDiagonal)(
+    physics::SolidMechanics,
+    interps, x_el,
+    t, dt,
+    u_el, u_el_old,
+    state_old_q, state_new_q,
+    props_el,
+)
+    cell = FEC.map_interpolants(interps, x_el)
+    (; N, ∇N_X, JxW) = cell
+    ∇u_q = FEC.interpolate_field_gradients(physics, cell, u_el)
+    ∇u_q = FEC.modify_field_gradients(FEC.ThreeDimensional(), ∇u_q)
+    A_q = _stiffness_tangent(physics, props_el, state_old_q, state_new_q, dt, ∇u_q)
+    A_v = FEC.extract_stiffness(FEC.ThreeDimensional(), A_q)
+    d_k = _diag_qp(∇N_X, A_v, JxW)
+    cρJxW   = dg.c_M * props_el[1] * JxW
+    N_nodes = size(N, 1)
+    return SVector{3 * N_nodes, eltype(d_k)}(ntuple(Val(3 * N_nodes)) do k
+        n = (k - 1) ÷ 3 + 1
+        d_k[k] + cρJxW * N[n] * N[n]
+    end)
+end
+
+# --------------------------------------------------------------------------- #
 # Characteristic element length kernel (for stable time step estimation).
 # Returns a scalar per QP — all QPs in an element give the same value.
 # Uses current (deformed) coordinates: X + u.

@@ -174,7 +174,7 @@ $(precond)
             # And the matrix-free Jacobi preconditioner must be the reciprocal of
             # that same matrix's diagonal.
             precond = Carina.JacobiPreconditioner(similar(v))
-            Carina._update_jacobi_precond_qs!(precond, asm, U, similar(v), p)
+            Carina._update_jacobi_precond_qs!(precond, asm, U, p)
             @test precond.inv_diag ≈ 1.0 ./ abs.(diag(K)) rtol=1e-12
         end
     end
@@ -304,12 +304,12 @@ solver:
             @test maximum(asm.params.field.data) > 0.0
         end
 
-        # Writing this test is what exposed the buffer-size bug that made every
-        # matrix-free Newmark solve throw BoundsError on its first matvec:
-        # `_apply_eff_stiffness!` copies the all-DOF action storage into a
-        # free-DOF `scratch`. The all-DOF buffer now comes from
-        # `_action_scratch!`; this guards the regression. `_update_jacobi_precond_eff!`
-        # still uses the free-DOF `ls.scratch`, so the two must not be merged.
+        # The effective operator is applied by `NewmarkAction`, which fuses
+        # K·v and c_M·M·v into one element pass.  The reference is the same
+        # operator as two full assemblies combined on the outside — the form
+        # the solver used before the fusion.  Summation order differs between
+        # the two (per-qp combine vs per-pass combine), so the comparison is
+        # a tight ≈, not equality.
         mktempdir() do dir
             cp_example(joinpath(dyn_dir, "cube.g"), joinpath(dir, "cube.g"))
             path = joinpath(dir, "mf_newmark.yaml")
@@ -321,21 +321,133 @@ solver:
             ls.assembled = false
             ig = mf.integrator
 
-            # The two buffers are sized for different DOF sets.
-            sc = Carina._action_scratch!(ls, ig.asm)
-            @test length(sc) == length(ig.asm.stiffness_action_storage.data)
-            @test length(ls.scratch) == length(Carina._displacement(ig))
-
             Uu = Carina._displacement(ig)
             v  = [sin(0.37 * i) for i in 1:length(Uu)]
             y  = similar(v)
-            Carina._eff_stiffness_matvec!(y, v, ig.asm, Uu, ig.c_M, mf.params, sc)
+            Carina._eff_stiffness_matvec!(y, v, ig.asm, Uu, ig.c_M, mf.params)
             @test all(isfinite, y)
             @test norm(y) > 0.0
+
+            FEC = Carina.FEC
+            FEC.assemble_matrix_free_action!(ig.asm, FEC.stiffness_action,
+                                             Uu, v, mf.params)
+            Kv = copy(FEC.hvp(ig.asm, v))
+            FEC.assemble_matrix_free_action!(ig.asm, FEC.mass_action,
+                                             Uu, v, mf.params)
+            Mv = FEC.hvp(ig.asm, v)
+            @test isapprox(y, Kv .+ ig.c_M .* Mv; rtol = 1e-12)
 
             run_sim!(mf)
             @test all(isfinite, mf.params.field.data)
             @test maximum(mf.params.field.data) > 0.0
+        end
+    end
+
+    @testset "diagonal-only kernels match the full-matrix diagonals" begin
+        # `StiffnessDiagonal`/`NewmarkDiagonal` compute diag(K) and
+        # diag(K + c_M·M) without forming the 24×24 element matrix.  The
+        # reference is the full-matrix route through `FEC.stiffness` and
+        # `FEC.mass`.  The comparison runs at the post-solve displacement so
+        # the geometric part of the tangent is nonzero — at U = 0 the two
+        # routes could agree while disagreeing on every geometric term.
+        dyn_dir = joinpath(@__DIR__, "..", "examples", "mechanics",
+                           "implicit-dynamic", "cube")
+        diag_yaml = """
+type: single
+
+input mesh file: cube.g
+output mesh file: cube_diag_dyn.e
+
+model:
+  type: solid mechanics
+  material:
+    blocks:
+      cube: neohookean
+    neohookean:
+      elastic modulus: 1.0e10
+      Poisson's ratio: 0.25
+      density: 1000.0
+
+time integrator:
+  type: newmark
+  initial time: 0.0
+  final time: 0.02
+  time step: 0.01
+  beta: 0.25
+  gamma: 0.5
+
+boundary conditions:
+  dirichlet:
+    - side set: ssx-
+      component: x
+      function: "0.0"
+    - side set: ssy-
+      component: y
+      function: "0.0"
+    - side set: ssz-
+      component: z
+      function: "0.0"
+    - side set: ssz+
+      component: z
+      function: "1.0e-3 * t"
+
+solver:
+  type: newton
+  termination:
+    fail when any:
+      - maximum iterations: 16
+    converge when any:
+      - absolute residual: 1.0e-6
+      - relative residual: 1.0e-10
+  linear solver:
+    type: iterative
+    tolerance: 1.0e-10
+    maximum iterations: 500
+    preconditioner:
+      type: jacobi
+"""
+        mktempdir() do dir
+            cp_example(joinpath(dyn_dir, "cube.g"), joinpath(dir, "cube.g"))
+            path = joinpath(dir, "diag_newmark.yaml")
+            open(io -> write(io, diag_yaml), path, "w")
+            dict = Carina.YAML.load_file(path; dicttype=Dict{String,Any})
+            mf = Carina.create_simulation(dict, dir)
+            mf.integrator.nonlinear_solver.linear_solver.assembled = false
+            run_sim!(mf)
+
+            ig = mf.integrator
+            Uu = Carina._displacement(ig)
+            @test maximum(abs, Uu) > 0.0
+            FEC = Carina.FEC
+
+            FEC.assemble_diagonal!(ig.asm, FEC.stiffness, Uu, mf.params)
+            d_k = copy(FEC.diagonal(ig.asm))
+            FEC.assemble_diagonal!(ig.asm, FEC.mass, Uu, mf.params)
+            d_m = copy(FEC.diagonal(ig.asm))
+
+            FEC.assemble_diagonal!(ig.asm, Carina.StiffnessDiagonal(), Uu, mf.params)
+            @test isapprox(FEC.diagonal(ig.asm), d_k; rtol = 1e-13)
+
+            FEC.assemble_diagonal!(ig.asm, Carina.NewmarkDiagonal(ig.c_M), Uu, mf.params)
+            @test isapprox(FEC.diagonal(ig.asm), d_k .+ ig.c_M .* d_m; rtol = 1e-13)
+        end
+
+        # LinearElastic takes its tangent at ∇u = 0; the diagonal kernel must
+        # mirror that specialization, not the finite-deformation one.
+        mktempdir() do dir
+            le_yaml = replace(qs_yaml("      type: jacobi"),
+                              "cube: neohookean" => "cube: linear elastic",
+                              "    neohookean:"  => "    linear elastic:")
+            sim = run_sim!(build_sim(dir, le_yaml, "diag_le.yaml";
+                                     matrix_free=true))
+            ig = sim.integrator
+            U = ig.U
+            FEC = Carina.FEC
+
+            FEC.assemble_diagonal!(ig.asm, FEC.stiffness, U, sim.params)
+            d_k = copy(FEC.diagonal(ig.asm))
+            FEC.assemble_diagonal!(ig.asm, Carina.StiffnessDiagonal(), U, sim.params)
+            @test isapprox(FEC.diagonal(ig.asm), d_k; rtol = 1e-13)
         end
     end
 

@@ -154,13 +154,7 @@ mutable struct KrylovLinearSolver{KW, Vec} <: AbstractLinearSolver
     assembled::Bool           # true = CPU sparse K_eff; false = GPU matrix-free
     precond  ::Preconditioner
     workspace::KW
-    ones_v   ::Vec
     scratch  ::Vec            # free-DOF sized: diagonals, preconditioner updates
-    # All-DOF sized buffer for the matrix-free action path.  The action storage
-    # spans every DOF while `scratch` above spans only the free ones, so the two
-    # cannot share a buffer.  Allocated lazily by `_action_scratch!` because the
-    # assembler that fixes its length is not available where the solver is built.
-    action_scratch ::Vec
 end
 
 # LBFGSLinearSolver: ring-buffer and scratch vectors only.
