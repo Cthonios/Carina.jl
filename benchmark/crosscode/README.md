@@ -61,7 +61,8 @@ cross-code comparison originally measured.
 | LCM | Belos GMRES + ILUT | CPU | 1 rank | 66.40 s | — |
 
 - **Carina GPU is still the fastest configuration measured**, 7.07 s/step, now
-  1.5× its own best CPU and 2.0× LCM's best.
+  1.5× its own best CPU and 2.0× LCM's best.  (§4: an A100 does barely
+  better — 6.71 — and the reason is Carina's kernel, not the hardware.)
 - **Carina's best CPU now beats LCM's best**, 10.79 against 14.40 s/step
   (1.33×), where it was 1.29× behind before §3.
 - **Core for core Carina leads by more**: 14.99 s/step against Norma's 39.78
@@ -175,9 +176,60 @@ The shipped version builds the factor once and refactorizes in place with
 sparsity pattern does not. RSS is then flat across repetitions — the property
 that matters — and it is faster still, since symbolic analysis is not repeated.
 
-## 4. Caveats
+## 4. Cross-vendor check: the same problem on an A100
 
-- One problem, one size, one machine. Nothing here says anything about
+Run 2026-08-22 on ascicgpu073 (2x NVIDIA A100-PCIE-40GB, CUDA 13.0, 2x Xeon
+Gold 6348), same repos at the same commits, same decks with `device: cuda`
+(`run_crosscode.py --gpu-device cuda` rewrites the line).  The A100 offers
+5.4x the memory bandwidth (~1555 vs 288 GB/s) and roughly 40x the FP64
+throughput of the RX 7600.  What it bought:
+
+| variant | RX 7600 | A100 | A100 advantage |
+|---|---:|---:|---:|
+| GPU CG+Jacobi | 7.07 s | **6.71 s** | 1.05x |
+| GPU CG+Chebyshev | 8.60 s | 8.95 s | 0.96x |
+| GPU L-BFGS | 9.74 s | 8.32 s | 1.17x |
+
+Correctness carried over exactly: the same 4,455 CG iterations over the
+8-step run, `|U|_max = 3.98e-02` in every variant, and the stiffness-action
+checksum agrees with the RX 7600 to all 16 printed digits.
+
+**Why the A100 barely wins.**  A CUPTI profile shows one monolithic kernel --
+the matrix-free stiffness action -- is over 76% of device time, and the
+isolated action timings are 9.36 ms (RX 7600) vs 7.17 ms (A100): 1.31x from
+hardware that should give several times that.  The SASS explains it: the
+kernel uses **253 registers per thread** (the architectural cap is 255), so a
+256-thread block consumes 64,768 of an SM's 65,536 registers -- exactly one
+block resident per SM, **12.5% occupancy** -- plus a ~4 KB stack frame per
+thread with 475 local-memory spill instructions.  Only ~1,100 of its
+instructions are FP64 arithmetic, so it is nowhere near flop-bound, and at
+19 GB/s effective it is nowhere near bandwidth-bound.  Both GPUs are pinned
+by the same kernel-internal wall: occupancy and spill latency.
+
+Two consequences.  First, the earlier estimate that the action runs at
+"40-50% of FP64 peak" on the RX 7600 (benchmark_report.md par.6) was an
+inference from an assumed flop count, and the cross-vendor result refutes it
+as the binding constraint: if FP64 rate bound the kernel, full-rate FP64
+would have made it dramatically faster, and it did not.  Second, reducing
+per-thread live state in that kernel -- splitting per quadrature point,
+capping registers at launch, or staging through shared memory -- is now the
+top GPU lever, it is worth potentially several x, and it pays on both vendors
+at once.
+
+**A measurement trap worth recording.**  The first A100 batch benchmarked
+from the NFS-mounted home directory and reported 10.36 / 8.99 / 9.45 s/step.
+Each 8-step run writes a 1.6 GB Exodus file, and on a shared NAS that cost is
+neither constant nor reliably cancelled by the difference method -- write-back
+caching absorbed Chebyshev's output entirely (8.99 -> 8.95 on local disk) but
+charged Jacobi ~3.6 s/step (10.36 -> 6.71).  Both row sets are in
+`results.jsonl` (`workdir: scratch` marks the local-disk rows, which are the
+canonical ones); on shared-filesystem machines the benchmark must run from
+node-local storage.
+
+## 5. Caveats
+
+- One problem, one size, one machine (plus the A100 cross-check of §4).
+  Nothing here says anything about
   scaling, about other physics, or about these codes on a cluster.
 - Albany/LCM is doing more work per step in a general sense: it is a
   multiphysics framework carrying Phalanx/Tempus machinery that Carina does not
@@ -195,12 +247,14 @@ that matters — and it is faster still, since symbolic analysis is not repeated
   reachable; the implicit case was done first because all three codes already
   had a matching deck for it.
 
-## 5. Reproducing
+## 6. Reproducing
 
 ```
 python3 run_crosscode.py                       # everything
 python3 run_crosscode.py --only lcm --ways 12  # one cell
 python3 run_crosscode.py --only carina --variants gpu-cg-jacobi --warmup
+python3 run_crosscode.py --only carina --variants gpu-cg-jacobi \
+        --warmup --gpu-device cuda            # on an NVIDIA host
 ```
 
 `--warmup` runs and discards one extra run before the timed pair. It exists
