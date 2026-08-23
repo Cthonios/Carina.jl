@@ -417,4 +417,46 @@ $(precond)
         # Chebyshev drives the same operator through the power-method estimate.
         @test dyn_run("      type: chebyshev\n      degree: 5", true) ≈ u_assembled rtol=1e-8
     end
+
+    @testset "analytic NeoHookean JVP matches the dual pass" begin
+        # `_pk1_jvp` has a closed-form specialization for
+        # Hyperelastic{NeoHookean} (register pressure: the dual pass carries a
+        # partial through every intermediate, and the GPU kernel sits at the
+        # 255-register cap because of it).  The specialization must be the
+        # SAME derivative the generic dual pass computes, at finite strain,
+        # and must preserve reduced precision.
+        model = Carina.CM.Hyperelastic(Carina.CM.NeoHookean())
+        props = [1000.0, 1.0e9, 4.0e8]   # density, kappa, mu
+        struct_tag = Carina._PK1JVPTag
+        dual_jvp = (∇u, ∇v) -> begin
+            T = eltype(∇u)
+            D = Carina.ForwardDiff.Dual{struct_tag, T, 1}
+            ∇u_d = Carina.Tensor{2, 3, D, 9}(ntuple(
+                i -> D(∇u.data[i],
+                       Carina.ForwardDiff.Partials{1, T}((∇v.data[i],))),
+                Val(9)))
+            P_d = Carina.CM.pk1_stress(model, T.(props), nothing, nothing,
+                                       zero(T), ∇u_d, zero(D))
+            Carina.Tensor{2, 3, T, 9}(ntuple(
+                i -> Carina.ForwardDiff.partials(P_d.data[i], 1), Val(9)))
+        end
+        # Deterministic dense strain states: sign-varying, no symmetry, and
+        # scaled so J > 0 while the geometric term is far from zero (the trap
+        # in the ablation campaign: at U = 0 that term vanishes identically).
+        fill9 = (trial, s, scale) -> Carina.Tensor{2, 3, Float64, 9}(
+            ntuple(i -> scale * sin(1.7 * i + 0.31 * trial + s), Val(9)))
+        for trial in 1:100
+            ∇u = fill9(trial, 0.0, 0.25)
+            ∇v = fill9(trial, 2.1, 1.0)
+            @assert Carina.Tensors.det(∇u + one(∇u)) > 0
+            ref = dual_jvp(∇u, ∇v)
+            ana = Carina._pk1_jvp(model, props, nothing, nothing, 0.0, ∇u, ∇v)
+            @test maximum(abs, (ana - ref).data) <=
+                  1e-13 * maximum(abs, ref.data)
+        end
+        f32 = (s) -> Carina.Tensor{2, 3, Float32, 9}(
+            ntuple(i -> 0.1f0 * sin(2.3f0 * i + s), Val(9)))
+        @test eltype(Carina._pk1_jvp(model, Float32.(props), nothing, nothing,
+                                     0.0f0, f32(0.0f0), f32(1.5f0))) === Float32
+    end
 end

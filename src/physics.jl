@@ -248,6 +248,50 @@ struct _PK1JVPTag end
         i -> ForwardDiff.partials(P_d.data[i], 1), Val(9)))
 end
 
+# NeoHookean: the derivative in closed form.  The dual pass above carries a
+# (value, partial) pair through every intermediate of `pk1_stress` — including
+# `det`, `inv` and `cbrt` — which roughly doubles the kernel's live state.  A
+# maxregs sweep on an A100 (2026-08-22) showed the action kernel at the
+# 255-register architectural cap with a ~5 KB/thread spill frame, flat from 96
+# to 255 registers and collapsing below 64: the live state itself is the
+# bottleneck, on both vendors.  This closed form needs only F, F⁻ᵀ, J, I₁ and
+# two scalar contractions.
+#
+# With F = 1 + ∇u, δF = ∇v, a = tr(F⁻¹δF), b = F : δF, W = F⁻ᵀ·δFᵀ·F⁻ᵀ:
+#   δJ        = J a
+#   δ(F⁻ᵀ)    = −W
+#   δ(J^-2/3) = −(2/3) J^-2/3 a
+#   δI₁       = 2 b
+# applied to P = (κ/2)(J²−1)F⁻ᵀ + μ J^-2/3 (F − (I₁/3)F⁻ᵀ)  (NeoHookean.jl):
+#   δP = κ J² a F⁻ᵀ − (κ/2)(J²−1) W
+#      + μ J^-2/3 [ δF − (2a/3)(F − (I₁/3)F⁻ᵀ) − (2b/3)F⁻ᵀ + (I₁/3) W ]
+@inline function _pk1_jvp(
+    model::CM.Hyperelastic{CM.NeoHookean}, props, state_old, state_new, dt,
+    ∇u::Tensor{2, 3, T, 9}, ∇v::Tensor{2, 3, T, 9},
+) where {T <: Number}
+    mp = CM.module_props(model.model, props, 2)
+    κ, μ    = mp[1], mp[2]
+    F       = ∇u + one(∇u)
+    J       = det(F)
+    J_m_13  = one(J) / cbrt(J)
+    J_m_23  = J_m_13 * J_m_13
+    I_1     = tr(tdot(F))
+    F_inv_T = inv(F)'
+    δF      = ∇v
+    a       = F_inv_T ⊡ δF
+    b       = F ⊡ δF
+    W       = F_inv_T ⋅ δF' ⋅ F_inv_T
+    # Collected into δP = c1·F⁻ᵀ + c2·W + c3·δF + c4·F: four scalar
+    # coefficients and one linear combination, so the compiler sees the fewest
+    # possible tensor temporaries.
+    μJ = μ * J_m_23
+    c1 = κ * (J * J) * a + μJ * (2 * a * I_1 / 9 - 2 * b / 3)
+    c2 = μJ * (I_1 / 3) - (one(J) / 2) * κ * (J * J - one(J))
+    c3 = μJ
+    c4 = -(2 * a / 3) * μJ
+    return c1 * F_inv_T + c2 * W + c3 * δF + c4 * F
+end
+
 # Stateless models (every `Hyperelastic`, NS = 0): differentiate `pk1_stress`
 # along ∇v.
 @inline function _stiffness_action_dP(
