@@ -78,6 +78,27 @@ function FEC.create_initial_state(physics::SolidMechanics{Model, NP, NS}) where 
 end
 
 # --------------------------------------------------------------------------- #
+# Quadrature-point scatter without the discrete-gradient operator
+# --------------------------------------------------------------------------- #
+#
+# `JxW * G * vec(P)` with `G = discrete_gradient(∇N_X)` materializes a
+# 3N×9 operator (216 doubles for HEX8) per quadrature point, holds it live
+# across the constitutive call, and uses each entry once.  The GPU kernels
+# built on these functions sit at the 255-register architectural cap with a
+# 4–5 KB/thread spill frame — and the mass kernel, whose only arithmetic is
+# NᵀN·v, hits the same cap, so the element machinery is what spends the
+# registers (A100 SASS census, 2026-08-22).  The product collapses to a direct
+# contraction:  (G·vec(P))[3(n−1)+i] = Σ_q P[i,q]·∇N_X[n,q].
+@inline function _scatter_qp(∇N_X::SMatrix{N, 3}, P, JxW) where {N}
+    return SVector{3 * N, typeof(JxW)}(ntuple(Val(3 * N)) do k
+        n = (k - 1) ÷ 3 + 1
+        i = k - 3 * (n - 1)
+        JxW * (P[i, 1] * ∇N_X[n, 1] + P[i, 2] * ∇N_X[n, 2] +
+               P[i, 3] * ∇N_X[n, 3])
+    end)
+end
+
+# --------------------------------------------------------------------------- #
 # FEC interface: residual (internal force vector, per quadrature point)
 # --------------------------------------------------------------------------- #
 
@@ -97,8 +118,6 @@ end
     ∇u_q = FEC.interpolate_field_gradients(physics, cell, u_el)
     ∇u_q = FEC.modify_field_gradients(FEC.ThreeDimensional(), ∇u_q)
 
-    G = FEC.discrete_gradient(FEC.ThreeDimensional(), ∇N_X)
-
     # Guard against element eversion (J ≤ 0) by NaN-poisoning the residual:
     # evaluate! ends with isfinite(‖R‖), so an everted trial state becomes a
     # step failure that the line search / adaptive stepping retries.  A branch
@@ -108,8 +127,7 @@ end
     # smooth through J = 0 (neohookean uses cbrt, which accepts negative
     # arguments) converge silently to everted equilibria.
     if det(∇u_q + one(∇u_q)) <= 0.0
-        P_v = FEC.extract_stress(FEC.ThreeDimensional(), zero(∇u_q))
-        return oftype(JxW, NaN) * (G * P_v)
+        return oftype(JxW, NaN) * _scatter_qp(∇N_X, zero(∇u_q), JxW)
     end
 
     # PK1 stress (analytical or AD-backed depending on the model)
@@ -117,9 +135,8 @@ end
         physics.constitutive_model, props_el, state_old_q, state_new_q, dt, ∇u_q, 0.0
     )
 
-    # Voigt-ordered stress vector and B-matrix, then internal force
-    P_v = FEC.extract_stress(FEC.ThreeDimensional(), P_q)
-    return JxW * G * P_v
+    # Internal force: JxW·G·vec(P), scattered without materializing G
+    return _scatter_qp(∇N_X, P_q, JxW)
 end
 
 # --------------------------------------------------------------------------- #
@@ -346,10 +363,9 @@ end
         physics, ∇u_q, ∇v_q, state_old_q, state_new_q, dt, props_el
     )
 
-    dP_v = FEC.extract_stress(FEC.ThreeDimensional(), dP_q)
-    G    = FEC.discrete_gradient(FEC.ThreeDimensional(), ∇N_X)
-    # K_q·v_el = JxW·G·(∂P/∂∇u : ∇v) — neither K_q (24×24) nor ∂P/∂∇u is formed
-    return JxW * G * dP_v
+    # K_q·v_el = JxW·G·(∂P/∂∇u : ∇v) — neither K_q (24×24) nor ∂P/∂∇u nor G
+    # is formed
+    return _scatter_qp(∇N_X, dP_q, JxW)
 end
 
 # --------------------------------------------------------------------------- #
@@ -426,9 +442,7 @@ function stiffness_action_fp32 end
     )
     dP_q = _to_prec(eltype(∇u_q), dP32)
 
-    dP_v = FEC.extract_stress(FEC.ThreeDimensional(), dP_q)
-    G    = FEC.discrete_gradient(FEC.ThreeDimensional(), ∇N_X)
-    return JxW * G * dP_v
+    return _scatter_qp(∇N_X, dP_q, JxW)
 end
 
 # LinearElastic carries its own small-strain `stiffness_action` below, which
@@ -533,12 +547,9 @@ _fp32_action_is_effective(::SolidMechanics, props_el) = true
     ∇u_q = FEC.interpolate_field_gradients(physics, cell, u_el)
     ∇u_q = FEC.modify_field_gradients(FEC.ThreeDimensional(), ∇u_q)
 
-    G = FEC.discrete_gradient(FEC.ThreeDimensional(), ∇N_X)
-
     # Eversion guard: J ≤ 0 → NaN-poisoned residual → step failure.
     if det(∇u_q + one(∇u_q)) <= 0.0
-        P_v = FEC.extract_stress(FEC.ThreeDimensional(), zero(∇u_q))
-        return oftype(JxW, NaN) * (G * P_v)
+        return oftype(JxW, NaN) * _scatter_qp(∇N_X, zero(∇u_q), JxW)
     end
 
     # Small-strain Cauchy stress σ = C:ε,  ε = sym(∇u)
@@ -552,8 +563,7 @@ _fp32_action_is_effective(::SolidMechanics, props_el) = true
         σ_q[1, 2], σ_q[2, 2], σ_q[3, 2],
         σ_q[1, 3], σ_q[2, 3], σ_q[3, 3],
     ))
-    P_v = FEC.extract_stress(FEC.ThreeDimensional(), σ_full)
-    return JxW * G * P_v
+    return _scatter_qp(∇N_X, σ_full, JxW)
 end
 
 @inline function FEC.energy(
@@ -621,8 +631,13 @@ end
     )
 
     A_v = FEC.extract_stiffness(FEC.ThreeDimensional(), A_q)
-    G   = FEC.discrete_gradient(FEC.ThreeDimensional(), ∇N_X)
-    return JxW * G * (A_v * (G' * v_el))
+    # G'·v_el is vec(∇v) in the same component order the interpolation
+    # produces, so interpolate the direction instead of forming G.
+    ∇v_q = FEC.interpolate_field_gradients(physics, cell, v_el)
+    ∇v_q = FEC.modify_field_gradients(FEC.ThreeDimensional(), ∇v_q)
+    dP_v = A_v * SVector{9, eltype(∇v_q)}(∇v_q.data)
+    dP_q = Tensor{2, 3, eltype(∇v_q), 9}(Tuple(dP_v))
+    return _scatter_qp(∇N_X, dP_q, JxW)
 end
 
 # --------------------------------------------------------------------------- #
