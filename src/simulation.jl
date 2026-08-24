@@ -181,8 +181,23 @@ function create_simulation(dict::Dict{String,Any}, basedir::String="";
 
     t0, tf, dt, times = _parse_times(dict)
     raw_oi = get(dict, "output interval", nothing)
-    output_interval = raw_oi === nothing ? dt : Float64(raw_oi)
-    num_stops = round(Int, (tf - t0) / output_interval) + 1
+    output_interval = if raw_oi === nothing
+        dt
+    elseif raw_oi isa Real && !(raw_oi isa Bool) && Float64(raw_oi) > 0.0
+        Float64(raw_oi)
+    else
+        error("output interval must be a positive time period (seconds), " *
+              "got $(repr(raw_oi)). The integrator subcycles with its own " *
+              "time step between output stops.")
+    end
+    # When the interval does not divide the span, keep the full span: take one
+    # extra (partial) interval and let the controller clamp its stop to tf.
+    # Rounding here used to TRUNCATE the simulation (interval 3e-4 on a 4e-4
+    # span ended the run at 3e-4).
+    n_frac = (tf - t0) / output_interval
+    num_intervals = isapprox(n_frac, round(n_frac); rtol = 1e-8) ?
+                    round(Int, n_frac) : ceil(Int, n_frac)
+    num_stops = max(num_intervals, 1) + 1
     controller = TimeController(t0, tf, output_interval, t0, t0, num_stops, 0)
     if output_interval ≈ dt
         _carina_logf(0, :setup, "Time:    [%.2e, %.2e], Δt = %.2e, %d steps",
@@ -354,7 +369,9 @@ end
 function _advance_controller!(c::TimeController)
     c.prev_time = c.time
     c.stop     += 1
-    c.time      = c.initial_time + c.stop * c.control_step
+    # The last interval may be partial (output period not a divisor of the
+    # span); never step past the final time.
+    c.time      = min(c.initial_time + c.stop * c.control_step, c.final_time)
 end
 
 function _subcycle!(sim, target::Float64, is_explicit::Bool=false)

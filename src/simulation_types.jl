@@ -9,10 +9,11 @@ import FiniteElementContainers as FEC
 """
     TimeController
 
-Drives the coarse (output) time grid. Stops are uniformly spaced:
-    t[k] = initial_time + k * control_step,   k = 0, 1, ..., num_stops-1
-The integrator subcycles between consecutive stops; output is written
-at every `output_interval` stops.
+Drives the coarse (output) time grid. Stops are uniformly spaced,
+    t[k] = initial_time + k * control_step,   k = 0, 1, ..., num_stops-1,
+except that the last stop is clamped to `final_time` when `control_step`
+(the `output interval`) does not divide the time span.  The integrator
+subcycles between consecutive stops; output is written at every stop.
 """
 mutable struct TimeController
     initial_time  ::Float64
