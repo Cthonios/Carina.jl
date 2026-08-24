@@ -285,7 +285,7 @@ _update_gpu_amg_precond_eff!(::Preconditioner, args...) = nothing
 # in asm storage.  Both terms walk the same connectivity, so `NewmarkAction`
 # evaluates them in a single element pass — one gather, one scatter.
 function _apply_eff_stiffness!(asm, U, v, c_M, p)
-    FEC.assemble_matrix_free_action!(asm, NewmarkAction(c_M), U, v, p)
+    _assemble_action!(asm, NewmarkAction(c_M), U, v, p)
 end
 
 # Matrix-free Jacobi preconditioner: diag(K + c_M·M) in one diagonal-only
@@ -360,7 +360,7 @@ _jacobi_precond_op(::NoPreconditioner, n) = nothing
 
 # QS K·v via stiffness_action.
 function _stiffness_matvec_qs!(y, v, asm, U, p)
-    FEC.assemble_matrix_free_action!(asm, FEC.stiffness_action, U, v, p)
+    _assemble_action!(asm, FEC.stiffness_action, U, v, p)
     copyto!(y, FEC.hvp(asm, v))
     return y
 end

@@ -343,6 +343,95 @@ solver:
         end
     end
 
+    @testset "two-phase assembly matches the fused single-pass kernel" begin
+        # `_assemble_action_two_phase!` computes the same operator as FEC's
+        # one-thread-per-element kernel through per-(element,qp) staging plus
+        # a node-parallel gather over the inverse adjacency.  Same per-qp
+        # functor, different summation order — tight ≈, not equality.  Run
+        # a step first so the geometric stiffness is nonzero; at U = 0 the
+        # comparison could not see an error in that term.
+        dyn_dir = joinpath(@__DIR__, "..", "examples", "mechanics",
+                           "implicit-dynamic", "cube")
+        tp_yaml = """
+type: single
+input mesh file: cube.g
+output mesh file: cube_tp_dyn.e
+model:
+  type: solid mechanics
+  material:
+    blocks:
+      cube: neohookean
+    neohookean:
+      elastic modulus: 1.0e10
+      Poisson's ratio: 0.25
+      density: 1000.0
+time integrator:
+  type: newmark
+  initial time: 0.0
+  final time: 0.02
+  time step: 0.01
+  beta: 0.25
+  gamma: 0.5
+boundary conditions:
+  dirichlet:
+    - side set: ssx-
+      component: x
+      function: "0.0"
+    - side set: ssy-
+      component: y
+      function: "0.0"
+    - side set: ssz-
+      component: z
+      function: "0.0"
+    - side set: ssz+
+      component: z
+      function: "1.0e-3 * t"
+solver:
+  type: newton
+  termination:
+    fail when any:
+      - maximum iterations: 16
+    converge when any:
+      - absolute residual: 1.0e-6
+      - relative residual: 1.0e-10
+  linear solver:
+    type: iterative
+    tolerance: 1.0e-10
+    maximum iterations: 500
+    preconditioner:
+      type: jacobi
+"""
+        mktempdir() do dir
+            cp_example(joinpath(dyn_dir, "cube.g"), joinpath(dir, "cube.g"))
+            path = joinpath(dir, "tp_newmark.yaml")
+            open(io -> write(io, tp_yaml), path, "w")
+            dict = Carina.YAML.load_file(path; dicttype=Dict{String,Any})
+
+            mf = Carina.create_simulation(dict, dir)
+            mf.integrator.nonlinear_solver.linear_solver.assembled = false
+            run_sim!(mf)
+            ig = mf.integrator
+
+            # The adjacency was built by _init_assembly_cache! at setup.
+            @test Carina._two_phase_host[] !== nothing
+
+            Uu = Carina._displacement(ig)
+            v  = [sin(0.37 * i) for i in 1:length(Uu)]
+            FEC = Carina.FEC
+
+            for action in (Carina.NewmarkAction(ig.c_M), FEC.stiffness_action)
+                FEC.assemble_matrix_free_action!(ig.asm, action, Uu, v,
+                                                 mf.params)
+                ref = copy(ig.asm.stiffness_action_storage.data)
+                Carina._assemble_action_two_phase!(ig.asm, action, Uu, v,
+                                                   mf.params)
+                two = ig.asm.stiffness_action_storage.data
+                @test isapprox(two, ref; rtol = 1e-12)
+                @test norm(ref) > 0.0
+            end
+        end
+    end
+
     @testset "diagonal-only kernels match the full-matrix diagonals" begin
         # `StiffnessDiagonal`/`NewmarkDiagonal` compute diag(K) and
         # diag(K + c_M·M) without forming the 24×24 element matrix.  The

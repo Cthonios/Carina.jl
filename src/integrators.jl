@@ -71,6 +71,10 @@ function _init_assembly_cache!(asm, is_linear::Bool)
     _direct_chol[]                   = nothing
     _direct_use_lu[]                 = false
     _device_cg_ws[]                  = nothing
+    _two_phase_ws[]                  = nothing
+    _two_phase_host[]                =
+        hasproperty(asm, :stiffness_action_storage) ?
+        _build_inverse_adjacency(asm) : nothing
     empty!(_K_cache)
     empty!(_M_cache)
     # Matrix-free assemblers (central difference) leave these buffers empty.
