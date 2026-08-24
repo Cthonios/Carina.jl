@@ -65,7 +65,7 @@ cross-code comparison originally measured.
   better — 6.71 — the reason was Carina's kernel, not the hardware, and
   fixing it brought the A100 to 4.76 s/step and the RX 7600 to 6.17; the
   operator-fusion round that followed brought the A100 to 2.96 and the
-  RX 7600 to 5.52.)
+  RX 7600 to 5.52, and device-resident CG brought the A100 to 2.05.)
 - **Carina's best CPU now beats LCM's best**, 10.79 against 14.40 s/step
   (1.33×), where it was 1.29× behind before §3.
 - **Core for core Carina leads by more**: 14.99 s/step against Norma's 39.78
@@ -392,6 +392,37 @@ unchanged within its run-to-run scatter (the V100 measured 7.09 / 8.62 /
 7.88 s across three runs of identical code -- that variant's difference is
 host-dominated and noisy on GPFS-homed machines).  Rows in `results.jsonl`
 carry `commit: 247586f` (`b4712e6` for L-BFGS).
+
+### The host leaves the loop: device-resident CG (commits `5f9ec61` + `df8ff62`)
+
+Re-profiling after the fusion showed the A100's step had inverted: device
+busy only 36% of the trace, with 2,430 `cuStreamSynchronize` calls -- every
+CG iteration read 3-4 scalars back through blocking copies that drain the
+pipeline, and the faster the kernels got, the larger that share became.
+`_device_pcg!` replaces Krylov.jl on the matrix-free path: recurrence
+scalars live in 1-element device arrays (on-device two-stage tree-reduction
+dots, 1-element broadcasts for α and β), and the host reads back one number
+per convergence-check block.  A fixed 8-iteration block overran expensively
+for Chebyshev, whose iterations each apply a five-matvec smoother
+(7.20 → 7.62 s on the 7600), so the block is sized from the measured
+contraction rate -- on the A100 the predictor lands on exactly Krylov's
+4,455 iterations, zero overrun.
+
+| variant (per-step) | RX 7600 | V100 | A100 |
+|---|---:|---:|---:|
+| GPU CG+Jacobi | 5.52 -> 5.57 s | 5.40 -> **4.71 s** | 2.96 -> **2.05 s** |
+| GPU CG+Chebyshev | 7.20 -> 7.19 s | 7.11 -> 6.82 s | 3.01 -> 3.10 s |
+
+The pattern is the diagnosis confirmed a third way: the win scales with the
+per-iteration host gap.  The A100 (2.7 ms gap per 2.6 ms of kernel) gains
+1.44x; the V100 (0.8 ms gap) gains 1.15x; the RX 7600, driven by a 5.7 GHz
+host with nothing to reclaim, is a wash on both variants -- as is Chebyshev
+on the A100 (samples 3.10/3.28 vs Krylov's 3.01/3.09), whose few heavy
+iterations never paid much sync tax per second.  Invariants hold on every
+row.  Carina's best configuration is now **2.05 s/step** (A100, CG+Jacobi):
+5.3x its own best CPU, 7.0x LCM's best, and 3.3x what the same A100 ran
+before this two-day sequence of profile-directed fixes.  Rows carry
+`commit: df8ff62`.
 
 ## 5. Caveats
 
