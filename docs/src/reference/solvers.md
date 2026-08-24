@@ -72,11 +72,12 @@ matrix-free solvers it is optional and defaults to `type: none`.
 |---|---|---|
 | `orthogonality tolerance` | `0.5` | Restart when consecutive gradients lose orthogonality. |
 | `restart interval` | `0` | Force a restart every N iterations. `0` disables. |
-| `preconditioner` | none | Presence of this key (any value) enables the built-in Jacobi preconditioner. |
+| `preconditioner` | none | `type: jacobi` (the default when the section is present) or `type: none`. |
 
-Steepest descent accepts `preconditioner` with the same meaning. For both
-solvers the key acts as a flag — its *contents* are not read, and the
-preconditioner built is always the Jacobi one.
+Steepest descent accepts `preconditioner` with the same meaning. Jacobi is
+the only preconditioner implemented at this level; asking for anything else
+(`chebyshev`, `ic`, `amg`) is a hard error rather than silently running
+Jacobi.
 
 ## Termination criteria
 
@@ -233,10 +234,11 @@ The L-BFGS path always builds a Jacobi preconditioner regardless of any
     has no such term: the same system takes 787 AMG iterations to solve, and a
     rank-10 model cannot represent it. Use `cg` + `amg` for quasi-static.
 
-!!! note "`assembled` is accepted but computed"
-    `assembled` is a recognised key in the linear-solver section, but its value
-    is not read — Carina sets it from the backend (`true` on CPU, `false` on
-    GPU). Setting it in YAML has no effect.
+!!! note "`assembled` defaults from the backend"
+    `assembled` defaults to `true` on CPU and `false` on GPU. Setting
+    `assembled: false` on the CPU forces the matrix-free operator path (the
+    same operators the GPU runs); `assembled: true` on a GPU backend is a
+    hard error — there is no device sparse matrix to assemble.
 
 ## Preconditioners
 

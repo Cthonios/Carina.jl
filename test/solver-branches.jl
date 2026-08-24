@@ -106,8 +106,45 @@ solver:
 
     @testset "NLCG without preconditioner, with periodic restart" begin
         # Covers the identity-preconditioner apply and the restart_interval
-        # branch that zeroes β.
-        yaml = qs_yaml("""
+        # branch that zeroes β.  Until `preconditioner.type: none` was
+        # honored, this deck silently ran JACOBI-preconditioned NLCG — with
+        # identity preconditioning the search direction is -R, so the
+        # stiff-material residual scale (E = 1e9) made the first trial step
+        # ~1e6 and the run failed outright.  A soft material (E = 1) puts
+        # the residual on the displacement scale; the analytic answer
+        # (max u_z = the prescribed stretch) is kinematic and unchanged.
+        yaml = """
+type: single
+input mesh file: cube.g
+output mesh file: cube_branch.e
+model:
+  type: solid mechanics
+  material:
+    blocks:
+      cube: neohookean
+    neohookean:
+      elastic modulus: 1.0
+      Poisson's ratio: 0.25
+      density: 1000.0
+time integrator:
+  type: quasi static
+  initial time: 0.0
+  final time: 1.0
+  time step: 1.0
+boundary conditions:
+  dirichlet:
+    - side set: ssx-
+      component: x
+      function: "0.0"
+    - side set: ssy-
+      component: y
+      function: "0.0"
+    - side set: ssz-
+      component: z
+      function: "0.0"
+    - side set: ssz+
+      component: z
+      function: "1.0e-3 * t"
 solver:
   type: nonlinear cg
   preconditioner:
@@ -117,11 +154,11 @@ solver:
   use line search: true
   termination:
     fail when any:
-      - maximum iterations: 500
+      - maximum iterations: 20000
     converge when any:
-      - absolute residual: 1.0e-6
-      - relative residual: 1.0e-12
-""")
+      - absolute residual: 1.0e-9
+      - relative residual: 1.0e-7
+"""
         mktempdir() do dir
             sim = run_yaml(dir, "nlcg_none.yaml", yaml)
             @test sim.integrator.failed[] == false

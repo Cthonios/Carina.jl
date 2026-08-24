@@ -161,15 +161,12 @@ const _SOLVER_KEYS = Set([
     "orthogonality tolerance", "restart interval",
 ])
 
-const _TERMINATION_TEST_KEYS = Set([
-    "type", "tolerance", "combo", "tests",
-    "window", "threshold", "value",
-])
-
 const _LINEAR_SOLVER_KEYS = Set([
     "type", "maximum iterations", "tolerance", "history size",
     "preconditioner", "assembled",
 ])
+
+const _PRECONDITIONER_KEYS = Set(["type", "degree"])
 
 const _BC_SECTION_KEYS = Set(["dirichlet", "neumann"])
 
@@ -974,9 +971,19 @@ function _parse_linear_solver(ls_dict, template, backend, make_precond::Function
         # All solid mechanics stiffness matrices are SPD → always use CG.
         itmax     = Int(get(ls_dict, "maximum iterations", 1000))
         rtol      = Float64(get(ls_dict, "tolerance", 1e-8))
-        assembled = backend isa KA.CPU
+        # `assembled` was accepted by the key validator but silently ignored
+        # (the default is the only thing that was ever used).  Honor it:
+        # `false` on the CPU forces the matrix-free operator path; `true` on
+        # a GPU asks for a device sparse matrix that does not exist.
+        assembled = Bool(get(ls_dict, "assembled", backend isa KA.CPU))
+        if assembled && !(backend isa KA.CPU)
+            error("linear solver: assembled = true is CPU-only; GPU backends " *
+                  "run the matrix-free operator path.")
+        end
 
         precond_dict = get(ls_dict, "preconditioner", Dict{String,Any}())
+        !isempty(precond_dict) &&
+            _validate_keys(precond_dict, _PRECONDITIONER_KEYS, "preconditioner")
         precond_type = lowercase(strip(get(precond_dict, "type", "none")))
         precond = if precond_type == "jacobi"
             make_precond()
@@ -1030,6 +1037,21 @@ function _parse_linear_solver(ls_dict, template, backend, make_precond::Function
     end
 end
 
+# Solver-level `preconditioner:` for NLCG / steepest descent.  Only Jacobi is
+# implemented there, and this used to hand out Jacobi for ANY content — a
+# `type: chebyshev` request silently ran Jacobi, indistinguishable from the
+# real thing except by convergence rate.
+function _parse_solver_preconditioner(sol_dict, make_precond)
+    pc_dict = get(sol_dict, "preconditioner", nothing)
+    (pc_dict === nothing || make_precond === nothing) && return NoPreconditioner()
+    _validate_keys(pc_dict, _PRECONDITIONER_KEYS, "solver preconditioner")
+    pc_type = lowercase(strip(get(pc_dict, "type", "jacobi")))
+    pc_type == "none"   && return NoPreconditioner()
+    pc_type == "jacobi" && return make_precond()
+    error("Unknown solver.preconditioner.type = \"$pc_type\" for this solver. " *
+          "NLCG and steepest descent support \"jacobi\" and \"none\".")
+end
+
 function _parse_nonlinear_solver(sol_dict, ls::AbstractLinearSolver;
                                   template=nothing, make_precond=nothing)
     solver_type = lowercase(strip(get(sol_dict, "type", "newton")))
@@ -1058,24 +1080,14 @@ function _parse_nonlinear_solver(sol_dict, ls::AbstractLinearSolver;
     if solver_type in _NLCG_TYPES
         orth_tol = Float64(get(sol_dict, "orthogonality tolerance", 0.5))
         restart  = Int(get(sol_dict, "restart interval", 0))
-        pc_dict  = get(sol_dict, "preconditioner", nothing)
-        precond  = if pc_dict !== nothing && make_precond !== nothing
-            make_precond()
-        else
-            NoPreconditioner()
-        end
+        precond  = _parse_solver_preconditioner(sol_dict, make_precond)
         return NLCGSolver(min_iters, max_iters, abs_tol, abs_tol, rel_tol,
                           ls_back, ls_dec, ls_max,
                           orth_tol, restart, precond,
                           mk(), mk(), mk(), mk())
 
     elseif solver_type in _SD_TYPES
-        pc_dict  = get(sol_dict, "preconditioner", nothing)
-        precond  = if pc_dict !== nothing && make_precond !== nothing
-            make_precond()
-        else
-            NoPreconditioner()
-        end
+        precond  = _parse_solver_preconditioner(sol_dict, make_precond)
         return SteepestDescentSolver(min_iters, max_iters, abs_tol, abs_tol, rel_tol,
                                       ls_back, ls_dec, ls_max,
                                       precond, mk(), mk())

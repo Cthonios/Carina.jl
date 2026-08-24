@@ -37,17 +37,24 @@ names defined in the Exodus mesh.
 
 ## Output interval and subcycling
 
-`output interval` sets how often results are written, independently of the
-integrator's time step. When omitted it equals `time step`, giving one frame
-per step.
+`output interval` sets how often results are written — a **time period in
+seconds**, independently of the integrator's time step. When omitted it equals
+`time step`, giving one frame per step. It must be a positive number; zero,
+negative, or non-numeric values are a hard error.
 
 The number of output frames is
 
 ```
-num_stops = round((final time − initial time) / output interval) + 1
+num_stops = ceil((final time − initial time) / output interval) + 1
 ```
 
-counting the initial state, which is always written.
+counting the initial state, which is always written. When the interval does
+not divide the time span, the last interval is **partial**: its stop is
+clamped to `final time`, so the full span is always simulated and the final
+state is always written. An interval larger than the whole span therefore
+writes exactly two frames — initial and final — which is the lean
+configuration for long runs and benchmarks where the per-step write cost
+matters.
 
 When `output interval` is larger than `time step`, the integrator **subcycles**:
 it takes as many internal steps as needed to reach the next output time, and

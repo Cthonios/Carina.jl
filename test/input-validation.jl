@@ -303,6 +303,37 @@
         # An integrator that provides no AMG factory must reject `amg` loudly
         # (the default factory is the error thunk).
         @test_throws ErrorException iterative("amg")
+
+        # `assembled` is honored, not just accepted by the key validator:
+        # false on CPU forces the matrix-free path; true on a GPU backend is
+        # a request for a device sparse matrix that does not exist.
+        @test ls(Dict{String,Any}("type" => "iterative")).assembled == true
+        @test ls(Dict{String,Any}("type" => "iterative",
+                                  "assembled" => false)).assembled == false
+        struct _FakeGPU <: Carina.KA.GPU end
+        @test_throws ErrorException Carina._parse_linear_solver(
+            Dict{String,Any}("type" => "iterative", "assembled" => true),
+            zeros(4), _FakeGPU(), () -> Carina.NoPreconditioner())
+    end
+
+    # ----- solver-level preconditioner (NLCG / steepest descent) -------------
+    @testset "solver preconditioner values fail loudly" begin
+        mk = () -> Carina.JacobiPreconditioner(zeros(4))
+        parse_pc(pc) = Carina._parse_solver_preconditioner(
+            Dict{String,Any}("preconditioner" => pc), mk)
+
+        # Only Jacobi exists at this level; it used to be handed out for ANY
+        # content, so `type: chebyshev` silently ran Jacobi.
+        @test parse_pc(Dict{String,Any}("type" => "jacobi")) isa
+              Carina.JacobiPreconditioner
+        @test parse_pc(Dict{String,Any}()) isa Carina.JacobiPreconditioner
+        @test parse_pc(Dict{String,Any}("type" => "none")) isa
+              Carina.NoPreconditioner
+        @test_throws ErrorException parse_pc(
+            Dict{String,Any}("type" => "chebyshev"))
+        # No preconditioner section at all: none.
+        @test Carina._parse_solver_preconditioner(Dict{String,Any}(), mk) isa
+              Carina.NoPreconditioner
     end
 
     # ----- max-iteration extraction ------------------------------------------
