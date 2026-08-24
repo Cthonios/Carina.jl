@@ -467,6 +467,34 @@ own best CPU measured the same way (9.85), and 4.9x what the same A100 ran
 at the start of this sequence (6.71).  Rows carry `commit: 37f0bea`,
 `method: stop_wall`.
 
+### Per-qp threading falsified: the matvec is at its memory-system bound (commit `97083b3`)
+
+With writes gone, a CUPTI profile of a write-free step showed the step IS
+the fused stiffness matvec: 67% of device time in one kernel, ~557 CG
+iterations x 2.36 ms accounting for essentially the whole 1.37 s, host
+API time almost entirely waiting.  The obvious device-side lever was the
+lgrtk two-phase pattern -- one thread per (element, qp) writing disjoint
+staging (8x the threads, 1/8th the per-thread state, no atomics), then a
+node-parallel gather over an inverse adjacency.  Implemented behind an
+off-by-default switch (`src/two_phase_action.jl`), matching the fused
+kernel to 1e-12 at a deformed state, and measured on all three cards:
+
+| NewmarkAction matvec (median) | A100 | RX 7600 | V100 |
+|---|---:|---:|---:|
+| fused one-thread-per-element | 3.04 ms | 9.89 ms | 6.59 ms |
+| two-phase per-(element, qp) | 3.80 ms | 12.57 ms | 10.05 ms |
+| ratio | 0.80x | 0.79x | 0.66x |
+
+It loses everywhere, and the loss ordering is the §4 cache story again:
+the V100's 6 MB L2 absorbs least of the 8x-duplicated element gathers.
+Combined with the earlier flat atomic ablation, this pins the diagnosis:
+the fused kernel is memory-system-bound on the GATHER side -- not
+occupancy-bound, not atomic-bound -- and a thread-mapping change fixes
+neither cost while adding a ~500 MB staging round trip per matvec.  The
+remaining per-iteration levers are data layout (element-blocked field
+storage, a much larger change) or simply taking fewer iterations: GPU
+AMG on the 4,455-iteration count, which was the founding goal all along.
+
 ## 5. Caveats
 
 - One problem, one size, one machine (plus the A100 and V100 cross-checks
