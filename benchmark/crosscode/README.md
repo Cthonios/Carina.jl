@@ -495,6 +495,35 @@ remaining per-iteration levers are data layout (element-blocked field
 storage, a much larger change) or simply taking fewer iterations: GPU
 AMG on the 4,455-iteration count, which was the founding goal all along.
 
+### GPU AMG: falsified for implicit dynamics, 2x for quasi-static steady state
+
+With the matvec at its memory-system bound, the last lever is taking fewer
+of them.  The GPU AMG preconditioner (host-built smoothed-aggregation
+hierarchy, fully device-resident V(2,2)-cycle, matrix-free fine level) won
+the earlier quasi-static campaign but had never been tried on the Newmark
+operator, and had never met the device-resident CG.  Both were measured at
+`0e7441d`; no code changed.
+
+On the **Newmark** benchmark AMG loses on both cards -- A100 1.37 -> 2.01
+s/step, RX 7600 5.00 -> 6.75 -- because the mass-dominated
+K + c_M*M at dt = 5e-5 is already so well-conditioned that Jacobi's ~557
+CG iterations per step sit below the ~6x cost of a V-cycle per iteration.
+This closes, with two-architecture measurements, the code comment that
+implicit dynamics "defaults to Jacobi with no evidence this path would
+pay": the default is now evidence-backed.  The 1.37 s/step Jacobi record
+stands.
+
+On **quasi-static** torsion, AMG's home ground, the A100 shows the split
+this benchmark's 4-step span hides poorly: steady-state steps run
+**5.1-5.3 s against Jacobi's 10.0-10.8** (2x, identical |U|_max at every
+stop), but the one-time host-side hierarchy build costs 20-25 s, so the
+4-step TOTALS tie (130-136 s both).  `--threads 24` trims the build only
+24.6 -> 20.3 s: the time is AMG.jl's serial setup (strength, aggregation,
+stdlib SpGEMM Galerkin products) plus a dense pinv, not the threaded FEC
+assembly.  On any production-length run the build amortizes away and the
+2x stands; making short runs win too means a threaded or device-side
+SpGEMM for the setup, which is its own project.
+
 ## 5. Caveats
 
 - One problem, one size, one machine (plus the A100 and V100 cross-checks
