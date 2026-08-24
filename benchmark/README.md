@@ -76,6 +76,50 @@ output is stripped to nodal displacement with no recovery so the single Exodus
 write inside the measured interval is negligible.  The CPU baseline uses 24
 threads, which beats 12 at N=20 (23.7 vs 27.5 ms/step).
 
+On a machine whose home directory is NFS/GPFS (the ascicgpu hosts), set
+`CARINA_BENCH_SCRATCH=/scratch/...` so meshes, decks, outputs, and result
+records land on a local disk.
+
+### Cross-card reference (2026-08-25, commit `2b827db`)
+
+The same ladder on the Sandia V100 (32 GB) and A100 (40 GB), extended past
+the RX 7600's 8 GB capacity cap; records in
+`results/explicit-ascicgpu{24,073}.jsonl`.  Per-step milliseconds, with the
+original sweep's CPU baseline (the 5.7 GHz desktop host, 24 threads — the
+fastest CPU measured per core) alongside:
+
+| N | DOF | desktop CPU | RX 7600 | V100 | A100 | A100 / CPU |
+|---:|---:|---:|---:|---:|---:|---:|
+| 8 | 39k | 1.84 | 1.42 | 0.69 | 0.43 | 4.3x |
+| 12 | 122k | 5.62 | 1.86 | 1.29 | 0.90 | 6.2x |
+| 20 | 531k | 23.6 | 6.63 | 4.68 | 2.45 | 9.6x |
+| 28 | 1.42M | 63.0 | 17.7 | 12.0 | 5.93 | 10.6x |
+| 36 | 2.96M | 131.1 | 37.6 | 25.4 | 12.8 | 10.3x |
+| 44 | 5.35M | 231.4 | 68.8 | 46.8 | 23.8 | 9.7x |
+| 50 | 7.81M | 341.5 | 100.5 | 71.0 | 34.5 | **9.9x** |
+| 64 | 16.2M | — | — (OOM) | 148.7 | 73.7 | — |
+| 72 | 23.0M | — | — | 219.0 | — | — |
+| 80 | 31.5M | — | — | — | 158.7 | — |
+
+- **Per-element cost is flat everywhere** once past launch overhead:
+  ~13.5–15.5 ns/elem (A100), ~27–29 (V100), ~40 (RX 7600), ~135–145
+  (desktop CPU).  No scaling cliff up to 31.5M DOF; memory capacity, not
+  bandwidth, is the ceiling (~1.0–1.3 KB/DOF on all three cards).
+- **Against the fastest CPU measured, the saturated ratios are A100 ~10x,
+  V100 ~5x, RX 7600 3.4x** — stable across the size range because the CPU
+  is flat per element too.  The CPU ladder stops at N=50; the A100 runs
+  4x that problem.
+- **The explicit ordering is A100 > V100 > RX 7600** — unlike the implicit
+  gather kernel, where the RX 7600's Infinity Cache put it ahead of the
+  V100.  The explicit internal-force kernel follows FP64 throughput
+  (the 7600 runs FP64 at 1/32 rate), not cache capacity.
+- **GPU-vs-same-host-CPU at N=20**: 7.4x on ascicgpu073 (2.45 vs 18.1 ms,
+  24 threads), 7.2x on ascicgpu24 (4.68 vs 33.6) — against 3.6x for the
+  RX 7600 over the desktop host.  "Fast CPU" means fast per core: at 24
+  threads the ascicgpu073 server host beats the desktop (18.1 vs 23.6 ms),
+  so the original sweep's saturated 3.4x was a host-pairing statement,
+  not a property of Carina's explicit kernels.
+
 ## Reproducing the sweeps
 
 `run_baselines.sh` is the 530k-DOF baseline sweep (report §2),
