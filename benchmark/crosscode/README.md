@@ -65,7 +65,10 @@ cross-code comparison originally measured.
   better — 6.71 — the reason was Carina's kernel, not the hardware, and
   fixing it brought the A100 to 4.76 s/step and the RX 7600 to 6.17; the
   operator-fusion round that followed brought the A100 to 2.96 and the
-  RX 7600 to 5.52, and device-resident CG brought the A100 to 2.05.)
+  RX 7600 to 5.52, device-resident CG brought the A100 to 2.05, and taking
+  the per-step Exodus write out of the loop — a cost Norma's decks never
+  paid — brought it to 1.37 against a best CPU of 9.85 measured the same
+  way: 7.2×.)
 - **Carina's best CPU now beats LCM's best**, 10.79 against 14.40 s/step
   (1.33×), where it was 1.29× behind before §3.
 - **Core for core Carina leads by more**: 14.99 s/step against Norma's 39.78
@@ -424,6 +427,46 @@ row.  Carina's best configuration is now **2.05 s/step** (A100, CG+Jacobi):
 before this two-day sequence of profile-directed fixes.  Rows carry
 `commit: df8ff62`.
 
+### The tax nobody was counting: per-step Exodus writes (commit `37f0bea`)
+
+With the CG loop device-resident, the next-largest term in the A100's step
+was not compute at all.  Every Carina benchmark row so far included a
+per-step Exodus write -- displacement plus per-quadrature-point stress and
+deformation gradient (15 element variables x 8 qp), recomputed on the host
+each step -- while Norma's decks in this very comparison ran with
+`Exodus output interval: 0` and wrote nothing.  Carina's top-level
+`output interval` key (a time period in seconds, as in Norma; the
+integrator already subcycles between output stops) makes the cost
+avoidable: `output interval: 1.0` on a 4e-4 s run writes exactly two
+frames, initial and final.  The same commit fixes a truncation bug -- a
+period that did not divide the span used to silently end the run early
+(`round` in the stop count; interval 3e-4 on a 4e-4 s run stopped at
+3e-4 s) -- and rejects non-positive or non-numeric intervals loudly.
+
+Removing the writes also broke the measurement method: the per-step signal
+(3-14 s across an n4/n8 pair) sank below the setup jitter of the
+GPFS-backed hosts (about +/-1 s per run, amplified 4x by the difference).
+The estimator therefore moved from whole-process walls to the `[STOP]`
+line wall Carina logs per output stop, which starts after setup and whose
+single final write cancels between the pair.  Two samples per GPU
+reproduce to ~3%:
+
+| GPU CG+Jacobi (per-step) | RX 7600 | V100 | A100 | CPU 24 thr |
+|---|---:|---:|---:|---:|
+| with per-step writes | 5.57 s | 4.71 s | 2.05 s | 10.79 s |
+| `output interval: 1.0` (2 frames) | 5.00 s | 3.56 s | **1.37 s** | 9.85 s |
+| implied write cost per step | 0.57 s | 1.15 s | 0.68 s | 0.94 s |
+
+(Samples: A100 1.34/1.41, V100 3.52/3.60, RX 7600 4.90/5.10; CPU one
+sample.)  The implied write cost is host-serial work and sits in the same
+0.6-1.2 s band on all four hosts, which is the cross-check that the new
+estimator and the old rows are measuring the same thing.  Invariants hold
+on every run (`|U|_max = 3.98e-02`).  Carina's best configuration is now
+**1.37 s/step** (A100, CG+Jacobi, output at start and end only): 7.2x its
+own best CPU measured the same way (9.85), and 4.9x what the same A100 ran
+at the start of this sequence (6.71).  Rows carry `commit: 37f0bea`,
+`method: stop_wall`.
+
 ## 5. Caveats
 
 - One problem, one size, one machine (plus the A100 and V100 cross-checks
@@ -441,6 +484,11 @@ before this two-day sequence of profile-directed fixes.  Rows carry
   were measured once and are untouched, which makes them the control: if the
   Carina improvements were a measurement artifact rather than real, the
   unchanged codes would have drifted too, and they did not.
+- Until `37f0bea` every Carina row included a per-step Exodus write
+  (displacement plus per-QP stress and F, recomputed on the host), while
+  Norma's decks ran with `Exodus output interval: 0` — no output at all.
+  The `-nowrite` rows remove that asymmetry; earlier rows stand as
+  measured.
 - Quasi-static and explicit regimes are not covered. Norma has `QuasiStatic`
   and `CentralDifference` and LCM has an explicit Tempus input, so both are
   reachable; the implicit case was done first because all three codes already
