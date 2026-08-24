@@ -791,9 +791,19 @@ function _device_pcg!(ΔU, A_op, R, M_op, rtol, itmax)
     iters     = 0
     converged = false
     ρ_h       = ρ0
+    # Block size adapts to the measured convergence rate.  A fixed block
+    # overruns by up to blk − 1 iterations past convergence, which is cheap
+    # for Jacobi (many inexpensive iterations) but measurably wasteful for
+    # Chebyshev, whose iterations each apply a five-matvec smoother and
+    # converge in a few dozen.  From the contraction over the previous block,
+    # θ = (ρ_now/ρ_before)^(1/blk), estimate the iterations left to reach
+    # tolerance and size the next block to land just short of it; prediction
+    # error replaces the fixed overrun, and CG's superlinear convergence makes
+    # undershooting self-correcting at the next check.
+    blk = _CG_CHECK_EVERY
     while iters < itmax
-        blk = min(_CG_CHECK_EVERY, itmax - iters)
-        for _ in 1:blk
+        blk_run = min(blk, itmax - iters)
+        for _ in 1:blk_run
             mul!(Ap, A_op, p)
             _device_dot!(pAp, partials, p, Ap, backend)
             # pAp ≤ 0 can only mean r ≈ 0 to roundoff (A is SPD); a zero α
@@ -808,12 +818,20 @@ function _device_pcg!(ΔU, A_op, R, M_op, rtol, itmax)
             @. p = z + β * p
             iters += 1
         end
+        ρ_before = ρ_h
         ρ_h = _cg_scalar(ρ)
         if ρ_h <= tol2
             converged = true
             break
         end
         isfinite(ρ_h) || break
+        θ = (ρ_h / ρ_before)^(1 / blk_run)
+        if isfinite(θ) && 0.0 < θ < 1.0
+            m = log(tol2 / ρ_h) / log(θ)
+            blk = clamp(ceil(Int, 0.6 * m), 1, _CG_CHECK_EVERY)
+        else
+            blk = _CG_CHECK_EVERY
+        end
     end
     copyto!(ΔU, x)
     return iters, sqrt(max(ρ_h, 0.0)), converged
