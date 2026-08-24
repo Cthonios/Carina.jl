@@ -629,6 +629,197 @@ function _setup_linear_ops(ig::NewmarkIntegrator, ls::KrylovLinearSolver, p)
 end
 
 # --------------------------------------------------------------------------- #
+# Device-resident preconditioned CG (the matrix-free path)
+#
+# Krylov.jl's cg reads several scalars back from the device every iteration:
+# each dot product and convergence check is a blocking device-to-host copy
+# that drains the whole command pipeline before the host can issue the next
+# kernel.  A CUPTI profile of a production Newmark step on an A100 measured
+# the result — 2,430 cuStreamSynchronize calls per step and a device busy
+# only 36% of the trace (benchmark/crosscode/README.md §4).
+#
+# This loop keeps every recurrence scalar (ρ = r·z, p·Ap, α, β) in 1-element
+# device arrays: dot products reduce on the device (two-stage tree reduction,
+# no atomics), scalar arithmetic is 1-element broadcasts, and the vector
+# updates broadcast the device scalar directly, so nothing returns to the
+# host inside an iteration.  The host reads back one number — ρ — every
+# _CG_CHECK_EVERY iterations to decide termination, so the pipeline drains
+# once per block instead of several times per iteration.  Runs may therefore
+# execute up to _CG_CHECK_EVERY − 1 iterations past convergence, which costs
+# far less than the synchronizations it removes, and the reported iteration
+# count is a multiple of the block size.
+#
+# Convergence semantics match Krylov.cg with preconditioner M: terminate when
+# sqrt(r·z) ≤ rtol·sqrt(r₀·z₀), the M-norm of the residual.  A non-finite ρ
+# (the eversion guard's NaN poison arriving through the operator) exits the
+# loop immediately and reports not-converged; the NaN then reaches the Newton
+# logic through the solution vector exactly as on the Krylov path.
+# --------------------------------------------------------------------------- #
+
+const _CG_CHECK_EVERY     = 8
+const _CG_REDUCE_NGROUPS  = 256
+const _CG_REDUCE_GS       = 256      # workgroup size; must be a power of two
+
+KA.@kernel function _dot_partials_kernel!(
+    partials, x, y, ::Val{GS},
+) where {GS}
+    gid  = KA.@index(Group, Linear)
+    lid  = KA.@index(Local, Linear)
+    tile = KA.@localmem Float64 (GS,)
+    n      = length(x)
+    stride = GS * _CG_REDUCE_NGROUPS
+    i   = (gid - 1) * GS + lid
+    acc = 0.0
+    while i <= n
+        @inbounds acc += x[i] * y[i]
+        i += stride
+    end
+    @inbounds tile[lid] = acc
+    KA.@synchronize
+    s = GS >> 1
+    while s > 0
+        if lid <= s
+            @inbounds tile[lid] += tile[lid + s]
+        end
+        KA.@synchronize
+        s >>= 1
+    end
+    if lid == 1
+        @inbounds partials[gid] = tile[1]
+    end
+end
+
+KA.@kernel function _reduce_partials_kernel!(
+    out, partials, ::Val{GS},
+) where {GS}
+    lid  = KA.@index(Local, Linear)
+    tile = KA.@localmem Float64 (GS,)
+    acc = 0.0
+    i = lid
+    while i <= length(partials)
+        @inbounds acc += partials[i]
+        i += GS
+    end
+    @inbounds tile[lid] = acc
+    KA.@synchronize
+    s = GS >> 1
+    while s > 0
+        if lid <= s
+            @inbounds tile[lid] += tile[lid + s]
+        end
+        KA.@synchronize
+        s >>= 1
+    end
+    if lid == 1
+        @inbounds out[1] = tile[1]
+    end
+end
+
+# out[1] = x·y, entirely on the device; no host synchronization.
+function _device_dot!(out, partials, x, y, backend)
+    _dot_partials_kernel!(backend, _CG_REDUCE_GS)(
+        partials, x, y, Val(_CG_REDUCE_GS);
+        ndrange = _CG_REDUCE_GS * _CG_REDUCE_NGROUPS)
+    _reduce_partials_kernel!(backend, _CG_REDUCE_GS)(
+        out, partials, Val(_CG_REDUCE_GS); ndrange = _CG_REDUCE_GS)
+    return out
+end
+
+# The CPU backend cannot split `@synchronize` inside the reduction loops (KA
+# limitation), and has no command pipeline to drain in the first place — a
+# plain dot costs nothing extra there.  The rest of the CG loop is identical,
+# so CPU runs exercise the same block structure and device-scalar updates.
+function _device_dot!(out, partials, x, y, ::KA.CPU)
+    out[1] = dot(x, y)
+    return out
+end
+
+struct _DeviceCGWorkspace{V}
+    x        ::V
+    r        ::V
+    z        ::V
+    p        ::V
+    Ap       ::V
+    ρ        ::V   # 1-element device scalars
+    ρ_prev   ::V
+    pAp      ::V
+    α        ::V
+    β        ::V
+    partials ::V
+end
+
+const _device_cg_ws = Ref{Any}(nothing)
+
+function _device_cg_workspace(R)
+    ws = _device_cg_ws[]
+    if !(ws isa _DeviceCGWorkspace) || length(ws.x) != length(R) ||
+       typeof(ws.x) !== typeof(similar(R))
+        s(len) = (v = similar(R, len); fill!(v, zero(eltype(R))); v)
+        ws = _DeviceCGWorkspace(
+            s(length(R)), s(length(R)), s(length(R)), s(length(R)), s(length(R)),
+            s(1), s(1), s(1), s(1), s(1), s(_CG_REDUCE_NGROUPS))
+        _device_cg_ws[] = ws
+    end
+    return ws
+end
+
+_apply_precond!(z, ::Nothing, r) = copyto!(z, r)
+_apply_precond!(z, M_op, r)      = mul!(z, M_op, r)
+
+# One device-to-host read of a 1-element array (the only synchronization the
+# CG loop performs, once per _CG_CHECK_EVERY iterations).
+_cg_scalar(a) = Array(a)[1]
+
+function _device_pcg!(ΔU, A_op, R, M_op, rtol, itmax)
+    ws = _device_cg_workspace(R)
+    backend = KA.get_backend(R)
+    (; x, r, z, p, Ap, ρ, ρ_prev, pAp, α, β, partials) = ws
+
+    fill!(x, zero(eltype(x)))
+    copyto!(r, R)
+    _apply_precond!(z, M_op, r)
+    copyto!(p, z)
+    _device_dot!(ρ, partials, r, z, backend)
+    ρ0 = _cg_scalar(ρ)
+    if !isfinite(ρ0) || ρ0 <= 0.0
+        # Zero RHS (already solved) or a poisoned residual; nothing to iterate.
+        copyto!(ΔU, x)
+        return 0, sqrt(abs(ρ0)), ρ0 == 0.0
+    end
+    tol2 = (rtol * sqrt(ρ0))^2
+
+    iters     = 0
+    converged = false
+    ρ_h       = ρ0
+    while iters < itmax
+        blk = min(_CG_CHECK_EVERY, itmax - iters)
+        for _ in 1:blk
+            mul!(Ap, A_op, p)
+            _device_dot!(pAp, partials, p, Ap, backend)
+            # pAp ≤ 0 can only mean r ≈ 0 to roundoff (A is SPD); a zero α
+            # freezes the iterate instead of dividing 0/0 into a NaN.
+            @. α = ifelse(pAp > 0.0, ρ / pAp, 0.0)
+            @. x += α * p
+            @. r -= α * Ap
+            _apply_precond!(z, M_op, r)
+            copyto!(ρ_prev, ρ)
+            _device_dot!(ρ, partials, r, z, backend)
+            @. β = ρ / ρ_prev
+            @. p = z + β * p
+            iters += 1
+        end
+        ρ_h = _cg_scalar(ρ)
+        if ρ_h <= tol2
+            converged = true
+            break
+        end
+        isfinite(ρ_h) || break
+    end
+    copyto!(ΔU, x)
+    return iters, sqrt(max(ρ_h, 0.0)), converged
+end
+
+# --------------------------------------------------------------------------- #
 # Linear solvers: _linear_solve!(ls, ig, p, ops) → (ΔU, t_solve)
 # Sign convention: K_eff · ΔU = ig.R_eff  (ig.R_eff is already negated residual)
 # --------------------------------------------------------------------------- #
@@ -779,10 +970,12 @@ function _linear_solve!(ls::KrylovLinearSolver, ig::QuasiStaticIntegrator, p, op
         return ΔU, t
     end
 
-    # Zero workspace solution to prevent stale warm-start from previous solve.
-    fill!(ls.workspace.x, zero(eltype(ls.workspace.x)))
+    ΔU = similar(R)
+    local niter::Int, r_cg::Float64, solved::Bool
     t_kry = @elapsed begin
         if ls.assembled
+            # Zero workspace solution to prevent stale warm-start.
+            fill!(ls.workspace.x, zero(eltype(ls.workspace.x)))
             K_raw = FEC.stiffness(asm)
             A_op = _assembled_operator(K_raw, n)
             if af.compute_factorization
@@ -807,26 +1000,21 @@ function _linear_solve!(ls::KrylovLinearSolver, ig::QuasiStaticIntegrator, p, op
                 Krylov.krylov_solve!(ls.workspace, A_op, R;
                                      M=M_op_asm, atol=0.0, rtol=ls.rtol, itmax=ls.itmax, history=true)
             end
+            copyto!(ΔU, Krylov.solution(ls.workspace))
+            res    = ls.workspace.stats.residuals
+            r_cg   = isempty(res) ? NaN : res[end]
+            niter  = ls.workspace.stats.niter
+            solved = ls.workspace.stats.solved
         else
-            if M_op === nothing
-                Krylov.krylov_solve!(ls.workspace, K_op, R;
-                                     atol=0.0, rtol=ls.rtol, itmax=ls.itmax, history=true)
-            else
-                Krylov.krylov_solve!(ls.workspace, K_op, R;
-                                     M=M_op, atol=0.0, rtol=ls.rtol, itmax=ls.itmax, history=true)
-            end
+            niter, r_cg, solved = _device_pcg!(ΔU, K_op, R, M_op, ls.rtol, ls.itmax)
         end
     end
-    ΔU  = copy(Krylov.solution(ls.workspace))
-    res = ls.workspace.stats.residuals
-    r_cg = isempty(res) ? NaN : res[end]
     # Feed the iteration count back to the AMG staleness detector so a hierarchy
     # built at an earlier configuration gets rebuilt once it stops paying for
     # itself.  No-op for every other preconditioner.
-    _amg_track_iters!(ls.precond, ls.workspace.stats.niter)
+    _amg_track_iters!(ls.precond, niter)
     _carina_logf(8, :solve, "    CG: %d iters : |r|_CG = %.2e : %s",
-                 ls.workspace.stats.niter, r_cg,
-                 _cg_status_str(ls.workspace.stats.solved))
+                 niter, r_cg, _cg_status_str(solved))
 
     # After first successful CG solve for linear elastic on GPU, build the
     # GPU Cholesky cache: factorize K on CPU, upload L to GPU.
@@ -845,10 +1033,11 @@ function _linear_solve!(ls::KrylovLinearSolver, ig::NewmarkIntegrator, p, ops)
     K_eff_op, M_op_mf = ops
     af = _asm_flags
     ΔU = similar(R)
-    fill!(ls.workspace.x, zero(eltype(ls.workspace.x)))
     t_kry = @elapsed begin
         try
             if ls.assembled
+                # Zero workspace solution to prevent stale warm-start.
+                fill!(ls.workspace.x, zero(eltype(ls.workspace.x)))
                 K_eff_raw = FEC.stiffness(asm)
                 # Threaded CSR apply when the tangent is symmetric, which it is
                 # to roundoff (measured 1.0e-16, not the ~1e-7 an older comment
@@ -884,20 +1073,11 @@ function _linear_solve!(ls::KrylovLinearSolver, ig::NewmarkIntegrator, p, ops)
                     _cg_status_str(cg_hist.isconverged))
                 copyto!(ΔU, ΔU_vec)
             else
-                if M_op_mf === nothing
-                    Krylov.krylov_solve!(ls.workspace, K_eff_op, R;
-                        atol=0.0, rtol=ls.rtol, itmax=ls.itmax, history=true)
-                else
-                    Krylov.krylov_solve!(ls.workspace, K_eff_op, R;
-                        M=M_op_mf, atol=0.0, rtol=ls.rtol, itmax=ls.itmax, history=true)
-                end
-                copyto!(ΔU, Krylov.solution(ls.workspace))
-                res = ls.workspace.stats.residuals
-                r_cg = isempty(res) ? NaN : res[end]
-                _amg_track_iters!(ls.precond, ls.workspace.stats.niter)
+                niter, r_cg, solved = _device_pcg!(ΔU, K_eff_op, R, M_op_mf,
+                                                   ls.rtol, ls.itmax)
+                _amg_track_iters!(ls.precond, niter)
                 _carina_logf(8, :solve, "    CG: %d iters : |r|_CG = %.2e : %s",
-                             ls.workspace.stats.niter, r_cg,
-                             _cg_status_str(ls.workspace.stats.solved))
+                             niter, r_cg, _cg_status_str(solved))
             end
         catch e
             e isa _MATH_ERRORS || rethrow()

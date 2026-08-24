@@ -70,6 +70,7 @@ function _init_assembly_cache!(asm, is_linear::Bool)
     _tangent_is_symmetric[]          = nothing
     _direct_chol[]                   = nothing
     _direct_use_lu[]                 = false
+    _device_cg_ws[]                  = nothing
     empty!(_K_cache)
     empty!(_M_cache)
     # Matrix-free assemblers (central difference) leave these buffers empty.
