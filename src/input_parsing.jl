@@ -17,8 +17,12 @@ using LinearAlgebra
 # a suggestion (Levenshtein distance) to catch typos early.
 
 # Levenshtein distance for fuzzy matching
+# Indexing is over characters, not bytes: key sets contain non-ASCII ("β",
+# "γ", "lamé's first constant"), where byte indexing `a[i]` throws a
+# StringIndexError as soon as a multi-byte character is not the last one.
 function _levenshtein(a::AbstractString, b::AbstractString)
-    la, lb = length(a), length(b)
+    ca, cb = collect(a), collect(b)
+    la, lb = length(ca), length(cb)
     la == 0 && return lb
     lb == 0 && return la
     prev = collect(0:lb)
@@ -26,7 +30,7 @@ function _levenshtein(a::AbstractString, b::AbstractString)
     for i in 1:la
         curr[1] = i
         for j in 1:lb
-            cost = a[i] == b[j] ? 0 : 1
+            cost = ca[i] == cb[j] ? 0 : 1
             curr[j+1] = min(prev[j+1] + 1, curr[j] + 1, prev[j] + cost)
         end
         prev, curr = curr, prev
@@ -48,39 +52,29 @@ function _suggest(key::String, known::Set{String}; max_dist::Int=5)
 end
 
 """
-Check that all keys in `dict` are in `known_keys`. Warn for unknown keys
-with a "did you mean?" suggestion. `section` is used in the message.
+Append one message per key of `dict` not in `known_keys`, with a "did you
+mean?" suggestion.  `section` names the section in the message.  With
+`ci = true` keys are matched case-insensitively (for sections whose sub-keys
+are looked up through `_get_ci`).  Pure — the caller decides whether the
+messages become log warnings (see `validate_input_keys`, which
+`create_simulation` runs once per input file) or test assertions.
 """
-function _validate_keys(dict::AbstractDict, known_keys::Set{String}, section::String)
+function _collect_unknown_keys!(messages::Vector{String}, dict::AbstractDict,
+                                known_keys::Set{String}, section::String;
+                                ci::Bool = false)
     for key in keys(dict)
         key isa String || continue
-        if key ∉ known_keys
+        probe = ci ? lowercase(strip(key)) : key
+        if probe ∉ known_keys
             suggestion = _suggest(key, known_keys)
             msg = "Unknown key \"$key\" in $section."
             if !isempty(suggestion)
                 msg *= " Did you mean \"$suggestion\"?"
             end
-            _carina_log(0, :warning, msg)
+            push!(messages, msg)
         end
     end
-end
-
-"""
-Case-insensitive variant of `_validate_keys`, for sections whose sub-keys are
-themselves looked up case-insensitively (see `_get_ci`).
-"""
-function _validate_keys_ci(dict::AbstractDict, known_keys::Set{String}, section::String)
-    for key in keys(dict)
-        key isa String || continue
-        if lowercase(strip(key)) ∉ known_keys
-            suggestion = _suggest(key, known_keys)
-            msg = "Unknown key \"$key\" in $section."
-            if !isempty(suggestion)
-                msg *= " Did you mean \"$suggestion\"?"
-            end
-            _carina_log(0, :warning, msg)
-        end
-    end
+    return messages
 end
 
 """
@@ -144,13 +138,36 @@ const _TOPLEVEL_KEYS = Set([
     "initial conditions", "solver", "quadrature",
 ])
 
-const _TIME_INTEGRATOR_KEYS = Set([
+# Time-integrator keys are validated per integrator type, so a Newmark key
+# on a quasi-static deck warns instead of passing as valid.  An unknown type
+# validates against the union of all types (the integrator parser aborts on
+# the type itself), so only genuinely foreign keys warn.
+const _TI_COMMON_KEYS = Set([
     "type", "initial time", "final time", "time step",
     "minimum time step", "maximum time step", "decrease factor", "increase factor",
-    "initial equilibrium",
-    "beta", "gamma", "β", "γ", "alpha",
-    "CFL", "cfl", "stable time step interval",
 ])
+
+const _TI_TYPE_KEYS = Dict{String, Set{String}}(
+    "quasi static"       => Set(["initial equilibrium"]),
+    "newmark"            => Set(["alpha", "beta", "gamma", "β", "γ"]),
+    "central difference" => Set(["gamma", "γ", "CFL", "cfl",
+                                 "stable time step interval"]),
+)
+
+const _TI_TYPE_ALIASES = Dict{String, String}(
+    "quasi static" => "quasi static", "quasistatic" => "quasi static",
+    "static" => "quasi static",
+    "newmark" => "newmark", "newmark-beta" => "newmark",
+    "central difference" => "central difference",
+    "centraldifference" => "central difference", "cd" => "central difference",
+)
+
+function _integrator_known_keys(ti_dict::AbstractDict)
+    type_str = lowercase(strip(string(get(ti_dict, "type", ""))))
+    canon = get(_TI_TYPE_ALIASES, type_str, nothing)
+    canon === nothing && return union(_TI_COMMON_KEYS, values(_TI_TYPE_KEYS)...)
+    return union(_TI_COMMON_KEYS, _TI_TYPE_KEYS[canon])
+end
 
 const _SOLVER_KEYS = Set([
     "type", "minimum iterations", "maximum iterations",
@@ -166,7 +183,22 @@ const _LINEAR_SOLVER_KEYS = Set([
     "preconditioner", "assembled",
 ])
 
-const _PRECONDITIONER_KEYS = Set(["type", "degree"])
+# `degree` belongs to the Chebyshev preconditioner only; under any other
+# type it warns.  An unknown type validates against the union (the linear
+# solver parser aborts on the type itself).
+const _PRECOND_COMMON_KEYS = Set(["type"])
+
+function _precond_known_keys(pc_dict::AbstractDict)
+    t = lowercase(strip(string(get(pc_dict, "type", "none"))))
+    t in ("chebyshev", "chebyshev polynomial") &&
+        return union(_PRECOND_COMMON_KEYS, Set(["degree"]))
+    t in ("jacobi", "none", "ic", "incomplete cholesky", "ildl",
+          "incomplete ldlt", "amg", "algebraic multigrid", "multigrid") &&
+        return _PRECOND_COMMON_KEYS
+    # Unknown type: the linear solver parser aborts on it; validate against
+    # the union so only genuinely foreign keys warn.
+    return union(_PRECOND_COMMON_KEYS, Set(["degree"]))
+end
 
 const _BC_SECTION_KEYS = Set(["dirichlet", "neumann"])
 
@@ -193,6 +225,133 @@ const _OUTPUT_KEYS = Set([
     "velocity", "acceleration", "stress", "deformation gradient",
     "internal variables", "recovery",
 ])
+
+# ---------------------------------------------------------------------------
+# Whole-input key walker  (ported back from Norma's input_validation.jl,
+# which itself began as a port of this file's machinery)
+# ---------------------------------------------------------------------------
+
+"""
+    validate_input_keys(dict) -> Vector{String}
+
+Walk one parsed input file against the known-key sets and return one message
+per unrecognized key, with a "did you mean" suggestion.  Pure — no logging,
+no side effects.  `create_simulation` runs it once per input file and logs
+each message as a warning; the shipped-examples test asserts the vector is
+empty for every deck under `examples/`, so a key added to a parser and used
+in an example fails the suite until the matching set here learns it.  The
+parsers keep their own hard errors for missing required keys and invalid
+values.
+"""
+function validate_input_keys(dict::AbstractDict)
+    messages = String[]
+
+    _collect_unknown_keys!(messages, dict, _TOPLEVEL_KEYS, "top-level input")
+
+    ti = get(dict, "time integrator", nothing)
+    ti isa AbstractDict && _collect_unknown_keys!(
+        messages, ti, _integrator_known_keys(ti), "time integrator")
+
+    sol = get(dict, "solver", nothing)
+    if sol isa AbstractDict
+        _collect_unknown_keys!(messages, sol, _SOLVER_KEYS, "solver")
+        ls = get(sol, "linear solver", nothing)
+        if ls isa AbstractDict
+            _collect_unknown_keys!(messages, ls, _LINEAR_SOLVER_KEYS,
+                                   "linear solver")
+            pc = get(ls, "preconditioner", nothing)
+            pc isa AbstractDict && _collect_unknown_keys!(
+                messages, pc, _precond_known_keys(pc), "preconditioner")
+        end
+        # Solver-level preconditioner (NLCG / steepest descent): jacobi or
+        # none, neither of which has extra keys.
+        pc = get(sol, "preconditioner", nothing)
+        pc isa AbstractDict && _collect_unknown_keys!(
+            messages, pc, _PRECOND_COMMON_KEYS, "solver preconditioner")
+    end
+
+    model = get(dict, "model", nothing)
+    if model isa AbstractDict
+        _collect_unknown_keys!(messages, model, _MODEL_KEYS, "model")
+        mat = get(model, "material", nothing)
+        if mat isa AbstractDict
+            # Beyond `blocks`, every key of the material section should be a
+            # property dict some block references; anything else is typically
+            # a renamed block whose old material was left behind.
+            labels = Set{String}()
+            blocks = get(mat, "blocks", nothing)
+            if blocks isa AbstractDict
+                for v in values(blocks)
+                    v isa AbstractString && push!(labels, lowercase(strip(String(v))))
+                end
+            end
+            _collect_unknown_keys!(messages, mat, union(Set(["blocks"]), labels),
+                                   "model.material"; ci = true)
+            known_props = union(Set(keys(_ELASTIC_KEY_ALIASES)),
+                                Set(["density", "model"]))
+            for label in labels
+                props = _get_ci(mat, label)
+                props isa AbstractDict && _collect_unknown_keys!(
+                    messages, props, known_props, "material \"$label\""; ci = true)
+            end
+        end
+    end
+
+    bcs = get(dict, "boundary conditions", nothing)
+    if bcs isa AbstractDict
+        _collect_unknown_keys!(messages, bcs, _BC_SECTION_KEYS,
+                               "boundary conditions"; ci = true)
+        for (kind, entry_keys) in (("dirichlet", _DBC_ENTRY_KEYS),
+                                   ("neumann", _NBC_ENTRY_KEYS))
+            entries = _get_ci(bcs, kind)
+            entries isa AbstractVector || continue
+            for (i, entry) in enumerate(entries)
+                entry isa AbstractDict && _collect_unknown_keys!(
+                    messages, entry, entry_keys, "$kind BC entry $i")
+            end
+        end
+    end
+
+    bfs = get(dict, "body forces", nothing)
+    if bfs isa AbstractVector
+        for (i, entry) in enumerate(bfs)
+            entry isa AbstractDict && _collect_unknown_keys!(
+                messages, entry, _BF_ENTRY_KEYS, "body force entry $i")
+        end
+    end
+
+    ics = get(dict, "initial conditions", nothing)
+    if ics isa AbstractDict
+        _collect_unknown_keys!(messages, ics, _IC_SECTION_KEYS,
+                               "initial conditions")
+        for kind in ("displacement", "velocity")
+            entries = get(ics, kind, nothing)
+            entries isa AbstractVector || continue
+            for (i, entry) in enumerate(entries)
+                entry isa AbstractDict && _collect_unknown_keys!(
+                    messages, entry, _IC_ENTRY_KEYS, "$kind IC entry $i")
+            end
+        end
+        entries = get(ics, "traveling wave", nothing)
+        if entries isa AbstractVector
+            for (i, entry) in enumerate(entries)
+                entry isa AbstractDict && _collect_unknown_keys!(
+                    messages, entry, _TW_IC_ENTRY_KEYS,
+                    "traveling wave IC entry $i")
+            end
+        end
+    end
+
+    out = get(dict, "output", nothing)
+    out isa AbstractDict &&
+        _collect_unknown_keys!(messages, out, _OUTPUT_KEYS, "output")
+
+    q = get(dict, "quadrature", nothing)
+    q isa AbstractDict &&
+        _collect_unknown_keys!(messages, q, _QUADRATURE_KEYS, "quadrature")
+
+    return messages
+end
 
 # ---------------------------------------------------------------------------
 # Internal parsers
@@ -222,7 +381,6 @@ function _parse_quadrature(dict)
     if q_section === nothing
         return RFE.GaussLegendre, 2
     end
-    _validate_keys(q_section, _QUADRATURE_KEYS, "quadrature")
     type_str = lowercase(strip(get(q_section, "type", "gauss legendre")))
     order    = Int(get(q_section, "order", 2))
     if type_str in ("gauss legendre", "gl")
@@ -275,7 +433,6 @@ function _parse_material_section(dict, block_order::AbstractVector{<:AbstractStr
     model_dict_top = get(dict, "model", nothing)
     model_dict_top === nothing && error("Missing [model] section in input.")
 
-    _validate_keys(model_dict_top, _MODEL_KEYS, "model")
 
     # `model.type` selects the physics.  It is currently informational — there
     # is only one physics — but it is checked rather than ignored so that
@@ -332,7 +489,6 @@ function _parse_material_section(dict, block_order::AbstractVector{<:AbstractStr
     # dict that no block uses -- typically a renamed block whose old material
     # was left behind, which would otherwise sit there doing nothing.
     labels = Set{String}(String(v) for v in values(blocks_dict))
-    _validate_keys_ci(mat_section, union(Set{String}(["blocks"]), labels), "model.material")
 
     materials = BlockMaterial[]
     for block_name in block_order
@@ -379,7 +535,6 @@ end
 function _parse_times(dict)
     ti_dict = get(dict, "time integrator", nothing)
     ti_dict === nothing && error("Missing `time integrator` section.")
-    _validate_keys(ti_dict, _TIME_INTEGRATOR_KEYS, "time integrator")
     t0  = Float64(get(ti_dict, "initial time", 0.0))
     tf  = Float64(ti_dict["final time"])
     dt  = Float64(ti_dict["time step"])
@@ -724,7 +879,6 @@ function _read_solver_dicts(dict)
     haskey(dict, "solver") ||
         error("Missing required [solver] section.")
     sol_dict = dict["solver"]
-    _validate_keys(sol_dict, _SOLVER_KEYS, "solver")
 
     haskey(sol_dict, "type") ||
         error("Missing required solver.type. " * _SOLVER_TYPE_HELP)
@@ -956,7 +1110,6 @@ end
 function _parse_linear_solver(ls_dict, template, backend, make_precond::Function,
                                make_amg_precond::Function = () -> error(
                                    "amg preconditioner not available for this integrator."))
-    _validate_keys(ls_dict, _LINEAR_SOLVER_KEYS, "linear solver")
     ls_type = lowercase(ls_dict["type"])
     T  = eltype(template)
     n  = length(template)
@@ -982,8 +1135,6 @@ function _parse_linear_solver(ls_dict, template, backend, make_precond::Function
         end
 
         precond_dict = get(ls_dict, "preconditioner", Dict{String,Any}())
-        !isempty(precond_dict) &&
-            _validate_keys(precond_dict, _PRECONDITIONER_KEYS, "preconditioner")
         precond_type = lowercase(strip(get(precond_dict, "type", "none")))
         precond = if precond_type == "jacobi"
             make_precond()
@@ -1044,7 +1195,6 @@ end
 function _parse_solver_preconditioner(sol_dict, make_precond)
     pc_dict = get(sol_dict, "preconditioner", nothing)
     (pc_dict === nothing || make_precond === nothing) && return NoPreconditioner()
-    _validate_keys(pc_dict, _PRECONDITIONER_KEYS, "solver preconditioner")
     pc_type = lowercase(strip(get(pc_dict, "type", "jacobi")))
     pc_type == "none"   && return NoPreconditioner()
     pc_type == "jacobi" && return make_precond()
@@ -1129,13 +1279,11 @@ function _parse_dirichlet_bcs(dict)
     bc_section === nothing && return FEC.DirichletBC[]
     # Validated here rather than in _parse_neumann_bcs so the warning is
     # emitted once; both parsers see the same section.
-    _validate_keys_ci(bc_section, _BC_SECTION_KEYS, "boundary conditions")
     entries = _get_ci(bc_section, "dirichlet", FEC.DirichletBC[])
     entries isa Vector || error("[[boundary_conditions.dirichlet]] must be a list.")
 
     dbcs = FEC.DirichletBC[]
     for (i, entry) in enumerate(entries)
-        _validate_keys(entry, _DBC_ENTRY_KEYS, "Dirichlet BC entry $i")
         _require_keys(entry, ("component", "function"), "Dirichlet BC entry $i")
         var_sym  = _component_to_string(entry["component"])
         func     = _make_function(entry["function"])
@@ -1166,7 +1314,6 @@ function _parse_neumann_bcs(dict)
     point_load_entries = Dict{String,Any}[]  # deferred: need mesh/dof for PointLoad creation
 
     for (i, entry) in enumerate(entries)
-        _validate_keys(entry, _NBC_ENTRY_KEYS, "Neumann BC entry $i")
         _require_keys(entry, ("component", "function"), "Neumann BC entry $i")
 
         if haskey(entry, "side set")
@@ -1311,7 +1458,6 @@ function _parse_body_forces(dict)
 
     bfs = FEC.Source[]
     for (i, entry) in enumerate(entries)
-        _validate_keys(entry, _BF_ENTRY_KEYS, "body force entry $i")
         _require_keys(entry, ("component", "function"), "body force entry $i")
         var_sym  = _component_to_string(entry["component"])
         comp_idx = var_sym === :displ_x ? 1 : var_sym === :displ_y ? 2 : 3
@@ -1439,7 +1585,6 @@ end
 function _validate_ic_section(dict)
     ic_dict = get(dict, "initial conditions", nothing)
     ic_dict === nothing && return nothing
-    _validate_keys(ic_dict, _IC_SECTION_KEYS, "initial conditions")
     return nothing
 end
 
@@ -1451,7 +1596,6 @@ function _validate_ic_entries(entries, kind::String)
         entry isa AbstractDict || error(
             "initial conditions.$kind entry $i must be a mapping with keys: " *
             "node set, component, function.")
-        _validate_keys(entry, _IC_ENTRY_KEYS, "$kind IC entry $i")
         _require_keys(entry, ("node set", "component", "function"), "$kind IC entry $i")
     end
     return entries
@@ -1486,7 +1630,6 @@ function _parse_traveling_wave_ics(dict)
     tw_ics = get(ic_dict, "traveling wave", Any[])
     tw_ics isa Vector || error("initial_conditions.traveling_wave must be a list.")
     for (i, entry) in enumerate(tw_ics)
-        _validate_keys(entry, _TW_IC_ENTRY_KEYS, "traveling_wave IC entry $i")
         for key in ("node set", "component", "displacement", "direction", "wave speed")
             haskey(entry, key) || error(
                 "traveling_wave IC entry $i missing required key \"$key\". " *

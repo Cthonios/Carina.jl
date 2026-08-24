@@ -82,7 +82,11 @@ Parse a YAML dict (already loaded) and return a fully initialised simulation.
 """
 function create_simulation(dict::Dict{String,Any}, basedir::String="";
                             backend::KA.Backend=KA.CPU())
-    _validate_keys(dict, _TOPLEVEL_KEYS, "top-level input")
+    # One pass over the whole input against the known-key sets; the parsers
+    # below keep their own hard errors for missing keys and invalid values.
+    for msg in validate_input_keys(dict)
+        _carina_log(0, :warning, msg)
+    end
     _carina_log(0, :device, _backend_label(backend))
 
     input_mesh  = _resolve(dict, "input mesh file",  basedir)

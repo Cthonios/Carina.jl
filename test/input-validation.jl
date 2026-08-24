@@ -336,6 +336,139 @@
               Carina.NoPreconditioner
     end
 
+    # ----- whole-input key walker (ported back from Norma) -------------------
+    @testset "input key walker" begin
+        # Minimal clean deck, built in memory so each test can break one key.
+        clean() = Dict{String,Any}(
+            "type"             => "single",
+            "input mesh file"  => "cube.g",
+            "output mesh file" => "cube.e",
+            "output interval"  => 0.5,
+            "output"           => Dict{String,Any}("stress" => true),
+            "model" => Dict{String,Any}(
+                "type" => "solid mechanics",
+                "material" => Dict{String,Any}(
+                    "blocks" => Dict{String,Any}("cube" => "neohookean"),
+                    "neohookean" => Dict{String,Any}(
+                        "elastic modulus" => 1.0e9,
+                        "Poisson's ratio" => 0.25,
+                        "density"         => 1000.0))),
+            "time integrator" => Dict{String,Any}(
+                "type" => "newmark", "final time" => 1.0, "time step" => 0.5,
+                "beta" => 0.25, "gamma" => 0.5),
+            "boundary conditions" => Dict{String,Any}(
+                "dirichlet" => Any[Dict{String,Any}(
+                    "side set" => "ssz-", "component" => "z",
+                    "function" => "0.0")]),
+            "solver" => Dict{String,Any}(
+                "type" => "newton",
+                "linear solver" => Dict{String,Any}(
+                    "type" => "iterative",
+                    "preconditioner" => Dict{String,Any}(
+                        "type" => "chebyshev", "degree" => 5))),
+        )
+        walk = Carina.validate_input_keys
+
+        @test isempty(walk(clean()))
+
+        # Top-level typo, with suggestion.
+        d = clean(); d["outpt interval"] = 0.5; delete!(d, "output interval")
+        msgs = walk(d)
+        @test length(msgs) == 1
+        @test occursin("outpt interval", msgs[1])
+        @test occursin("output interval", msgs[1])   # the suggestion
+
+        # Integrator keys are validated per type: Newmark keys on a
+        # quasi-static deck warn, and CFL on a Newmark deck warns.
+        d = clean(); d["time integrator"]["type"] = "quasi static"
+        msgs = walk(d)
+        @test any(occursin("\"beta\"", m) for m in msgs)
+        @test any(occursin("\"gamma\"", m) for m in msgs)
+        d = clean(); d["time integrator"]["CFL"] = 0.9
+        @test any(occursin("\"CFL\"", m) for m in walk(d))
+        # Unknown type validates against the union: only foreign keys warn
+        # (the integrator parser aborts on the type itself).
+        d = clean(); d["time integrator"]["type"] = "newmar"
+        @test isempty(walk(d))
+
+        # `degree` belongs to Chebyshev only.
+        d = clean()
+        d["solver"]["linear solver"]["preconditioner"]["type"] = "jacobi"
+        @test any(occursin("\"degree\"", m) for m in walk(d))
+        d = clean()
+        d["solver"]["linear solver"]["preconditioner"] =
+            Dict{String,Any}("type" => "chebyshev", "degre" => 5)
+        msgs = walk(d)
+        @test length(msgs) == 1 && occursin("degree", msgs[1])
+
+        # Solver-level preconditioner (NLCG): type only.
+        d = clean()
+        d["solver"]["preconditioner"] = Dict{String,Any}(
+            "type" => "jacobi", "degree" => 5)
+        @test any(occursin("solver preconditioner", m) for m in walk(d))
+
+        # Material section: an unreferenced property dict is typically a
+        # renamed block whose old material was left behind.
+        d = clean()
+        d["model"]["material"]["old_material"] = Dict{String,Any}(
+            "elastic modulus" => 1.0)
+        @test any(occursin("old_material", m) for m in walk(d))
+        # Property-key typo inside a referenced material.
+        d = clean()
+        d["model"]["material"]["neohookean"]["elastic modulos"] = 1.0
+        msgs = walk(d)
+        @test any(occursin("elastic modulos", m) && occursin("elastic modulus", m)
+                  for m in msgs)
+
+        # BC entry and output typos.
+        d = clean()
+        d["boundary conditions"]["dirichlet"][1]["sideset"] = "ssz-"
+        @test any(occursin("\"sideset\"", m) for m in walk(d))
+        d = clean(); d["output"]["stres"] = true; delete!(d["output"], "stress")
+        @test any(occursin("\"stres\"", m) for m in walk(d))
+
+        # Non-ASCII keys must not throw in the suggestion machinery
+        # (character-indexed Levenshtein; "β" and "lamé's first constant"
+        # are in the key sets).
+        d = clean(); d["time integrator"]["ß"] = 0.25
+        @test !isempty(walk(d))
+    end
+
+    # ----- shipped inputs are clean ------------------------------------------
+    # Guard against schema drift: a keyword added to a parser and used in a
+    # shipped deck fails here until the matching known-key set learns it.
+    # Sweeps examples/ and benchmark/inputs/ (Carina decks only — the
+    # crosscode directory holds Norma and LCM inputs too, which legitimately
+    # use foreign keys).
+    @testset "shipped inputs are clean" begin
+        roots = (joinpath(@__DIR__, "..", "examples"),
+                 joinpath(@__DIR__, "..", "benchmark", "inputs"))
+        checked = 0
+        for top in roots
+            isdir(top) || continue
+            for (root, dirs, files) in walkdir(top)
+                for f in files
+                    endswith(f, ".yaml") || continue
+                    path = joinpath(root, f)
+                    d = try
+                        Carina.YAML.load_file(path; dicttype = Dict{String, Any})
+                    catch
+                        continue
+                    end
+                    d isa Dict || continue
+                    get(d, "type", "") == "single" || continue
+                    checked += 1
+                    messages = Carina.validate_input_keys(d)
+                    isempty(messages) ||
+                        @error "Unknown input keys in shipped deck" path messages
+                    @test isempty(messages)
+                end
+            end
+        end
+        # A broken walkdir path or filter must not pass as an empty sweep.
+        @test checked > 50
+    end
+
     # ----- max-iteration extraction ------------------------------------------
     @testset "_extract_max_iters fallbacks" begin
         @test Carina._extract_max_iters(Carina.MaxIterationsTest(12)) == 12
