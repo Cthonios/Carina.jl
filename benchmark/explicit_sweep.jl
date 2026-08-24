@@ -32,9 +32,15 @@ _json(nt::NamedTuple) =
 include(joinpath(@__DIR__, "torsiongen.jl"))
 
 const REPO      = dirname(@__DIR__)
-const MESH_DIR  = joinpath(@__DIR__, "meshes")
-const INPUT_DIR = joinpath(@__DIR__, "inputs")
-const RESULTS   = joinpath(@__DIR__, "results")
+# On machines whose home is NFS/GPFS (the ascicgpu hosts), benchmark I/O must
+# stay off the shared filesystem: the measured interval contains one Exodus
+# write, and multi-GB meshes are read at setup.  CARINA_BENCH_SCRATCH points
+# all generated artifacts (meshes, decks, outputs, results) at a local disk;
+# unset, everything lands in the repo as before.
+const SCRATCH   = get(ENV, "CARINA_BENCH_SCRATCH", @__DIR__)
+const MESH_DIR  = joinpath(SCRATCH, "meshes")
+const INPUT_DIR = joinpath(SCRATCH, "inputs")
+const RESULTS   = joinpath(SCRATCH, "results")
 
 # CFL-invariant step: N=20 (h = 2.5e-3) is stable at 5e-7 with the material
 # below (dilatational wave speed ~1095 m/s => CFL ~0.22).
