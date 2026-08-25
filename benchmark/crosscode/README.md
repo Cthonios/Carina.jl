@@ -524,6 +524,19 @@ assembly.  On any production-length run the build amortizes away and the
 2x stands; making short runs win too means a threaded or device-side
 SpGEMM for the setup, which is its own project.
 
+**Update (commit `d0a6685`)**: it was a smaller project than that.  A
+sub-stage split showed the build's serial time tied between two stages at
+~42% each: AMG.jl's `fit_candidates` (accidentally quadratic — per-entry
+insertion into a live sparse matrix plus a per-aggregate `dropzeros!`)
+and the slab Galerkin product (independent slabs, never threaded).
+Replacing the first with a direct-CSC, thread-per-aggregate QR (12x,
+outputs equal to 4e-14) and threading the second with the slab width
+divided by the thread count (6.5x, peak memory unchanged) cuts the build
+11.96 -> 5.59 s on the desktop host and 24.6 -> 10.8 s on the A100's
+host.  The A100 4-step totals now break the tie in AMG's favor outright:
+**119.2 s against Jacobi's 132.5**, with the 2x steady-state unchanged
+and identical displacements at every stop.
+
 ## 5. Caveats
 
 - One problem, one size, one machine (plus the A100 and V100 cross-checks
