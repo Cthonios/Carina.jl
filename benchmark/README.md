@@ -88,27 +88,46 @@ the RX 7600's 8 GB capacity cap; records in
 original sweep's CPU baseline (the 5.7 GHz desktop host, 24 threads — the
 fastest CPU measured per core) alongside:
 
-| N | DOF | desktop CPU | RX 7600 | V100 | A100 | A100 / CPU |
-|---:|---:|---:|---:|---:|---:|---:|
-| 8 | 39k | 1.84 | 1.42 | 0.69 | 0.43 | 4.3x |
-| 12 | 122k | 5.62 | 1.86 | 1.29 | 0.90 | 6.2x |
-| 20 | 531k | 23.6 | 6.63 | 4.68 | 2.45 | 9.6x |
-| 28 | 1.42M | 63.0 | 17.7 | 12.0 | 5.93 | 10.6x |
-| 36 | 2.96M | 131.1 | 37.6 | 25.4 | 12.8 | 10.3x |
-| 44 | 5.35M | 231.4 | 68.8 | 46.8 | 23.8 | 9.7x |
-| 50 | 7.81M | 341.5 | 100.5 | 71.0 | 34.5 | **9.9x** |
-| 64 | 16.2M | — | — (OOM) | 148.7 | 73.7 | — |
-| 72 | 23.0M | — | — | 219.0 | — | — |
-| 80 | 31.5M | — | — | — | 158.7 | — |
+| N | DOF | desktop CPU | Rigel 48T | RX 7600 | V100 | A100 | A100 / CPU |
+|---:|---:|---:|---:|---:|---:|---:|---:|
+| 8 | 39k | 1.84 | 1.67 | 1.42 | 0.69 | 0.43 | 4.3x |
+| 12 | 122k | 5.62 | 2.97 | 1.86 | 1.29 | 0.90 | 6.2x |
+| 20 | 531k | 23.6 | 12.2 | 6.63 | 4.68 | 2.45 | 9.6x |
+| 28 | 1.42M | 63.0 | 34.4 | 17.7 | 12.0 | 5.93 | 10.6x |
+| 36 | 2.96M | 131.1 | 75.4 | 37.6 | 25.4 | 12.8 | 10.3x |
+| 44 | 5.35M | 231.4 | 128.0 | 68.8 | 46.8 | 23.8 | 9.7x |
+| 50 | 7.81M | 341.5 | 181.3 | 100.5 | 71.0 | 34.5 | **9.9x** |
+| 64 | 16.2M | — | 368.0 | — (OOM) | 148.7 | 73.7 | — |
+| 72 | 23.0M | — | — | — | 219.0 | — | — |
+| 80 | 31.5M | — | 708.7 | — | — | 158.7 | — |
+| 100 | 61.2M | — | 1806 | — | — | — | — |
+
+Rigel is a dual EPYC 9634 (168 cores / 336 threads, 1.5 TB); records in
+`results/explicit-rigel{,-threads}.jsonl`.  Its column is the machine's
+measured optimum, which is **48 threads** — thread scaling INVERTS above
+that (N=20: 17.6 ms at 24T, 12.0 at 48T, 24.7 at 84T, 138.8 at 168T,
+545.6 at 336T).  The threaded CPU scatter uses atomic adds, and past ~48
+threads across 8 NUMA domains the contention dominates; more elements per
+thread softens it (at N=64, 168T reaches parity with 48T at 387 vs 368 ms)
+but never pays.  The known cure is the two-phase scatter already
+implemented for the implicit action (`src/two_phase_action.jl`, a loss on
+GPUs where atomics were free) — worth porting to the CPU path only if
+big-CPU-node explicit becomes a real target.
 
 - **Per-element cost is flat everywhere** once past launch overhead:
-  ~13.5–15.5 ns/elem (A100), ~27–29 (V100), ~40 (RX 7600), ~135–145
-  (desktop CPU).  No scaling cliff up to 31.5M DOF; memory capacity, not
-  bandwidth, is the ceiling (~1.0–1.3 KB/DOF on all three cards).
+  ~13.5–15.5 ns/elem (A100), ~27–29 (V100), ~40 (RX 7600), ~70–80
+  (Rigel at 48T), ~135–145 (desktop CPU).  No scaling cliff up to 31.5M
+  DOF; memory capacity, not bandwidth, is the ceiling (~1.0–1.3 KB/DOF
+  on all three cards).
 - **Against the fastest CPU measured, the saturated ratios are A100 ~10x,
   V100 ~5x, RX 7600 3.4x** — stable across the size range because the CPU
   is flat per element too.  The CPU ladder stops at N=50; the A100 runs
   4x that problem.
+- **Placement**: every GPU beats every CPU node measured (even the
+  168-core Rigel runs 1.8x slower than the RX 7600 and 5.3x slower than
+  the A100 at N=50).  Rigel's niche is capacity: it runs 61.2M DOF at
+  1.8 s/step — 2x past the A100's 40 GB ceiling with room for far more —
+  so CPU nodes are for problems that do not fit a GPU, not for speed.
 - **The explicit ordering is A100 > V100 > RX 7600** — unlike the implicit
   gather kernel, where the RX 7600's Infinity Cache put it ahead of the
   V100.  The explicit internal-force kernel follows FP64 throughput
