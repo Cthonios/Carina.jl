@@ -75,3 +75,44 @@
     @test dot(u, Mv) ≈ dot(Mu, v) rtol = 1e-6
     @test dot(u, Mu) > 0.0
 end
+
+# --------------------------------------------------------------------------- #
+# _fit_candidates replaces AMG.fit_candidates in the hierarchy build (the
+# stock version inserts into a live sparse matrix per entry and dropzeros!-es
+# per aggregate — 41% of the build at 528k DOF, 12x slower than this one).
+# Same per-aggregate LAPACK QR, so the outputs must agree to roundoff, up to
+# entries the stock version drops below its 1e-10 tolerance (ours drops the
+# same way).  The 3D Laplacian with a 6-column fake-rigid-body nullspace
+# exercises rank-deficient aggregates too (aggregates near corners can have
+# fewer rows than columns).
+# --------------------------------------------------------------------------- #
+@testset "_fit_candidates matches AMG.fit_candidates" begin
+    import AlgebraicMultigrid as AMGx
+    n1 = 10
+    A = Carina.AMG.poisson((n1, n1, n1))     # 1000-DOF 3D Laplacian
+    n = size(A, 1)
+    # Six smooth candidate vectors (constant + coordinates + products).
+    xs = repeat(1.0:n1, outer = n1 * n1); ys = repeat(1.0:n1, inner = n1, outer = n1)
+    zs = repeat(1.0:n1, inner = n1 * n1)
+    B = hcat(ones(n), xs, ys, zs, xs .* ys, ys .* zs)
+    S, _  = Carina.AMG.SymmetricStrength()(A, false)
+    AggOp = Carina.AMG.StandardAggregation()(S)
+
+    T1, Bc1 = AMGx.fit_candidates(AggOp, B)
+    T2, Bc2 = Carina._fit_candidates(AggOp, B)
+
+    @test size(T1) == size(T2)
+    d = T1 - T2
+    @test (SparseArrays.nnz(d) == 0 ? 0.0 : maximum(abs, d.nzval)) < 1e-9
+    @test Bc1 ≈ Bc2 atol = 1e-12
+    # Defining property: the tentative prolongator reproduces the candidates.
+    @test maximum(abs, T2 * Bc2 - B) < 1e-10
+    # Orthonormal blocks: TᵀT is the identity on the range T spans.  A
+    # rank-deficient aggregate (fewer rows than candidates) leaves its
+    # trailing columns empty — same as the stock version — so the diagonal
+    # is 0 there and 1 elsewhere, with zero off-diagonals everywhere.
+    G = Matrix(T2' * T2)
+    dg = LinearAlgebra.diag(G)
+    @test all(d -> abs(d) < 1e-10 || abs(d - 1.0) < 1e-10, dg)
+    @test maximum(abs, G - LinearAlgebra.Diagonal(dg)) < 1e-10
+end

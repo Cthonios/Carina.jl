@@ -118,20 +118,89 @@ end
 # for the remaining levels.
 # --------------------------------------------------------------------------- #
 
+# Threaded over slabs.  The slab width shrinks with the thread count so the
+# peak transient memory — the reason this is slabbed at all (the stock
+# hierarchy build OOMs above ~3M DOF) — stays at roughly one serial slab's
+# product regardless of how many slabs are in flight.
 function _slab_galerkin(R, A, P; slab::Int = 8_192)
     nc = size(P, 2)
-    parts = Vector{SparseArrays.SparseMatrixCSC{Float64, Int64}}()
-    for j0 in 1:slab:nc
-        j1 = min(j0 + slab - 1, nc)
-        push!(parts, R * (A * P[:, j0:j1]))
+    w  = max(512, slab ÷ Threads.nthreads())
+    ranges = [j0:min(j0 + w - 1, nc) for j0 in 1:w:nc]
+    parts = Vector{SparseArrays.SparseMatrixCSC{Float64, Int64}}(undef, length(ranges))
+    Threads.@threads for i in eachindex(ranges)
+        r = ranges[i]
+        parts[i] = R * (A * P[:, r])
     end
     return hcat(parts...)
+end
+
+# Drop-in for AMG.fit_candidates(AggOp, B): per-aggregate thin QR of the
+# near-nullspace, assembled DIRECTLY into CSC arrays.  The stock version
+# inserts entries one at a time into a live SparseMatrixCSC (each insertion
+# shifts the nnz arrays) and calls dropzeros! on the whole matrix once per
+# aggregate — accidentally quadratic, and 41% of the hierarchy build at 528k
+# DOF.  This one is O(nnz), threaded over aggregates (disjoint output
+# ranges), and mathematically equivalent: same LAPACK QR per aggregate, so
+# the same T and Bc up to entries the stock version drops below its 1e-10
+# sparsification tolerance.
+function _fit_candidates(AggOp, B::AbstractMatrix{Float64})
+    At = SparseArrays.sparse(copy(transpose(SparseArrays.sparse(AggOp))))
+    size(At, 2) == size(B, 1) && (At = SparseArrays.sparse(copy(transpose(At))))
+    n_fine, n_agg = size(At)
+    n_fine == size(B, 1) || error(
+        "aggregation operator ($(size(At))) does not match nullspace rows ($(size(B, 1)))")
+    m = size(B, 2)
+
+    # Column pointer of T: column (agg-1)m + j holds the aggregate's rows for
+    # j ≤ r = min(|agg|, m), and is empty past r (rank-deficient aggregates).
+    colptr = Vector{Int}(undef, m * n_agg + 1)
+    colptr[1] = 1
+    for agg in 1:n_agg
+        la = At.colptr[agg + 1] - At.colptr[agg]
+        r  = min(la, m)
+        off = (agg - 1) * m
+        for j in 1:m
+            colptr[off + j + 1] = colptr[off + j] + (j <= r ? la : 0)
+        end
+    end
+    nnzT   = colptr[end] - 1
+    rowval = Vector{Int}(undef, nnzT)
+    nzval  = Vector{Float64}(undef, nnzT)
+    Bc     = zeros(m * n_agg, m)
+
+    Threads.@threads for agg in 1:n_agg
+        rng = At.colptr[agg]:(At.colptr[agg + 1] - 1)
+        la  = length(rng)
+        la == 0 && continue
+        rows = view(At.rowval, rng)          # sorted within a CSC column
+        r = min(la, m)
+        F = LinearAlgebra.qr(B[rows, :])
+        Q = Matrix(F.Q)                      # thin: la × min(la, m)
+        off = (agg - 1) * m
+        for j in 1:r
+            p0 = colptr[off + j] - 1
+            for i in 1:la
+                rowval[p0 + i] = rows[i]
+                nzval[p0 + i]  = Q[i, j]
+            end
+        end
+        Rf = F.R
+        for j in 1:m, i in 1:min(r, size(Rf, 1))
+            Bc[off + i, j] = Rf[i, j]
+        end
+    end
+
+    T = SparseArrays.SparseMatrixCSC(n_fine, m * n_agg, colptr, rowval, nzval)
+    # Match the stock version's sparsification: near-zero Q entries (rotation
+    # residue from the QR) double nnz(T) and inflate every downstream product.
+    SparseArrays.droptol!(T, 1e-10)
+    return T, Bc
 end
 
 function _sa_hierarchy_lowmem(A::SparseArrays.SparseMatrixCSC, B::Matrix{Float64})
     S, _  = AMG.SymmetricStrength()(A, false)
     AggOp = AMG.StandardAggregation()(S)
-    T, Bc = AMG.fit_candidates(AggOp, B)
+    T, Bc = _fit_candidates(AggOp, B)
     P     = AMG.JacobiProlongation(4.0 / 3.0)(A, T, S, Bc)
     R     = SparseArrays.sparse(transpose(P))
     Ac    = _slab_galerkin(R, A, P)
