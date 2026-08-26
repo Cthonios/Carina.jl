@@ -190,17 +190,29 @@ $(precond)
             ig = sim.integrator; asm = ig.asm; p = sim.params; U = ig.U
 
             v = [sin(0.37 * i) for i in 1:length(U)]
-            y64 = similar(v); y32 = similar(v)
+            y64 = similar(v); y64b = similar(v); y32 = similar(v)
             Carina._stiffness_matvec_qs!(y64, v, asm, U, p)
+            Carina._stiffness_matvec_qs!(y64b, v, asm, U, p)
             Carina._stiffness_matvec_qs_fp32!(y32, v, asm, U, p)
+
+            # Nothing here may compare two assembled vectors for bit-identity.
+            # The threaded element loop accumulates into shared nodes through
+            # atomics, so the summation order differs between two calls of the
+            # *same* kernel -- `y64` and `y64b` land ~1 ulp apart at more than
+            # one thread.  That noise floor is the yardstick both assertions
+            # below are measured against.
+            noise = norm(y64b - y64) / norm(y64)
 
             # (1) It is a faithful approximation of the same operator.
             @test norm(y32 - y64) / norm(y64) < 1e-5
 
-            # (2) It is not the *same* operator.  Bit-identity here would mean
-            # the narrowing silently fell back to Float64 -- the run would stay
-            # correct and the speedup would be zero, with nothing to notice.
-            @test y32 != y64
+            # (2) It is not the *same* operator.  A silent fallback to Float64
+            # would leave the run correct and the speedup at zero, with nothing
+            # to notice.  `y32 != y64` cannot detect that: above one thread the
+            # reduction noise alone makes it true.  A genuine Float32 action is
+            # ~1e-7 relative, nine orders above the ~1e-16 floor, so require the
+            # difference to be unambiguously larger than reduction noise.
+            @test norm(y32 - y64) / norm(y64) > max(1e3 * noise, 1e-10)
 
             # (3) The model honours the requested precision.  Without this the
             # first two still pass while the arithmetic runs in Float64.
@@ -215,7 +227,7 @@ $(precond)
         # LinearElastic has its own small-strain `stiffness_action` that skips
         # the geometric push-forward.  The NS = 0 reduced-precision method would
         # shadow it and quietly change the physics, so it must dispatch to the
-        # exact kernel -- bit-identical, not merely close.
+        # exact kernel -- the same arithmetic, not merely a close answer.
         mktempdir() do dir
             le_yaml = replace(qs_yaml("      type: jacobi"),
                               "cube: neohookean" => "cube: linear elastic",
@@ -225,10 +237,18 @@ $(precond)
             ig = sim.integrator; asm = ig.asm; p = sim.params; U = ig.U
 
             v = [cos(0.29 * i) for i in 1:length(U)]
-            y64 = similar(v); y32 = similar(v)
+            y64 = similar(v); y64b = similar(v); y32 = similar(v)
             Carina._stiffness_matvec_qs!(y64, v, asm, U, p)
+            Carina._stiffness_matvec_qs!(y64b, v, asm, U, p)
             Carina._stiffness_matvec_qs_fp32!(y32, v, asm, U, p)
-            @test y32 == y64
+
+            # `y32 == y64` is the natural statement of "same kernel" and it is
+            # NOT usable: atomic accumulation makes even `y64` vs `y64b` differ
+            # by ~1 ulp above one thread.  Pin the fp32 twin to that same floor
+            # instead -- it must be indistinguishable from re-running the exact
+            # kernel, and nowhere near the ~1e-7 of a real Float32 action.
+            noise = norm(y64b - y64) / norm(y64)
+            @test norm(y32 - y64) / norm(y64) <= max(10 * noise, 1e-13)
         end
     end
 
