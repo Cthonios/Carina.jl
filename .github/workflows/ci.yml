@@ -22,13 +22,21 @@ concurrency:
 
 jobs:
   test:
-    name: Julia ${{ matrix.julia-version }} - ${{ matrix.os }}
+    name: Julia ${{ matrix.julia-version }} - ${{ matrix.os }} - ${{ matrix.threads }}t
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         julia-version: ['1.12']
         os: [ubuntu-latest]
+        # A second, multithreaded leg. FEC's element loop accumulates into
+        # shared nodes through atomics, so anything that assumes a fixed
+        # summation order -- comparing two assembled vectors for exact
+        # equality, say -- behaves differently above one thread. A
+        # single-threaded suite is structurally blind to that class of bug in
+        # both directions: an assertion can fail only when threaded, or pass
+        # vacuously only when threaded.
+        threads: [1, 4]
 
     steps:
       - uses: actions/checkout@v4
@@ -61,13 +69,27 @@ jobs:
       # `user` coverage would also instrument the sibling path dependencies
       # cloned above, slowing the run and littering their trees with .cov files
       # that nothing consumes.
-      - name: Run tests
+      #
+      # Coverage is measured on the single-threaded leg only. Codecov takes one
+      # report per commit as the baseline, so a second upload from the threaded
+      # leg would race the first rather than add anything -- the two legs run
+      # identical test files and differ only in thread count.
+      - name: Run tests (with coverage)
+        if: matrix.threads == 1
         run: julia --color=no --project=. --code-coverage=@src test/runtests.jl
 
+      - name: Run tests (multithreaded)
+        if: matrix.threads != 1
+        run: |
+          julia --color=no --project=. --threads=${{ matrix.threads }} \
+                test/runtests.jl
+
       - name: Process coverage
+        if: matrix.threads == 1
         uses: julia-actions/julia-processcoverage@v1
 
       - name: Upload coverage to Codecov
+        if: matrix.threads == 1
         uses: codecov/codecov-action@v5
         with:
           files: lcov.info
