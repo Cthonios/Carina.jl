@@ -1,0 +1,182 @@
+FEC GPU block-size preferences (PR 339 / v0.15.3): cross-card sweep
+===================================================================
+
+Verdict: keep the 256 default.  Do NOT add a LocalPreferences.toml to Carina.
+There is no upside (best case 1-3%, at or below the timing resolution) and a
+real downside above 256 on both NVIDIA cards.
+
+FiniteElementContainers 0.15.3 (merged 2026-08-25 as 5d83a5b) turns the GPU
+workgroup size of ten assembler entry points into `@load_preference` constants
+defaulting to 256, overridable from a `[FiniteElementContainers]` section of a
+`LocalPreferences.toml`.  This sweep answers whether Carina should set them.
+
+Hardware / software.  Date: 2026-08-25.
+  A100  ascicgpu073, NVIDIA A100-PCIE-40GB, CUDA via CUDA.jl, Julia 1.12.6
+  V100  ascicgpu24,  Tesla V100-PCIE-32GB,  CUDA via CUDA.jl, Julia 1.12.6
+  RX 7600 (sirius desktop, gfx1102, ROCm via AMDGPU.jl) column carried over
+  from the PR review for continuity -- see the methodology caveat below.
+Both Sandia hosts were idle (0% utilization, no other compute apps) and both
+runs were serialized: the two share one NFS home, one ~/.julia depot, and
+therefore one LocalPreferences.toml and one precompile cache.
+
+Method.  For each block size, all TEN keys are set to the same value, the bin/
+environment is precompiled, `FiniteElementContainers.summarize_preferences()`
+is checked to confirm the values actually took, and then both solvers run
+against that single precompile.  Setting all ten together is deliberate: it
+serves both solvers from one precompile, and it matches the realistic user
+action of turning one global knob.  Explicit and implicit each exercise a
+different hot kernel, so the attribution stays clear per solver.
+
+  explicit  benchmark/explicit_sweep.jl 40 cuda <tag> 200 8
+            torsion bar N=40: 1,280,000 HEX8, 4,039,443 DOF, dt = 2.5e-7.
+            200 steps split into two equal control intervals; the first is
+            warm-up, the second is measured.  Records land in
+            benchmark/results/fec-block-size-<host>.jsonl.
+  implicit  bin/carina on benchmark/inputs/torsion-newmark-gpu-cg-jacobi.yaml
+            (530,523 DOF, Newmark + Newton + CG/Jacobi, 4 steps).  Reported
+            below as t_solve per Newton iteration, which isolates the linear
+            solve from the per-step Exodus write this deck performs.
+
+CARINA_BENCH_SCRATCH=/scratch/amota/bench339 kept all mesh and Exodus I/O on
+the local RAID; benchmark I/O must never touch the NFS home on these hosts.
+
+
+EXPLICIT -- torsion N=40, ms/step [ns/element]
+----------------------------------------------
+
+    block size |  RX 7600  |      V100      |      A100
+    -----------+-----------+----------------+----------------
+        32     |    --     |  34.7 [27.11]  |  17.0 [13.28]
+        64     |   48.3    |  34.5 [26.95]  |  17.3 [13.52]
+       128     |   48.1    |  34.4 [26.88]  |  16.8 [13.12]
+       256 *   |   48.3    |  34.5 [26.95]  |  17.3 [13.52]
+       512     |   48.9    |  46.2 [36.09]  |  23.7 [18.52]
+      1024     |   53.2    |  65.5 [51.17]  |  32.0 [25.00]
+
+    * default.  Measured wall quantizes to 0.01 s over 100 measured steps,
+    i.e. 0.1 ms/step, so 32/64/128/256 are a tie on both NVIDIA cards.
+
+The flat-region figures reproduce the independently recorded per-element times
+for these cards (A100 13.5-15.5 ns/elem, V100 27-29 ns/elem), which is the
+check that the sweep is measuring the intended quantity.
+
+
+IMPLICIT -- Newmark torsion, t_solve per Newton iteration, seconds
+------------------------------------------------------------------
+
+    block size |          V100          |          A100
+    -----------+------------------------+------------------------
+        32     |  1.27  1.39  1.31      |  0.49  0.51  0.48
+        64     |  1.28  1.39  1.31      |  0.50  0.51  0.48
+       128     |  1.28  1.39  1.31      |  0.50  0.51  0.48
+       256 *   |  1.28  1.39  1.31      |  0.51  0.51  0.48
+       512     |  1.26  1.38  1.30      |  0.69  0.74  0.70
+      1024     |  2.08  2.29  2.16      |  1.11  1.19  1.12
+
+Whole-step walls for the same runs (step 1 includes device warm-up and is not
+comparable; steps 2-4 are steady state), seconds:
+
+    block size |            V100             |            A100
+    -----------+-----------------------------+-----------------------------
+        32     |  25.91  5.37  5.05  5.28    |  20.81  2.65  2.49  2.57
+        64     |  26.49  5.43  5.09  5.30    |  20.40  2.65  2.50  2.57
+       128     |  26.18  5.40  5.11  5.33    |  21.57  2.65  2.49  2.57
+       256 *   |  26.71  5.38  5.04  5.28    |  20.48  2.67  2.48  2.56
+       512     |  26.30  5.38  5.08  5.27    |  20.91  3.28  3.09  3.21
+      1024     |  28.84  8.10  7.68  7.97    |  21.81  4.60  4.31  4.47
+
+These totals include one Exodus write per step and are therefore NOT
+comparable to the 1.37 s/step A100 Newmark record, which was measured in the
+no-write / output-interval configuration.
+
+
+FINDINGS
+--------
+
+1.  The flat region ends at 256 on both NVIDIA cards, so the default sits at
+    the top edge of it.  512 already costs 37% (A100 explicit), 24% (A100
+    implicit) and 34% (V100 explicit); 1024 costs 85-90% explicit and 63-130%
+    implicit.  The knob's only realistic effect is to make things worse.
+
+2.  An optimum would be per-kernel AND per-card, not one value.  The A100
+    penalizes 512 on both the internal-force and matrix-free-action kernels;
+    the V100 penalizes 512 only on internal force and is flat on the action
+    (1.26-1.38 s vs 1.28-1.39 s at 256).  That is an argument that PR 339's
+    ten separate keys are the right granularity, and simultaneously that
+    nobody will realistically populate them.
+
+3.  Bad values are SILENT on CUDA.  1024 does not hit a register-per-block
+    limit and is not rejected: every size launched, ran to completion, and
+    produced |U|_max = 2.20e-02.  The penalty is 1.6-2.3x with no diagnostic.
+    (On the RX 7600, by contrast, 2048 fails loudly with hipErrorInvalidValue
+    and 0 / "256" fail with argument errors that name neither the key nor the
+    preference system.)  This is the strongest argument for the value
+    validation requested in the PR review.
+
+4.  Numerics are untouched.  CG iteration counts are identical at every block
+    size on both cards -- 192 / 207 / 195 across the three Newton iterations
+    of step 2 -- with matching residuals.  Only kernel throughput moves, which
+    rules out any confounding from the solve itself.
+
+5.  Cost of changing a value on the shared NFS depot: 22-40 s of recompilation
+    warm, 237-316 s for the first cold build.  Sweeps here are recompile-bound
+    rather than run-bound.
+
+
+CONSEQUENCES FOR CARINA
+-----------------------
+
+No code or configuration change.  Specifically:
+
+  * No LocalPreferences.toml is tracked in this repo and none should be added.
+    It is deliberately NOT in .gitignore either: a stray file left behind by a
+    tuning experiment silently degrades every GPU run (finding 3), and an
+    untracked file showing up in `git status` is the only cheap tripwire.
+  * Carina's one explicitly-set workgroup size, `_CG_REDUCE_GS = 256` in
+    src/linear_solvers.jl, is inside the safe region on all three cards.
+  * Carina's one call into an unplumbed FEC helper, `FEC.fec_foreach` at
+    src/integrators.jl:320, inherits FEC's hard-coded block_size = 256.  The
+    same is true of the two unplumbed FEC hot sites flagged in the review
+    (MatrixAction.jl:152, NeumannBCs.jl:60): they are pinned at 256, which is
+    the value we would choose anyway.
+
+
+REPRODUCING
+-----------
+
+    export CARINA_BENCH_SCRATCH=/scratch/$USER/bench339
+    cat > bin/LocalPreferences.toml <<'PREFS'
+    [FiniteElementContainers]
+    assemble_diagonal_gpu_block_size = 256
+    assemble_lumped_mass_gpu_block_size = 256
+    assemble_matrix_gpu_block_size = 256
+    assemble_matrix_action_gpu_block_size = 256
+    assemble_matrix_free_action_gpu_block_size = 256
+    assemble_matrix_weakly_enforced_bc_gpu_block_size = 256
+    assemble_quadrature_quantity_gpu_block_size = 256
+    assemble_vector_gpu_block_size = 256
+    assemble_vector_source_gpu_block_size = 256
+    assemble_vector_weakly_enforced_bc_gpu_block_size = 256
+    PREFS
+    julia --project=bin -e 'using Pkg; Pkg.precompile()'
+    julia --project=bin -e 'using FiniteElementContainers
+                            FiniteElementContainers.summarize_preferences()'
+    julia --project=. benchmark/explicit_sweep.jl 40 cuda <tag> 200 8
+    ./bin/carina benchmark/inputs/torsion-newmark-gpu-cg-jacobi.yaml --device cuda
+    rm bin/LocalPreferences.toml      # do not leave this behind
+
+Preferences resolve at precompile against the ACTIVE project.  GPU runs go
+through bin/carina (--project=bin), so the file must be bin/LocalPreferences.
+toml; a top-level Carina.jl/LocalPreferences.toml is ignored by the CLI, and
+benchmark/harness.jl GPU variants run with no --project at all.
+
+Serialize sweeps.  ascicgpu073 and ascicgpu24 share a home, so two sweeps --
+on the same host or on both -- silently clobber each other's preferences file
+and results.  Guard any sweep script with `exec 9>$HOME/.<name>.lock; flock -n
+9 || exit 9`; the lock lives in the shared home and so serializes across both.
+
+The block_size field in benchmark/results/fec-block-size-*.jsonl was added
+post-hoc from the run tag: explicit_sweep.jl records the deck and the device
+but has no way to record the active preferences.  Making
+summarize_preferences() return a NamedTuple instead of printing -- suggestion 4
+of the PR review -- would let harnesses capture this directly.

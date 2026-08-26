@@ -18,7 +18,7 @@ generation, the measurement harness, sweep scripts, and the raw results.
 | `run_baselines.sh`, `run_round2.sh`, `run_scaling.sh`, `run_scaling2.sh` | The sweep scripts the implicit study ran |
 | `run_explicit_scaling.sh` | The explicit CPU-vs-GPU size sweep (report §8) |
 | `results/*.jsonl` | Raw records of the study — every number in the report traces to these |
-| `evidence/` | Log excerpts and ablation arms backing specific report claims (OOMs, L-BFGS failure, ROCm test output, the action ablation) |
+| `evidence/` | Log excerpts and ablation arms backing specific report claims (OOMs, L-BFGS failure, ROCm test output, the action ablation, the FEC block-size sweep) |
 | `design.md` | Proposed solution, design rationale, rejected alternatives |
 
 ## Meshes
