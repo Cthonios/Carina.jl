@@ -77,6 +77,15 @@ KernelAbstractions kernels — the fine level is smoothed through the matrix-fre
 stiffness action, so the fine matrix is never formed on the device. It is the
 fastest quasi-static option Carina has; see `benchmark_report.md`.
 
+**Inexact Newton.** The linear solve tolerance can adapt per Newton iteration
+via Eisenstat–Walker forcing terms, so early iterations are not solved to a
+precision the next correction discards. It can only ever loosen a solve relative
+to the tolerance you asked for, never tighten one, so the converged answer is
+unchanged. Measured 1.45× per-step on 530k-DOF Newmark and 1.59× on quasi-static
+AMG, both on an A100 — the gain scales with how much of the step is the linear
+solve, so it is largest on the GPU matrix-free paths. Off by default; see
+[Solvers](reference/solvers.md#Inexact-Newton-forcing-terms).
+
 **Composable termination criteria.** Convergence and failure are expressed as a
 tree of status tests — residual, update, iteration count, divergence,
 stagnation, and finiteness — combined with `any`/`all` logic. See

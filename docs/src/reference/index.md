@@ -101,9 +101,9 @@ saves time when debugging a file.
 
 **Unknown keys warn.** Every section is checked against a set of known keys —
 the top level, `model`, `model.material`, `time integrator`, `solver`,
-`linear solver`, `quadrature`, `output`, `boundary conditions`,
-`initial conditions`, and the individual Dirichlet, Neumann, body-force,
-initial-condition, and traveling-wave entries. An unrecognised key produces a
+`linear solver`, `preconditioner`, `forcing term`, `quadrature`, `output`,
+`boundary conditions`, `initial conditions`, and the individual Dirichlet,
+Neumann, body-force, initial-condition, and traveling-wave entries. An unrecognised key produces a
 warning with a Levenshtein-based suggestion:
 
 ```
@@ -119,8 +119,11 @@ naming the section and the entry index.
 
 **Unknown *values* error.** Where a key selects behaviour from a fixed set —
 `model.type`, `time integrator.type`, `solver.type`, `linear solver.type`,
-`preconditioner.type`, `quadrature.type`, `output.recovery`, `combo` — an
-unrecognised value aborts with the list of supported spellings. None of these
+`preconditioner.type`, `forcing term.type`, `quadrature.type`,
+`output.recovery`, `combo` — an unrecognised value aborts with the list of
+supported spellings.  Numeric parameters with a meaningful range — the
+Eisenstat–Walker forcing-term coefficients, for one — are bounds-checked the
+same way. None of these
 fall back to a default. The distinction from the warn-only case is deliberate:
 a key you meant to set but misspelled leaves the default in place, which is
 usually harmless and always visible in the log, whereas a *value* you misspelled

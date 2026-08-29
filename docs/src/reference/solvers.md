@@ -210,7 +210,131 @@ solver.linear_solver.type = "direct" is CPU-only.
 |---|---|---|
 | `maximum iterations` | `1000` | CG iteration cap. |
 | `tolerance` | `1e-8` | Relative residual tolerance. |
-| `preconditioner` | none | See below. |
+| `preconditioner` | none | See [Preconditioners](#Preconditioners). |
+| `forcing term` | `fixed` | Per-iteration tolerance for inexact Newton. See [below](#Inexact-Newton-forcing-terms). |
+| `assembled` | CPU `true`, GPU `false` | Assembled matrix vs matrix-free operator. |
+
+### Inexact Newton forcing terms
+
+By default every Newton iteration solves its linear system to `tolerance`. That
+is more accuracy than the early iterations can use: the Newton step they produce
+is about to be discarded by the next correction. On a 530k-DOF Newmark run, CG
+spent 181, 205 and 193 iterations on the three solves of a step while ‖R‖ fell
+`1.6e4 → 1.3e2 → 7.8e-2 → 4.6e-8`. Only the last one needed eight digits.
+
+A **forcing term** replaces the fixed tolerance with a per-iteration ηₖ, chosen
+from how fast the *nonlinear* residual is actually falling:
+
+```yaml
+  linear solver:
+    type: cg
+    tolerance: 1.0e-8
+    preconditioner:
+      type: jacobi
+    forcing term:
+      type: eisenstat-walker
+```
+
+| `type` | Aliases | Description |
+|---|---|---|
+| `fixed` | `none`, `constant` | Every iteration solves to `tolerance`. **The default.** |
+| `eisenstat-walker` | `eisenstat walker`, `ew`, `adaptive` | Choice 2 of Eisenstat & Walker (1996). |
+
+#### Eisenstat–Walker keys
+
+| Key | Default | Range | Description |
+|---|---|---|---|
+| `maximum` | `0.2` | (0, 1) | η_max — the loosest tolerance any solve may use. |
+| `initial` | = `maximum` | (0, `maximum`] | η for the first Newton iteration of a step, where no ratio exists yet. |
+| `gamma` | `1.0` | (0, 1] | Scale factor γ. |
+| `exponent` | `1.618…` | (1, 2] | Exponent α; the default is the golden ratio, as in the paper. |
+| `safety factor` | `0.5` | ≥ 0 | Over-solve guard strength. `0` disables it. |
+
+Every bound is enforced. Out-of-range values and unknown `type`s are hard
+errors rather than silent fallbacks — a typo here would otherwise cost exactly
+the speedup the block was added to get, with nothing in the log to say the
+setting never took effect.
+
+#### How ηₖ is chosen
+
+The base rule is
+`ηₖ = γ (‖Rₖ‖ / ‖Rₖ₋₁‖)^α`,
+guarded three ways:
+
+1. **Eisenstat–Walker's own safeguard** stops η falling faster than the observed
+   convergence rate justifies: `η ← max(η, γ·η_prev^α)` whenever that term
+   exceeds `0.1`.
+2. **Kelley's over-solve guard** stops the *final* solve being worked past the
+   point the nonlinear test will reward: `η ← max(η, safety·τ/‖Rₖ‖)`, where τ is
+   the residual norm your `termination` block is actually aiming at. Carina
+   reads τ from the termination tree itself, so a deck's own `converge when`
+   thresholds are honoured rather than the flat tolerance keys.
+3. **A clamp to `[tolerance, maximum]`.**
+
+!!! note "A forcing term can only loosen a solve, never tighten one"
+    The lower clamp at your own `tolerance` is what makes this safe to switch
+    on. The final Newton iterations still run at exactly the tolerance you
+    asked for, so the converged answer is unchanged and an A/B against `fixed`
+    compares like with like. Measured across CPU and A100 runs in both implicit
+    regimes, `|U|_max` agrees with the fixed-tolerance baseline to every
+    printed digit at every output stop.
+
+When a solve is loosened, the log says so:
+
+```
+        [SOLVE]       inexact Newton: η = 2.00e-01
+        [SOLVE]       CG: 16 iters : |r|_CG = 1.07e-01 : [CONV]
+```
+
+#### What to expect
+
+A forcing term trades linear work for nonlinear work: fewer CG iterations, more
+Newton iterations. **It therefore pays in proportion to how much of your step
+is the linear solve** — most on the GPU matrix-free paths, where the step
+essentially *is* the stiffness matvec; least on assembled CPU runs where
+residual assembly and the line search already dominate.
+
+Measured with the defaults (see `benchmark/evidence/inexact_newton.txt`):
+
+| Configuration | CG iterations | Per-step wall |
+|---|---|---|
+| CPU quasi-static, J2 specimen, 57k DOF | 2.47× fewer | 1.30× |
+| A100 Newmark, 530k DOF, CG + Jacobi | 2.27× fewer | **1.45×** |
+| A100 quasi-static, 530k DOF, CG + AMG | 2.05× fewer | **1.59×** |
+
+The quasi-static AMG gain is on top of the ~2× AMG already has over Jacobi.
+
+!!! tip "Why `maximum` defaults to 0.2 and not the paper's 0.9"
+    Total CG work turns out to be nearly *invariant* in `maximum` — 63.1k /
+    62.9k / 63.6k iterations at 0.1 / 0.2 / 0.5 on the CPU sweep. What the knob
+    really controls is how many Newton iterations you spend buying that work,
+    and there the spread is large (413 vs 547).
+
+    The reason is safeguard 1 above, which activates when `γ·η^α > 0.1`. At the
+    default α, `0.2^1.618 = 0.076` sits just *below* that threshold, so the
+    residual ratio drives η and the method adapts as intended. `0.5^1.618 =
+    0.326` sits well above it, pinning η high for several iterations. So 0.2 is
+    the largest round value that keeps the safeguard out of the way of the
+    adaptivity it is meant to protect — not a fitted constant. Two problems on
+    two architectures selected it independently.
+
+    Raise it only if you have measured your own problem.
+
+!!! note "Interaction with AMG"
+    None you need to configure, but worth knowing: the AMG hierarchy staleness
+    detector compares CG iteration counts, which are not comparable across
+    tolerances. Counts from loosened solves are rescaled by the digits of
+    residual reduction requested before the detector sees them, so lagged
+    rebuilds keep working. With no forcing term the rescaling is exactly the
+    identity.
+
+#### References
+
+- S. C. Eisenstat and H. F. Walker, *Choosing the forcing terms in an inexact
+  Newton method*, SIAM Journal on Scientific Computing **17**(1):16–32, 1996.
+  The ηₖ rule and safeguard 1.
+- C. T. Kelley, *Iterative Methods for Linear and Nonlinear Equations*, SIAM,
+  1995, §6.3. The over-solve guard, safeguard 2.
 
 ### L-BFGS keys
 
@@ -235,9 +359,8 @@ The L-BFGS path always builds a Jacobi preconditioner regardless of any
     rank-10 model cannot represent it. Use `cg` + `amg` for quasi-static.
 
 !!! note "`assembled` defaults from the backend"
-    `assembled` defaults to `true` on CPU and `false` on GPU. Setting
-    `assembled: false` on the CPU forces the matrix-free operator path (the
-    same operators the GPU runs); `assembled: true` on a GPU backend is a
+    Setting `assembled: false` on the CPU forces the matrix-free operator path
+    (the same operators the GPU runs); `assembled: true` on a GPU backend is a
     hard error — there is no device sparse matrix to assemble.
 
 ## Preconditioners
@@ -289,6 +412,11 @@ hierarchy setup is expensive (seconds at 500k DOF), so it is **lagged**: built
 once, then rebuilt only when the effective-mass coefficient changes (a Δt
 change) or when CG iteration growth flags it as stale.
 
+AMG combines well with an [Eisenstat–Walker forcing
+term](#Inexact-Newton-forcing-terms): the two are independent, and on a
+530k-DOF quasi-static torsion run on an A100 the forcing term takes a further
+1.59× off the per-step wall on top of what AMG already gives over Jacobi.
+
 AMG targets SPD tangents — quasi-static and moderate-Δt dynamics. At very
 large Δt on violently dynamic problems the Newmark predictor can overshoot
 into near-inverted configurations whose tangent is indefinite, which breaks CG
@@ -337,6 +465,12 @@ Practical guidance:
   per-application cost; see `benchmark_report.md`.
 - **Never run plain `cg` with no preconditioner** on a real mesh. It is valid
   and very slow.
+- **Add a forcing term to any Newton + CG combination**, on either device.
+  `forcing term: {type: eisenstat-walker}` is the cheapest speedup available
+  here: it needs no extra memory, changes no kernel, and cannot make the
+  converged answer less accurate than your `tolerance` already asked for. It
+  helps most where CG dominates the step — the GPU matrix-free paths — and
+  least where residual assembly and the line search already do.
 
 ### Combinations that fail or mislead
 
