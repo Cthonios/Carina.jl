@@ -99,9 +99,19 @@ function solve!(ns::NewtonSolver, ig, p)
     ops = _setup_linear_ops(ig, ns.linear_solver, p)
     status_test = _nonlinear_status_test[] !== nothing ? _nonlinear_status_test[] : _build_status_test(ns)
     reset!(status_test)
+    # Residual norm this solve is aiming at, read off the tree Newton will
+    # actually be checked against — including a deck's own `termination:`
+    # block, whose thresholds need not match `ns`'s tolerance fields at all.
+    # Feeds the forcing term's over-solve guard; 0.0 disables it.
+    tau_nl = _residual_target(status_test, initial_norm)
+    _reset_forcing!(ns.linear_solver)
     norm_R_prev = initial_norm
     status = Unconverged
     for iter in 1:ns.max_iters
+        # `norm_R_prev` holds the residual norm at the *current* iterate here:
+        # it is seeded with ‖R₀‖ and reassigned from `norm_R` at the bottom of
+        # each pass.  That is what the forcing term needs.
+        _update_forcing!(ns.linear_solver, norm_R_prev, tau_nl)
         ΔU, t_solve = _linear_solve!(ns.linear_solver, ig, p, ops)
         ig.failed[] && return
 

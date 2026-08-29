@@ -838,6 +838,111 @@ function _device_pcg!(ΔU, A_op, R, M_op, rtol, itmax)
 end
 
 # --------------------------------------------------------------------------- #
+# Inexact Newton: per-iteration forcing terms
+#
+# `_reset_forcing!` is called once per nonlinear solve, `_update_forcing!`
+# once per Newton iteration just before the linear solve.  Both are no-ops
+# for every linear solver but Krylov, and for `FixedForcing`.
+#
+# The Eisenstat-Walker tolerance composes three safeguards on top of
+# ηₖ = γ (‖Rₖ‖/‖Rₖ₋₁‖)^α:
+#
+#   * EW's own guard against η falling faster than the observed convergence
+#     rate justifies — η ← max(η, γ η_prev^α) whenever that term exceeds 0.1;
+#   * Kelley's guard against over-solving the *final* step — η ← max(η,
+#     safety·τ/‖Rₖ‖), where τ is the residual norm Newton is aiming at;
+#   * a hard clamp to [rtol, eta_max].
+#
+# The lower clamp at the deck's own `tolerance` is what makes this safe to
+# turn on: a forcing term can only ever *loosen* a solve, never tighten one.
+# The last Newton iterations therefore run at exactly the tolerance the deck
+# asked for, the converged solution is as accurate as it was before, and an
+# A/B against `fixed` compares like with like.
+#
+# One approximation worth naming: `_device_pcg!` stops on the preconditioned
+# residual M-norm relative to its own initial value, not the unpreconditioned
+# ratio the EW theory is stated for.  The forcing term is a heuristic either
+# way; the clamp is what bounds the damage when the two disagree.
+# --------------------------------------------------------------------------- #
+
+_reset_forcing!(::AbstractLinearSolver) = nothing
+_update_forcing!(::AbstractLinearSolver, ::Float64, ::Float64) = nothing
+
+function _reset_forcing!(ls::KrylovLinearSolver)
+    ls.rtol_eff    = ls.rtol
+    ls.eta_prev    = NaN
+    ls.norm_R_last = NaN
+    return nothing
+end
+
+# norm_R is the nonlinear residual norm at the current iterate — the one the
+# solve about to run will reduce.  tau is the norm Newton is trying to reach.
+function _update_forcing!(ls::KrylovLinearSolver, norm_R::Float64, tau::Float64)
+    _forcing_tolerance!(ls, ls.forcing, norm_R, tau)
+    return nothing
+end
+
+_forcing_tolerance!(ls::KrylovLinearSolver, ::FixedForcing, ::Float64, ::Float64) =
+    (ls.rtol_eff = ls.rtol; nothing)
+
+function _forcing_tolerance!(ls::KrylovLinearSolver, f::EisenstatWalker,
+                             norm_R::Float64, tau::Float64)
+    # First iteration of a step, or a residual history we cannot form a ratio
+    # from: fall back to the seed value.
+    eta = if isfinite(ls.norm_R_last) && ls.norm_R_last > 0.0 && isfinite(norm_R)
+        eta_a = f.gamma * (norm_R / ls.norm_R_last)^f.alpha
+        guard = f.gamma * ls.eta_prev^f.alpha
+        (isfinite(guard) && guard > 0.1) ? max(eta_a, guard) : eta_a
+    else
+        f.eta_0
+    end
+    if f.safety > 0.0 && norm_R > 0.0 && isfinite(tau)
+        eta = max(eta, f.safety * tau / norm_R)
+    end
+    isfinite(eta) || (eta = f.eta_0)
+
+    ls.rtol_eff    = clamp(eta, ls.rtol, f.eta_max)
+    ls.eta_prev    = ls.rtol_eff
+    ls.norm_R_last = norm_R
+    ls.rtol_eff > ls.rtol &&
+        _carina_logf(8, :solve, "    inexact Newton: η = %.2e", ls.rtol_eff)
+    return nothing
+end
+
+# Iteration count rescaled to what the same solve would have cost at the deck's
+# tolerance.
+#
+# The AMG staleness detector latches a baseline from the first CG count after a
+# build and rebuilds once a later count passes 3x it.  With a forcing term
+# running, those counts are taken at different tolerances and are not
+# comparable: a loosened solve returns an artificially low number that would
+# either poison the baseline or, measured against one, hide a hierarchy that
+# has genuinely gone stale.
+#
+# Simply skipping loosened solves is not an option.  The over-solve guard means
+# a run can converge without ever solving at the deck's tolerance, and the
+# detector is the ONLY thing that triggers a rebuild on the quasi-static path
+# (`_build_precond_op` passes c_M = 0 there, so the c_M test never fires).  A
+# quasi-static AMG run would then build once at the reference configuration and
+# keep it for the whole load history — the 63 → 400 iteration drift that
+# test/amg-staleness.jl exists to prevent.
+#
+# CG's residual falls geometrically, so iterations go roughly as the digits of
+# reduction requested, and dividing by that factor makes counts taken at
+# different tolerances comparable.  It is an estimate, but the detector's 3x
+# margin and its floor of 30 are far coarser than the estimate's error.  At
+# rtol_eff == rtol it is exactly the identity, so a run with no forcing term
+# feeds the detector precisely the numbers it always did.
+function _tracked_iters(ls::KrylovLinearSolver, niter::Int)
+    ls.rtol_eff <= ls.rtol && return niter
+    # log10 of either tolerance is only a scale factor inside (0, 1); outside
+    # it the rescaling is meaningless, so hand back the raw count.
+    (0.0 < ls.rtol < 1.0 && 0.0 < ls.rtol_eff < 1.0) || return niter
+    return round(Int, niter * log10(ls.rtol) / log10(ls.rtol_eff))
+end
+_tracked_iters(::AbstractLinearSolver, niter::Int) = niter
+
+# --------------------------------------------------------------------------- #
 # Linear solvers: _linear_solve!(ls, ig, p, ops) → (ΔU, t_solve)
 # Sign convention: K_eff · ΔU = ig.R_eff  (ig.R_eff is already negated residual)
 # --------------------------------------------------------------------------- #
@@ -1013,10 +1118,10 @@ function _linear_solve!(ls::KrylovLinearSolver, ig::QuasiStaticIntegrator, p, op
             end
             if M_op_asm === nothing
                 Krylov.krylov_solve!(ls.workspace, A_op, R;
-                                     atol=0.0, rtol=ls.rtol, itmax=ls.itmax, history=true)
+                                     atol=0.0, rtol=ls.rtol_eff, itmax=ls.itmax, history=true)
             else
                 Krylov.krylov_solve!(ls.workspace, A_op, R;
-                                     M=M_op_asm, atol=0.0, rtol=ls.rtol, itmax=ls.itmax, history=true)
+                                     M=M_op_asm, atol=0.0, rtol=ls.rtol_eff, itmax=ls.itmax, history=true)
             end
             copyto!(ΔU, Krylov.solution(ls.workspace))
             res    = ls.workspace.stats.residuals
@@ -1024,13 +1129,13 @@ function _linear_solve!(ls::KrylovLinearSolver, ig::QuasiStaticIntegrator, p, op
             niter  = ls.workspace.stats.niter
             solved = ls.workspace.stats.solved
         else
-            niter, r_cg, solved = _device_pcg!(ΔU, K_op, R, M_op, ls.rtol, ls.itmax)
+            niter, r_cg, solved = _device_pcg!(ΔU, K_op, R, M_op, ls.rtol_eff, ls.itmax)
         end
     end
     # Feed the iteration count back to the AMG staleness detector so a hierarchy
     # built at an earlier configuration gets rebuilt once it stops paying for
     # itself.  No-op for every other preconditioner.
-    _amg_track_iters!(ls.precond, niter)
+    _amg_track_iters!(ls.precond, _tracked_iters(ls, niter))
     _carina_logf(8, :solve, "    CG: %d iters : |r|_CG = %.2e : %s",
                  niter, r_cg, _cg_status_str(solved))
 
@@ -1075,15 +1180,16 @@ function _linear_solve!(ls::KrylovLinearSolver, ig::NewmarkIntegrator, p, ops)
                         F_ic = _factorization_cache[]
                     end
                     ΔU_vec, cg_hist = IterativeSolvers.cg(K_eff_sparse, R;
-                        Pl=F_ic, abstol=0.0, reltol=ls.rtol, log=true)
+                        Pl=F_ic, abstol=0.0, reltol=ls.rtol_eff, log=true)
                 elseif ls.precond isa AMGPreconditioner
                     ΔU_vec, cg_hist = IterativeSolvers.cg(A_op, R;
-                        Pl=ls.precond.P, abstol=0.0, reltol=ls.rtol,
+                        Pl=ls.precond.P, abstol=0.0, reltol=ls.rtol_eff,
                         maxiter=ls.itmax, log=true)
-                    _amg_track_iters!(ls.precond, length(cg_hist.data[:resnorm]))
+                    _amg_track_iters!(ls.precond,
+                        _tracked_iters(ls, length(cg_hist.data[:resnorm])))
                 else
                     ΔU_vec, cg_hist = IterativeSolvers.cg(A_op, R;
-                        abstol=0.0, reltol=ls.rtol, log=true)
+                        abstol=0.0, reltol=ls.rtol_eff, log=true)
                 end
                 _carina_logf(8, :solve, "    CG: %d iters : |r|_CG = %.2e : %s",
                     length(cg_hist.data[:resnorm]),
@@ -1092,8 +1198,8 @@ function _linear_solve!(ls::KrylovLinearSolver, ig::NewmarkIntegrator, p, ops)
                 copyto!(ΔU, ΔU_vec)
             else
                 niter, r_cg, solved = _device_pcg!(ΔU, K_eff_op, R, M_op_mf,
-                                                   ls.rtol, ls.itmax)
-                _amg_track_iters!(ls.precond, niter)
+                                                   ls.rtol_eff, ls.itmax)
+                _amg_track_iters!(ls.precond, _tracked_iters(ls, niter))
                 _carina_logf(8, :solve, "    CG: %d iters : |r|_CG = %.2e : %s",
                              niter, r_cg, _cg_status_str(solved))
             end

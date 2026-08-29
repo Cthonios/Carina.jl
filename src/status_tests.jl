@@ -225,6 +225,44 @@ function reset!(t::ComboOrTest)
 end
 
 # --------------------------------------------------------------------------- #
+# Residual target extraction
+#
+# The loosest residual norm that would satisfy a tree's convergence criteria,
+# given the initial residual norm.  Used by the inexact-Newton over-solve
+# guard in `_forcing_tolerance!`: driving a linear solve to more accuracy than
+# the *nonlinear* test will ever reward is pure waste.
+#
+# OR: converging on any child is enough, so the loosest child wins.
+# AND: every child must hold, so the tightest non-trivial child wins.
+# Tests that say nothing about the residual (iteration counts, update norms,
+# the finite-value and model flags) contribute nothing, and a tree with no
+# residual test at all returns 0.0 — which disables the guard rather than
+# inventing a target for it.
+# --------------------------------------------------------------------------- #
+
+_residual_target(::AbstractStatusTest, ::Float64) = 0.0
+_residual_target(t::AbsResidualTest, ::Float64) = t.tol
+_residual_target(t::RelResidualTest, norm_R_init::Float64) =
+    norm_R_init > 0 ? t.tol * norm_R_init : 0.0
+
+function _residual_target(t::ComboOrTest, norm_R_init::Float64)
+    target = 0.0
+    for sub in t.tests
+        target = max(target, _residual_target(sub, norm_R_init))
+    end
+    return target
+end
+
+function _residual_target(t::ComboAndTest, norm_R_init::Float64)
+    target = 0.0
+    for sub in t.tests
+        v = _residual_target(sub, norm_R_init)
+        v > 0.0 && (target = target > 0.0 ? min(target, v) : v)
+    end
+    return target
+end
+
+# --------------------------------------------------------------------------- #
 # Default convergence criterion (backward-compatible)
 #
 # Builds the standard test tree from solver parameters:

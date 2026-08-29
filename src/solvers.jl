@@ -8,6 +8,9 @@
 # Linear solver hierarchy:
 #   AbstractLinearSolver → DirectLinearSolver | KrylovLinearSolver | LBFGSLinearSolver | NoLinearSolver
 #
+# Forcing term hierarchy (inexact Newton, KrylovLinearSolver only):
+#   AbstractForcingTerm → FixedForcing | EisenstatWalker
+#
 # Nonlinear solver hierarchy:
 #   AbstractNonlinearSolver → ExplicitSolver | NewtonSolver{LS} | NLCGSolver | SteepestDescentSolver
 
@@ -143,6 +146,45 @@ abstract type AbstractNonlinearSolver end
 struct ExplicitSolver <: AbstractNonlinearSolver end
 
 # --------------------------------------------------------------------------- #
+# Inexact-Newton forcing terms
+#
+# A Newton step solves K ΔU = R only to make progress on the *nonlinear*
+# residual.  Driving that linear solve to the deck's final tolerance while
+# ‖R‖ is still far from converged is wasted work: on the 530k-DOF torsion
+# bar the CG count per Newton iteration was flat (192 / 207 / 195) while
+# ‖R‖ fell 7.10e3 → 4.94e1 → 1.09e-2 → 1.89e-9.  Every one of those solves
+# was worked to 1e-8 and only the last one needed it.
+#
+# A forcing term replaces the fixed tolerance with a per-iteration ηₖ.
+# --------------------------------------------------------------------------- #
+
+abstract type AbstractForcingTerm end
+
+# Every Newton iteration solves to the deck's `tolerance`.  The default, and
+# the behavior of every deck written before forcing terms existed.
+struct FixedForcing <: AbstractForcingTerm end
+
+# Choice 2 of Eisenstat & Walker, SIAM J. Sci. Comput. 17(1):16-32, 1996:
+#
+#     ηₖ = γ (‖Rₖ‖ / ‖Rₖ₋₁‖)^α
+#
+# `eta_0` is used on the first Newton iteration of a step, where no ratio
+# exists yet.  `eta_max` matters more than it looks: EW's safeguard against
+# eta falling too fast engages when gamma*eta^alpha > 0.1, so an eta_max above
+# ~0.24 keeps that safeguard permanently on and holds eta high.  The default
+# of 0.2 sits deliberately below the knee.  `safety` scales Kelley's guard against over-solving the final
+# step (Iterative Methods for Linear and Nonlinear Equations, §6.3); 0
+# disables it.  See `_forcing_tolerance!` in linear_solvers.jl for how the
+# three safeguards compose.
+struct EisenstatWalker <: AbstractForcingTerm
+    gamma  ::Float64   # scale factor, 0 < γ ≤ 1
+    alpha  ::Float64   # exponent, 1 < α ≤ 2
+    eta_max::Float64   # loosest tolerance any solve may use, 0 < η_max < 1
+    eta_0  ::Float64   # η for the first Newton iteration of a step
+    safety ::Float64   # over-solve guard factor; 0 disables
+end
+
+# --------------------------------------------------------------------------- #
 # Concrete linear solver types
 # --------------------------------------------------------------------------- #
 
@@ -150,11 +192,16 @@ struct DirectLinearSolver <: AbstractLinearSolver end
 
 mutable struct KrylovLinearSolver{KW, Vec} <: AbstractLinearSolver
     itmax    ::Int
-    rtol     ::Float64
+    rtol     ::Float64        # deck tolerance; also the tightest η ever used
     assembled::Bool           # true = CPU sparse K_eff; false = GPU matrix-free
     precond  ::Preconditioner
     workspace::KW
     scratch  ::Vec            # free-DOF sized: diagonals, preconditioner updates
+    # --- inexact-Newton state, driven by `_update_forcing!` --------------- #
+    forcing    ::AbstractForcingTerm
+    rtol_eff   ::Float64      # tolerance the next solve will actually use
+    eta_prev   ::Float64      # η used by the previous solve (NaN = none yet)
+    norm_R_last::Float64      # ‖R‖ at the previous update (NaN = first iteration)
 end
 
 # LBFGSLinearSolver: ring-buffer and scratch vectors only.

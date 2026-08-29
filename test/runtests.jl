@@ -28,6 +28,7 @@ const indexed_test_files = [
     (32, "solver-branches.jl"),
     (33, "gpu-amg-vcycle.jl"),
     (34, "output-interval.jl"),
+    (35, "inexact-newton.jl"),
     (1, "mechanics-quasistatic-cube.jl"),
     (2, "mechanics-implicit-dynamic-cube.jl"),
     (3, "mechanics-explicit-dynamic-cube.jl"),

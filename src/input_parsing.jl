@@ -180,8 +180,23 @@ const _SOLVER_KEYS = Set([
 
 const _LINEAR_SOLVER_KEYS = Set([
     "type", "maximum iterations", "tolerance", "history size",
-    "preconditioner", "assembled",
+    "preconditioner", "assembled", "forcing term",
 ])
+
+# Inexact-Newton forcing term.  `gamma`/`exponent`/`maximum`/`initial`/
+# `safety factor` belong to the Eisenstat-Walker type only; under `fixed`
+# they warn, since setting them there does nothing.
+const _FORCING_COMMON_KEYS = Set(["type"])
+const _FORCING_EW_KEYS = Set([
+    "type", "gamma", "exponent", "maximum", "initial", "safety factor",
+])
+
+function _forcing_known_keys(f_dict::AbstractDict)
+    t = lowercase(strip(string(get(f_dict, "type", "eisenstat-walker"))))
+    t in ("fixed", "none", "constant") && return _FORCING_COMMON_KEYS
+    # Eisenstat-Walker, or an unknown type the parser will abort on anyway.
+    return _FORCING_EW_KEYS
+end
 
 # `degree` belongs to the Chebyshev preconditioner only; under any other
 # type it warns.  An unknown type validates against the union (the linear
@@ -262,6 +277,9 @@ function validate_input_keys(dict::AbstractDict)
             pc = get(ls, "preconditioner", nothing)
             pc isa AbstractDict && _collect_unknown_keys!(
                 messages, pc, _precond_known_keys(pc), "preconditioner")
+            ft = get(ls, "forcing term", nothing)
+            ft isa AbstractDict && _collect_unknown_keys!(
+                messages, ft, _forcing_known_keys(ft), "forcing term")
         end
         # Solver-level preconditioner (NLCG / steepest descent): jacobi or
         # none, neither of which has extra keys.
@@ -1107,6 +1125,59 @@ end
 
 # --------------------------------------------------------------------------- #
 
+# Inexact-Newton forcing term.  An absent `forcing term:` block means
+# `FixedForcing` — every Newton iteration solves to `tolerance`, which is what
+# every deck did before forcing terms existed.
+function _parse_forcing_term(ls_dict)
+    f_dict = get(ls_dict, "forcing term", nothing)
+    f_dict === nothing && return FixedForcing()
+    f_dict isa AbstractDict ||
+        error("linear solver: \"forcing term:\" must be a mapping, got a " *
+              "$(typeof(f_dict)).")
+    f_type = lowercase(strip(string(get(f_dict, "type", "eisenstat-walker"))))
+
+    if f_type in ("fixed", "none", "constant")
+        return FixedForcing()
+    elseif f_type in ("eisenstat-walker", "eisenstat walker", "ew", "adaptive")
+        gamma   = Float64(get(f_dict, "gamma", 1.0))
+        alpha   = Float64(get(f_dict, "exponent", 0.5 * (1.0 + sqrt(5.0))))
+        # 0.2, not the 0.9 of the original paper.  Two independent sweeps
+        # (CPU quasi-static J2, A100 Newmark) put the wall-time optimum here,
+        # and the reason is structural: EW's own safeguard engages when
+        # gamma*eta^alpha > 0.1, and 0.2^1.618 = 0.076 sits just under that
+        # while 0.5^1.618 = 0.326 sits well over.  Above the threshold the
+        # safeguard pins eta high for several iterations, which buys the same
+        # total CG work with ~30% more Newton iterations.  See
+        # benchmark/evidence/inexact_newton.txt.
+        eta_max = Float64(get(f_dict, "maximum", 0.2))
+        eta_0   = Float64(get(f_dict, "initial", eta_max))
+        safety  = Float64(get(f_dict, "safety factor", 0.5))
+        # Every bound here is one the theory needs, not a style preference:
+        # gamma > 1 or alpha ≤ 1 breaks the local convergence argument, and
+        # eta_max ≥ 1 asks CG for no residual reduction at all.
+        0.0 < gamma ≤ 1.0 || error(
+            "forcing term: gamma = $gamma is outside (0, 1].")
+        1.0 < alpha ≤ 2.0 || error(
+            "forcing term: exponent = $alpha is outside (1, 2].")
+        0.0 < eta_max < 1.0 || error(
+            "forcing term: maximum = $eta_max is outside (0, 1); a forcing " *
+            "term of 1 or more asks the linear solve for no reduction at all.")
+        0.0 < eta_0 ≤ eta_max || error(
+            "forcing term: initial = $eta_0 is outside (0, maximum = $eta_max].")
+        safety ≥ 0.0 || error(
+            "forcing term: safety factor = $safety must be non-negative " *
+            "(0 disables the over-solve guard).")
+        return EisenstatWalker(gamma, alpha, eta_max, eta_0, safety)
+    end
+
+    # Do not fall through to FixedForcing.  A typo here would silently cost
+    # the speedup the block was added to get, with nothing in the log to say
+    # the setting never took effect.
+    error("Unknown forcing term type = \"$f_type\". " *
+          "Supported: \"eisenstat-walker\" (aliases \"eisenstat walker\", " *
+          "\"ew\", \"adaptive\"), \"fixed\" (aliases \"none\", \"constant\").")
+end
+
 function _parse_linear_solver(ls_dict, template, backend, make_precond::Function,
                                make_amg_precond::Function = () -> error(
                                    "amg preconditioner not available for this integrator."))
@@ -1161,9 +1232,11 @@ function _parse_linear_solver(ls_dict, template, backend, make_precond::Function
 
         workspace = Krylov.CgWorkspace(n, n, S)
         scratch = (v = similar(template); fill!(v, zero(T)); v)
+        forcing = _parse_forcing_term(ls_dict)
 
         return KrylovLinearSolver(itmax, rtol, assembled, precond,
-                                   workspace, scratch)
+                                   workspace, scratch,
+                                   forcing, rtol, NaN, NaN)
 
     elseif ls_type == "lbfgs"
         m     = Int(get(ls_dict, "history size", 10))
