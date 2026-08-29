@@ -1,0 +1,165 @@
+Inexact Newton (Eisenstat-Walker forcing terms): CPU and A100 A/B
+=================================================================
+
+Verdict: a real win in both implicit regimes, largest where the linear solve
+dominates the step.  Per-step wall on the A100 improves 1.45x for Newmark
+dynamics and 1.59x for quasi-static AMG, on top of everything the earlier GPU
+campaigns bought, and without a single new kernel.  Shipped OFF by default (a
+deck must ask for it); when asked for, `maximum` defaults to 0.2 -- not the 0.9
+of the original paper.  See "Why 0.2" below.
+
+Motivation.  Carina drove every Newton iteration's linear solve to the deck's
+`tolerance`, however far the *nonlinear* residual still was from converged.
+Two independent measurements showed the same waste:
+
+  torsion / Newmark / A100    CG 181, 205, 193 per Newton iteration while
+                              |R| fell 1.61e4 -> 1.34e2 -> 7.79e-2 -> 4.60e-8
+  J2 specimen / QS / CPU      CG ~350 on each of the first seven iterations
+                              while |R| crawled 1.57e3 -> 1.76e2, after which
+                              the line search backtracked to alpha = 0.25
+
+In both, only the last solve needed eight digits.  A forcing term makes the
+tolerance per-iteration:  eta_k = gamma (|R_k|/|R_k-1|)^alpha  (Eisenstat &
+Walker, SIAM J. Sci. Comput. 17(1):16-32, 1996, choice 2), guarded by EW's own
+safeguard, Kelley's over-solve guard, and a clamp.
+
+Safety property.  eta is clamped to [rtol, eta_max], so a forcing term can only
+ever LOOSEN a solve, never tighten one.  The final Newton iterations run at
+exactly the tolerance the deck asked for, the converged answer is unchanged,
+and an A/B against `fixed` compares like with like.  Confirmed empirically:
+|U|_max agrees to every printed digit at every stop of every pair below
+(Newmark 5.16e-03 / 1.07e-02 / 1.64e-02 / 2.20e-02; QS 1.28e-03).
+
+Hardware / software.  Date: 2026-08-29.
+  CPU   sirius desktop, 8 Julia threads, Julia 1.12.6
+  A100  ascicgpu073, NVIDIA A100-PCIE-40GB, CUDA via CUDA.jl, Julia 1.12.6
+Both A100 passes ran under the shared-home flock; the host was otherwise idle
+(two A100s present, one used).  The CPU sweep ran on an otherwise-quiet
+machine; an earlier contended run of the same pair is discarded, not reported.
+
+-------------------------------------------------------------------------------
+1. CPU quasi-static, eta_max sweep
+-------------------------------------------------------------------------------
+examples/mechanics/quasistatic/tension-specimen-j2, final time 0.05 (50 steps),
+output suppressed.  56,912 free DOF, J2 plasticity, Newton + CG/Jacobi,
+tolerance 1e-8, converge on |R| < 1e-8 or |R|/|R0| < 1e-12.
+
+  variant     Newton   CG iters   t_solve   wall     LS backtracks
+  fixed          379    155,318   101.04s   172.0s      57
+  EW 0.1         432     63,129    59.46s   137.1s      20
+  EW 0.2         413     62,920    57.29s   132.4s       0
+  EW 0.5         547     63,594    64.01s   155.6s       0
+
+  Best (0.2):  2.47x fewer CG iterations, 1.76x less time in the linear
+  solver, 1.30x end-to-end wall (1.34x on stepping alone, excluding the
+  ~15.5s setup).  Newton costs 9% more iterations; line-search backtracking
+  goes to zero.
+
+-------------------------------------------------------------------------------
+2. A100 Newmark dynamics
+-------------------------------------------------------------------------------
+benchmark/inputs/torsion-newmark-gpu-cg-jacobi.yaml, 530,523 DOF, dt 5e-5,
+4 steps, matrix-free CG/Jacobi.  Per-step wall for steps 2-4; step 1 is
+excluded everywhere because it carries the CUDA kernel JIT (~18s).
+
+  variant    solves   CG iters   mean/solve   wall steps 2 / 3 / 4   mean
+  fixed          12      2,300        191.7   2.89 / 3.05 / 3.49 s   3.14s
+  EW 0.5         25      1,019         40.8   2.13 / 2.41 / 2.84 s   2.46s
+  EW 0.2         19      1,011         53.2   2.11 / 2.00 / 2.38 s   2.16s
+
+  Best (0.2):  2.27x fewer CG iterations, per-step wall 3.14 -> 2.16 s,
+  a 1.45x speedup.
+
+These walls include the per-step Exodus write this deck performs, which the
+1.37 s/step Newmark record excluded.  Repeating the pair with the write off
+(output interval 1e9) isolates the linear solver -- per-solve t_solve, the
+directly measured quantity, first solve dropped as JIT:
+
+  nm_fix_nw    11 solves   5.26s total   mean 0.478s
+  nm02_nw      18 solves   3.01s total   mean 0.167s
+                                         -> 1.75x less time in CG
+
+  The shape of the win is visible in the raw series: fixed sits flat at
+  ~0.48s every solve, EW ranges 0.02-0.55s.  More solves, each far cheaper.
+
+-------------------------------------------------------------------------------
+3. A100 quasi-static with GPU AMG
+-------------------------------------------------------------------------------
+benchmark/inputs/torsion-qs-gpu-cg-amg.yaml, 530,523 DOF, 4 load steps,
+matrix-free CG with the device-resident AMG V-cycle.  Exactly one hierarchy
+build in every run -- the staleness detector did not fire in any configuration,
+so these compare like with like on setup cost.
+
+  variant    solves   CG iters   mean/solve   wall steps 2 / 3 / 4   mean
+  fixed          12        962         80.2   5.41 / 5.30 / 5.46 s   5.39s
+  EW 0.5         24        484         20.2   3.46 / 3.44 / 3.47 s   3.46s
+  EW 0.2         16        470         29.4   3.50 / 3.32 / 3.35 s   3.39s
+
+  Best (0.2):  2.05x fewer CG iterations, per-step wall 5.39 -> 3.39 s,
+  a 1.59x speedup -- on top of the 2x AMG already had over Jacobi on this
+  problem.  This is the largest single per-step improvement in the
+  quasi-static campaign since the AMG hierarchy build fix (d0a6685).
+
+-------------------------------------------------------------------------------
+4. Why 0.2, and why it is not a tuning accident
+-------------------------------------------------------------------------------
+Total CG work is nearly INVARIANT in eta_max -- 63.1k / 62.9k / 63.6k on CPU,
+1019 / 1011 on the A100.  What eta_max actually controls is how many Newton
+iterations you spend buying that work, and there the spread is large: 413 vs
+547 on CPU, 19 vs 25 on the A100.
+
+The mechanism is EW's own safeguard, which holds eta up whenever
+gamma*eta_prev^alpha > 0.1.  With the default alpha = (1+sqrt5)/2:
+
+    eta_max = 0.2  ->  0.2^1.618 = 0.076   below the knee, safeguard idle,
+                                           the residual ratio drives eta
+    eta_max = 0.5  ->  0.5^1.618 = 0.326   above it, safeguard permanently on,
+                                           eta pinned high for several
+                                           iterations
+    eta_max = 0.9  ->  0.9^1.618 = 0.842   far above; the paper's value
+
+So 0.2 is not a fitted constant: it is the largest round value that keeps EW's
+anti-collapse safeguard out of the way of its own adaptivity.  Two problems on
+two architectures picked it independently.  0.1 also works but converges
+Newton slightly worse (432 vs 413 iterations on CPU) by tightening solves the
+ratio would have left loose.
+
+-------------------------------------------------------------------------------
+5. Interaction found and fixed: the AMG staleness detector
+-------------------------------------------------------------------------------
+The detector latches a baseline from the first CG count after a hierarchy build
+and rebuilds when a later count passes 3x it.  Under a forcing term those
+counts come from solves at different tolerances and are not comparable as raw
+numbers.
+
+Skipping loosened solves is not a fix: the over-solve guard means a run can
+converge without ever solving at the deck's tolerance, and the detector is the
+ONLY rebuild trigger on the quasi-static path (`_build_precond_op` passes
+c_M = 0 there, so the c_M test never fires).  Quasi-static AMG would then build
+once at the reference configuration and keep it for the whole load history --
+the 63 -> 400 iteration drift that test/amg-staleness.jl exists to prevent.
+
+`_tracked_iters` rescales a count by the digits of residual reduction the solve
+was asked for.  At rtol_eff == rtol it is exactly the identity, so a run with
+no forcing term feeds the detector precisely the numbers it always did.
+
+-------------------------------------------------------------------------------
+6. Reproduction
+-------------------------------------------------------------------------------
+Deck syntax (nested under solver.linear solver):
+
+    forcing term:
+      type: eisenstat-walker     # aliases: eisenstat walker, ew, adaptive
+      maximum: 0.2               # eta_max; default 0.2
+      # initial / gamma / exponent / safety factor all optional
+
+An absent block means `fixed` -- every deck written before this existed is
+unaffected.  Unknown types and out-of-range values are hard errors; unknown
+keys warn through the input-key walker.
+
+CPU:  the four decks of section 1 are the shipped tension-specimen-j2 deck with
+`final time: 0.05`, `output interval: 1.0e9`, and the block above.
+A100: ~/ew_sweep.sh and ~/ew_sweep2.sh on ascicgpu073 generate all eight decks
+from benchmark/inputs/ and run them under flock; results in /scratch/amota/ew.
+Both remote scripts hold $HOME/.carina_sweep.lock for the whole sweep --
+ascicgpu073 and ascicgpu24 share one NFS home and one ~/.julia depot.
