@@ -1,0 +1,497 @@
+\documentclass[11pt]{article}
+
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage{amsmath, amssymb, amsthm}
+\usepackage{boldtensors}
+\usepackage{booktabs}
+\usepackage{microtype}
+\usepackage[margin=1.15in]{geometry}
+\usepackage[colorlinks, linkcolor=blue, citecolor=blue]{hyperref}
+\usepackage[numbers, sort&compress]{natbib}
+\setlength{\emergencystretch}{2.5em}
+
+\newcommand{\F}{~F}
+\newcommand{\C}{~C}
+\newcommand{\Id}{~I}
+\renewcommand{\P}{~P}
+\newcommand{\eps}{~\epsilon}
+\newcommand{\edev}{~e}
+\newcommand{\sdev}{~s}
+\newcommand{\btau}{~\tau}
+\newcommand{\disp}{~\varphi}
+\newcommand{\testd}{~\psi}
+\newcommand{\bx}{~x}
+\newcommand{\bX}{~X}
+\newcommand{\bT}{~T}
+\newcommand{\bB}{~B}
+\newcommand{\bN}{~N}
+\newcommand{\Syms}{\mathbb{S}}
+\newcommand{\Reals}{\mathbb{R}}
+\newcommand{\Grad}{\operatorname{Grad}}
+\newcommand{\Div}{\operatorname{Div}}
+\newcommand{\dev}{\operatorname{dev}}
+\newcommand{\trace}{\operatorname{tr}}
+\newcommand{\sym}{\operatorname{sym}}
+\newcommand{\transpose}[1]{#1^{\mathsf{T}}}
+\newcommand{\norm}[1]{\left\lVert #1 \right\rVert}
+\newcommand{\diff}{\,\mathrm{d}}
+\newcommand{\supvol}{^{\mathrm{vol}}}
+\newcommand{\supdev}{^{\mathrm{dev}}}
+\newcommand{\code}[1]{\texttt{#1}}
+
+\theoremstyle{definition}
+\newtheorem{remark}{Remark}
+
+\title{\textbf{HW3L}\\[0.3em]
+  \large A Three-Field Hu--Washizu Tetrahedron in Logarithmic Strain\\[0.2em]
+  \normalsize Research note}
+\author{Alejandro Mota}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+\noindent
+A tetrahedral element for very large deformation and deviatoric plasticity
+that is free of volumetric locking and of spurious soft modes \emph{by
+construction}, with no stabilization term of any kind. Three fields --- motion,
+volumetric logarithmic strain, and pressure --- are coupled through a
+Hu--Washizu functional in Hencky strain. The deviatoric response is evaluated
+pointwise at quadrature, so the constitutive law is an unmodified small-strain
+algorithm and the formulation is agnostic to the material model. Both auxiliary
+fields are discontinuous, so their elimination is element-local. The central
+claim is that locking and soft modes are two failure directions of a single
+inf-sup condition, and that choosing an inf-sup stable displacement--pressure
+pair removes both without a penalty, a subgrid model, or a tuned coefficient.
+\end{abstract}
+
+\section{Problem statement}
+
+Tetrahedra are the only practical choice for meshing complex geometry
+automatically. Their performance in the regimes that matter here has been the
+obstacle: near-incompressible response at bulk-to-shear ratios
+$\kappa/\mu \lesssim 10^4$, isochoric plasticity, large rotation, and weak
+shocks in stiff-bulk materials. The target is one spatial formulation covering
+all four, with the time integrator the only thing that changes between
+quasi-static and dynamic regimes.
+
+Two established remedies fall short in ways that are instructive, and the
+diagnosis below is the reason for the choices that follow.
+
+\paragraph{Constant pressure buys locking relief and pays in soft modes.}
+The composite tetrahedron \citep{Thoutireddy.etal:2002, Ostien.etal:2016} and
+its five-field extension \citep{Foulk.etal:2021} mitigate volumetric locking
+with an element-constant pressure. \citet{Foulk.etal:2021} report that this
+choice --- and it is the choice, not the element --- produces a deleterious
+soft mode ``common to both the quadratic and composite tetrahedral element with
+constant pressure formulations,'' remedied there by a convex energy penalty.
+The mechanism is direct: an element-constant multiplier cannot see
+near-isochoric displacement patterns that vary within the element. Those
+patterns cost only shear energy, so at $\kappa/\mu \gg 1$ they are soft, and
+confined deformation excites them.
+
+\paragraph{Residual-based stabilization contaminates the deviator.}
+Variational-multiscale stabilization of linear tetrahedra
+\citep{Scovazzi:2015} introduces a subgrid pressure of the form
+\begin{equation}
+  \label{eq:vms}
+  p' = c_p \, \tau \left( \kappa \Div \dot{\disp} - \dot{p} \right),
+  \qquad
+  \tau = c_\tau \, \Delta t,
+\end{equation}
+which is added to the stress before the constitutive update sees it. Two
+consequences are structural rather than incidental. The spatial solution
+inherits a dependence on the \emph{time step} through $\tau$, so there is no
+well-defined quasi-static limit --- $\tau$ is whatever $\Delta t$ happens to
+be. And a tuned coefficient $c_\tau$ modulates a term that reaches the
+deviator, and therefore the plastic return map, which is the observed origin of
+oscillations in equivalent plastic strain. No choice of $c_\tau$ removes this,
+because the contamination path is the formulation.
+
+\paragraph{The common cause.} Both are symptoms of one condition. The
+volumetric constraint space must be \emph{rich enough} to see the
+near-isochoric modes, or soft modes survive; and \emph{poor enough} not to
+over-constrain the displacement space, or the element locks. That is the
+inf-sup condition, read in both directions. Neither difficulty is a
+stabilization problem. Both are consequences of a pair that sits outside the
+admissible window, and the remedy is to choose a pair inside it.
+
+\section{Continuum formulation}
+
+\subsection{Kinematics and the logarithmic split}
+
+A body $B \subset \Reals^3$ undergoes a motion
+$\bx = \disp(\bX, t)$ with deformation gradient $\F := \Grad \disp$ and
+Jacobian $J := \det \F$. With $\C := \transpose{\F}\F$, the material Hencky
+strain is
+\begin{equation}
+  \label{eq:hencky}
+  \eps := \tfrac{1}{2}\log \C \in \Syms,
+\end{equation}
+evaluated by inverse scaling-and-squaring with Pad\'e approximants. Its
+volumetric--deviatoric decomposition is orthogonal in the Frobenius inner
+product,
+\begin{equation}
+  \label{eq:split}
+  \eps = \tfrac{1}{3}\theta \Id + \edev,
+  \qquad
+  \theta := \trace \eps = \log J,
+  \qquad
+  \edev := \dev \eps .
+\end{equation}
+That $\theta$ is exactly $\log J$ is the property the whole formulation turns
+on: the volumetric measure that must be treated mixedly is a \emph{scalar}
+available in closed form, and it is orthogonal to the deviatoric measure
+carrying the plasticity.
+
+\subsection{Stored energy}
+
+For isotropic response the free energy separates additively,
+\begin{equation}
+  \label{eq:energy}
+  A(\eps) = W\supvol(\theta) + W\supdev(\edev),
+  \qquad
+  W\supvol(\theta) = \tfrac{\kappa}{2}\theta^2,
+  \qquad
+  W\supdev(\edev) = \mu \norm{\edev}^2 ,
+\end{equation}
+so the constitutive law is algebraically linear in logarithmic strain:
+\begin{equation}
+  \label{eq:constitutive}
+  p = \partial W\supvol / \partial\theta = \kappa\theta,
+  \qquad
+  \sdev = \partial W\supdev/\partial\edev = 2\mu\,\edev .
+\end{equation}
+Plasticity replaces \eqref{eq:constitutive}$_2$ with
+$\sdev = 2\mu(\edev - \edev^{\mathrm p})$, with $\edev^{\mathrm p}$ evolved by
+the return map of \S\ref{sec:plasticity}. Nothing else in the formulation
+changes.
+
+\subsection{Three-field functional}
+
+Only the volumetric response is treated mixedly. Introduce an independent
+volumetric strain $\bar\theta$ and constrain it to $\theta(\disp)$ through a
+multiplier $\bar p$, which at stationarity is the pressure:
+\begin{equation}
+  \label{eq:hw}
+  \begin{split}
+    \Pi[\disp, \bar\theta, \bar p] & :=
+    \int_B W\supvol(\bar\theta) \diff V
+    + \int_B W\supdev\!\left(\edev(\disp)\right) \diff V
+    + \int_B \bar p \left(\theta(\disp) - \bar\theta\right) \diff V
+    \\
+    & \quad
+    - \int_B R\, \bB \cdot \disp \diff V
+    - \int_{\partial_T B} \bT \cdot \disp \diff S .
+  \end{split}
+\end{equation}
+The deviatoric energy is evaluated at the \emph{pointwise} strain
+$\edev(\disp)$ and carries no auxiliary field. This is deliberate and is
+discussed in Remark~\ref{rem:whynodev}.
+
+\subsection{Variations}
+
+With $\disp \in U$, $\bar\theta, \bar p \in Q$ and test functions
+$\testd \in U$ vanishing on $\partial_\disp B$, $\vartheta, \pi \in Q$:
+\begin{equation}
+  \label{eq:variations}
+  \begin{split}
+    D_\disp \Pi(\testd) & =
+      \int_B \bar p \, \frac{\partial\theta}{\partial\disp}[\testd] \diff V
+      + \int_B \sdev\!\left(\edev(\disp)\right) : \frac{\partial\edev}{\partial\disp}[\testd] \diff V
+      - \int_B R\,\bB\cdot\testd \diff V
+      - \int_{\partial_T B} \bT\cdot\testd \diff S = 0,
+    \\
+    D_{\bar\theta}\Pi(\vartheta) & =
+      \int_B \left( \kappa\bar\theta - \bar p \right)\vartheta \diff V = 0,
+    \\
+    D_{\bar p}\Pi(\pi) & =
+      \int_B \left( \theta(\disp) - \bar\theta \right)\pi \diff V = 0 .
+  \end{split}
+\end{equation}
+The kinematic derivatives are
+\begin{equation}
+  \label{eq:kinematic}
+  \frac{\partial\theta}{\partial\disp}[\testd] = \F^{-\mathsf{T}} : \Grad\testd,
+  \qquad
+  \frac{\partial\edev}{\partial\disp}[\testd]
+    = \mathbb{L}\supdev(\C) : \sym\!\left(\transpose{\F}\Grad\testd\right),
+\end{equation}
+with $\mathbb{L}(\C) := \partial \log\C/\partial\C$ the Fr\'echet derivative of
+the matrix logarithm \citep{AlMohy.Higham.Relton:2013} and
+$\mathbb{L}\supdev := \mathbb{L} - \tfrac13 \Id \otimes \C^{-1}$. The
+volumetric derivative follows from Jacobi's formula and needs no special
+machinery.
+
+\subsection{Stress reconstruction}
+\label{sec:stress}
+
+Collecting \eqref{eq:variations}$_1$ into the form $\int \P : \Grad\testd$
+gives, in general,
+\begin{equation}
+  \label{eq:P-general}
+  \P = \bar p\, \F^{-\mathsf{T}} + \F \left( \mathbb{L}\supdev(\C) : \sdev \right).
+\end{equation}
+Because $\sdev$ here is computed \emph{pointwise} from $\edev(\disp)$ by an
+isotropic law, $\sdev$ is coaxial with $\C$ at every quadrature point. The
+off-diagonal contributions of $\mathbb{L}\supdev$ in the principal basis then
+vanish identically and \eqref{eq:P-general} collapses to the push-forward
+\begin{equation}
+  \label{eq:P-simple}
+  \P = \left( \bar p \Id + \sdev \right) \F^{-\mathsf{T}} = \btau \, \F^{-\mathsf{T}},
+  \qquad \btau := \bar p \Id + \sdev = J\,~\sigma .
+\end{equation}
+
+\begin{remark}
+\label{rem:coaxial}
+Coaxiality is a consequence of the deviatoric response being pointwise. It
+would \emph{not} hold if $\sdev$ were carried as an independent discrete field,
+because such a field is only weakly tied to $\C$ and is not coaxial with it at
+an arbitrary iterate. In that case \eqref{eq:P-simple} is valid only at the
+converged solution and using it to assemble the residual gives an inconsistent
+method that appears to work. Equation~\eqref{eq:P-general} is the safe form.
+\end{remark}
+
+\begin{remark}
+\label{rem:whynodev}
+No deviatoric mixed pair appears because none is needed. Volumetric locking is
+a constraint phenomenon: at $\kappa/\mu \gg 1$ the near-isochoric constraint
+over-determines the displacement space, and relieving it requires a multiplier.
+The deviatoric response is not constrained in the same sense and admits no
+analogous locking mode. Adding a deviatoric pair costs degrees of freedom, an
+inf-sup condition that has to be established separately, and --- if strain and
+stress are placed in different spaces --- a constitutive law evaluated across
+two discretizations, which is the aliasing that corrupts plastic strain fields.
+\S\ref{sec:fivefield} gives the disciplined way to add strain as an independent
+field should a later requirement demand it.
+\end{remark}
+
+\section{Discretization}
+
+\subsection{The pair}
+
+Let $U_h \subset U$ carry the motion and $Q_h \subset Q$ carry both
+$\bar\theta$ and $\bar p$. Two requirements fix the choice.
+
+\emph{Same space for both scalars.} $\bar\theta$ and $\bar p$ are placed in one
+space $Q_h$. Then \eqref{eq:variations}$_2$ reads $\bar p = \kappa\bar\theta$
+exactly rather than in a projected sense, and the composition
+$\bar p = \kappa\,\Pi_{Q_h}(\log J)$ is well defined. Splitting them across two
+different spaces makes the constitutive relation hold only after a projection,
+determines one field only through its projection onto the other's space, and
+can leave the discrete system singular.
+
+\emph{Inf-sup stability, in three dimensions.} The pairing
+$\int \bar p \,\F^{-\mathsf T}\!:\!\Grad\testd$ reduces at $\F = \Id$ to the
+Stokes pairing $\int \bar p \Div\testd$, so the admissible pairs are the
+inf-sup stable Stokes pairs, and stability must hold uniformly in $h$ and on
+the target range of $\kappa/\mu$ \citep{BoffiBrezziFortin:2013}.
+
+The distinction that matters is dimensional and is easy to get wrong:
+$P_2/P_1^{\mathrm{disc}}$ is the Crouzeix--Raviart pair in two dimensions
+\citep{CrouzeixRaviart:1973} and is \emph{not} inf-sup stable on tetrahedra
+without enrichment. The stable three-dimensional choices with a
+\emph{discontinuous} pressure require bubble enrichment of the displacement
+space. Table~\ref{tab:pairs} lists the candidates.
+
+\begin{table}[h]
+\centering
+\begin{tabular}{@{}llll@{}}
+\toprule
+Displacement & Pressure & 3D stable & Pressure elimination \\
+\midrule
+$P_1$                        & $P_0$                   & no  & local \\
+$P_2$                        & $P_0$                   & yes, suboptimal & local \\
+$P_2$                        & $P_1^{\mathrm{disc}}$   & \textbf{no} & local \\
+$P_2 \oplus$ bubbles         & $P_1^{\mathrm{disc}}$   & yes & local \\
+$P_2$                        & $P_1$ continuous        & yes & global \\
+\bottomrule
+\end{tabular}
+\caption{Displacement--pressure pairs on tetrahedra. Local elimination
+requires a discontinuous pressure; three-dimensional stability with a
+discontinuous pressure requires bubble enrichment.}
+\label{tab:pairs}
+\end{table}
+
+The recommended pair is \textbf{$P_2$ enriched with face and interior bubbles
+over $P_1^{\mathrm{disc}}$}. The bubbles are element-interior and condense
+locally, so they add no global degrees of freedom. Taylor--Hood $P_2/P_1$
+continuous is the conservative fallback: unimpeachably stable in three
+dimensions, at the cost of a globally coupled pressure that cannot be
+eliminated element by element.
+
+\subsection{Local elimination}
+
+Because $Q_h$ is discontinuous, the mass matrix
+$[M]_{mn} = \int_B \mu_m \mu_n \diff V$ is block diagonal by element and
+constant in the reference configuration. One factorization at setup serves
+every Newton iteration of every step, and
+\begin{equation}
+  \label{eq:projection}
+  M \{\bar\theta\} = \int_B \mu_m \log J(\disp) \diff V,
+  \qquad
+  \bar p = \kappa \bar\theta ,
+\end{equation}
+is an element-local solve. Substituting $\bar p(\disp)$ into
+\eqref{eq:variations}$_1$ leaves a displacement-sized nonlinear problem whose
+tangent retains the sparsity of the displacement mesh --- the auxiliary fields
+never couple two elements. This is the property that makes the composite
+tetrahedron affordable, and it is preserved here.
+
+\begin{remark}
+The locality is a consequence of the discontinuous pressure, not of the
+Hu--Washizu structure. A conforming auxiliary field --- one requiring
+inter-element continuity --- would make $\bar p(\disp)$ a global function of
+$\disp$, and every tangent--vector product would then require a global solve
+with its mass matrix. That is a substantial regression against the incumbent
+and is the main reason the pressure is kept discontinuous.
+\end{remark}
+
+\section{Plasticity}
+\label{sec:plasticity}
+
+The deviatoric response is evaluated at quadrature points of the displacement
+element, on $\edev(\disp)$ computed there. Because the constitutive law is
+linear in logarithmic strain, the $J_2$ return map is the small-strain radial
+return of \citet{Simo:1992} verbatim:
+\begin{equation}
+  \label{eq:return}
+  \begin{split}
+    \edev^{\mathrm{tr}} &:= \edev(\disp) - \edev^{\mathrm p}_n,
+    \qquad
+    \sdev^{\mathrm{tr}} := 2\mu\,\edev^{\mathrm{tr}},
+    \\
+    \Delta\gamma &:= \frac{\norm{\sdev^{\mathrm{tr}}} - \sqrt{2/3}\left[\sigma_y + \mathcal{H}'(\bar\epsilon^{\mathrm p}_n)\right]}{2\mu + \tfrac23 \mathcal{H}''(\bar\epsilon^{\mathrm p}_n)}
+      \quad\text{if } f^{\mathrm{tr}} > 0, \quad \text{else } 0,
+    \\
+    \edev^{\mathrm p}_{n+1} &:= \edev^{\mathrm p}_n + \Delta\gamma\, ~n,
+    \qquad ~n := \sdev^{\mathrm{tr}} / \norm{\sdev^{\mathrm{tr}}},
+    \\
+    \sdev &:= 2\mu\left(\edev(\disp) - \edev^{\mathrm p}_{n+1}\right).
+  \end{split}
+\end{equation}
+Internal variables live at quadrature points and are never projected, so no
+interpolation error enters the history. Frame-indifferent interpolation, when
+tensorial internal variables must be transferred, follows
+\citet{Mota.etal:2013}.
+
+Three properties are worth stating because they are the reasons for the
+formulation rather than incidental to it.
+
+\emph{The constitutive law is untouched.} All finite-deformation content is
+absorbed into two material-\emph{independent} geometric transforms: the forward
+map $\C \mapsto \eps$ and the tangent map $\mathbb{L}(\C)$
+\citep{Miehe.Apel.Lambrecht:2002}. Between them sits an unmodified small-strain
+algorithm. Any model already written for small strain --- $J_2$, kinematic
+hardening, viscoplasticity, damage --- ports without reformulation. This is the
+practical content of preferring a Hu--Washizu structure over one built around a
+particular stress--strain pairing.
+
+\emph{Strain and stress never cross discretizations.} $\edev$ is evaluated and
+$\sdev$ returned at the same quadrature point of the same element. There is no
+projection between the two, so the aliasing that corrupts equivalent plastic
+strain in stabilized formulations has no mechanism here.
+
+\emph{No stabilization enters the deviator.} There is no subgrid term, no
+penalty and no tuned coefficient anywhere in the formulation, so nothing of the
+form \eqref{eq:vms} can reach the return map.
+
+\section{Dynamics}
+
+The spatial formulation is unchanged; the mass matrix enters only the
+displacement block. Two implementation points deserve care.
+
+\emph{Lumping.} Row-sum lumping of the quadratic tetrahedron produces
+non-positive vertex masses and cannot be used. Diagonal-scaling (HRZ) lumping
+\citep{HintonRockZienkiewicz:1976}, which scales the diagonal of the consistent
+mass to preserve total mass, yields strictly positive entries for $P_2$ and its
+bubble enrichment, because the consistent-mass diagonal is positive by
+construction. Negative \emph{off-diagonal} entries in the consistent mass are
+immaterial; only the lumped result must be positive, and under HRZ it is.
+
+\emph{Critical time step.} Quadratic elements carry a higher maximum
+eigenvalue than linear elements on the same mesh, so the explicit stable step
+is smaller for a given $h$ --- roughly a factor of two, with the bubble
+enrichment costing a little more. Against this, a $P_2$ mesh resolves a given
+feature with far fewer elements. The trade is favorable or not depending on the
+problem, and it should be measured rather than argued.
+
+\section{Optional five-field variant}
+\label{sec:fivefield}
+
+Should an independent deviatoric strain field become necessary --- for
+non-local regularization, or for internal variables requiring their own
+discrete representation --- the disciplined extension introduces
+$\bar\edev$ and $\bar\sdev$ \emph{in the same discontinuous space}, of the same
+degree as $Q_h$. Sharing the space is not a convenience: it makes the
+constitutive relation hold pointwise rather than after a projection, keeps the
+return map at shared quadrature points, keeps every elimination element-local,
+and leaves the discrete system non-singular. Placing $\bar\edev$ and $\bar\sdev$
+in different spaces --- however natural the spaces are individually --- forfeits
+all four properties at once. Remark~\ref{rem:coaxial} also applies: with an
+independent $\bar\sdev$, the residual must be assembled from
+\eqref{eq:P-general} and not from the push-forward \eqref{eq:P-simple}.
+
+\section{What must be verified}
+
+The formulation rests on claims that are falsifiable, and the point of stating
+them plainly is to make the first round of numerical work decisive.
+
+\begin{enumerate}
+  \item \textbf{The pair is inf-sup stable in three dimensions, uniformly on
+        $\kappa/\mu \le 10^4$.} Verified numerically by an inf-sup eigenvalue
+        test on a sequence of refined meshes; the discrete constant must not
+        decay with $h$.
+  \item \textbf{No soft modes.} Eigenvalue analysis of the tangent on a
+        confined, nearly-incompressible patch, looking for the low-energy modes
+        \citet{Foulk.etal:2021} report for constant-pressure formulations. The
+        prediction is that they are absent, with no penalty applied.
+  \item \textbf{No volumetric locking.} Standard benchmarks at increasing
+        $\kappa/\mu$: the displacement must not degrade as the ratio grows.
+  \item \textbf{Plastic strain fields are smooth.} The direct comparison
+        against stabilized formulations. Equivalent plastic strain in a
+        confined plastic zone should show no oscillation and require no
+        filtering.
+  \item \textbf{Element-local cost.} The assembled tangent must retain
+        displacement-mesh sparsity, confirming the elimination never couples
+        elements.
+\end{enumerate}
+
+The benchmark set is the one on which the composite tetrahedron is known to
+struggle: punch indentation, a nearly-incompressible Cook's membrane in three
+dimensions, large-rotation twist of a bar, and a weak shock in a high-$\kappa/\mu$
+material. The comparison of record is against the composite tetrahedron on the
+same meshes.
+
+\section{Risks}
+
+\emph{The bubble enrichment may be awkward in practice.} It is standard theory
+but adds element-interior degrees of freedom that must be condensed. If it
+proves troublesome, Taylor--Hood $P_2/P_1$-continuous is the fallback, at the
+cost of local elimination.
+
+\emph{Quadratic tetrahedra are more expensive per element.} The claim that
+fewer of them are needed is plausible and unproven for this problem class. It
+should be measured on the benchmark set, not assumed.
+
+\emph{The explicit regime is the weakest part.} HRZ lumping resolves
+positivity, but the reduced critical time step is real. If weak shocks can be
+run with the implicit dynamic integrator the objection disappears; if they must
+be explicit, this trade needs measuring before commitment.
+
+\emph{Nothing here is novel in its parts.} Mixed volumetric treatment
+\citep{SimoTaylorPister:1985}, logarithmic-strain plasticity
+\citep{Miehe.Apel.Lambrecht:2002} and stable Stokes pairs
+\citep{BoffiBrezziFortin:2013} are all established. The contribution, if there
+is one, is the claim that combining them correctly removes the need for the
+stabilization that both the composite-tetrahedron and variational-multiscale
+lineages carry --- and that claim is worth exactly what the numerical evidence
+turns out to be worth. Face-hybridized methods
+\citep{AbbasErnPignet:2019} remain the alternative to weigh if it fails.
+
+\bibliographystyle{plainnat}
+\bibliography{references}
+
+\end{document}

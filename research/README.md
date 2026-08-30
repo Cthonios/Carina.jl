@@ -31,3 +31,10 @@ argument.
 - **`sec5l/`** — SEC5L, a five-field mixed tetrahedral element on the symmetric
   elasticity complex with logarithmic strain. Mota and Foulk. In progress; not
   implemented.
+- **`hw3l/`** — HW3L, a three-field Hu–Washizu tetrahedron in logarithmic
+  strain. Argues that volumetric locking and spurious soft modes are two
+  directions of one inf-sup condition, and that a stable pair removes both
+  without stabilization. Research note; not implemented.
+
+The two are independent attacks on the same problem and share no machinery.
+Where one fails the other may not, which is the point of keeping both.
