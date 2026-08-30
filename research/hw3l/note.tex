@@ -170,6 +170,7 @@ the return map of \S\ref{sec:plasticity}. Nothing else in the formulation
 changes.
 
 \subsection{Three-field functional}
+\label{sec:hw}
 
 Only the volumetric response is treated mixedly. Introduce an independent
 volumetric strain $\bar\theta$ and constrain it to $\theta(\disp)$ through a
@@ -434,7 +435,77 @@ all four properties at once. Remark~\ref{rem:coaxial} also applies: with an
 independent $\bar\sdev$, the residual must be assembled from
 \eqref{eq:P-general} and not from the push-forward \eqref{eq:P-simple}.
 
+\section{First numerical result}
+\label{sec:firstresult}
+
+The soft-mode claim reduces, for linear response, to a rank count on a single
+element, and can be settled before any mesh or solver exists. Condensing the
+three fields gives
+\begin{equation}
+  \label{eq:condensed}
+  ~K_e = ~K\supdev + \kappa\, \transpose{~G} ~M^{-1} ~G,
+  \qquad
+  M_{mn} = \int_e \mu_m \mu_n \diff V,
+  \qquad
+  G_{mi} = \int_e \mu_m \left(\trace ~B\right)_i \diff V .
+\end{equation}
+$~K\supdev$ annihilates every mode with zero deviatoric strain at quadrature:
+the six rigid-body modes, plus the volumetric directions the displacement space
+can produce. The second term has rank equal to the number of those directions
+the pressure space can see, at most $m$. Anything left over carries neither
+deviatoric nor volumetric energy and is \emph{exactly} zero-energy:
+\begin{equation}
+  \label{eq:spurious}
+  n_{\mathrm{spurious}} = \dim \ker ~K\supdev - 6 - \operatorname{rank} ~K\supvol .
+\end{equation}
+
+For the quadratic tetrahedron $\dim\ker ~K\supdev = 10$: six rigid modes and
+four volumetric directions, the latter because $\trace\eps(\disp)$ is a $P_1$
+field. Table~\ref{tab:census} reports \eqref{eq:spurious} against the measured
+spectrum.
+
+\begin{table}[h]
+\centering
+\begin{tabular}{@{}lccccc@{}}
+\toprule
+Pressure space & $m$ & $\dim\ker ~K\supdev$ & $\operatorname{rank} ~K\supvol$ & predicted & observed \\
+\midrule
+$P_0$ constant            & 1  & 10 & 1 & \textbf{3} & \textbf{3} \\
+$P_1$ discontinuous       & 4  & 10 & 4 & 0 & 0 \\
+$P_2$ discontinuous       & 10 & 10 & 4 & 0 & 0 \\
+\bottomrule
+\end{tabular}
+\caption{Spurious zero-energy modes of the three-field quadratic tetrahedron at
+$\kappa/\mu = 10^4$. Identical at element distortions $0$, $0.05$ and $0.12$.
+Script: \code{prototype/softmode.jl}.}
+\label{tab:census}
+\end{table}
+
+Three consequences.
+
+The constant-pressure element carries three modes that are \emph{exactly}
+zero-energy, not merely soft. A mode with no energy at all cannot be tolerated,
+which is why a penalty is unavoidable once that pressure space is chosen --- the
+remedy in \citet{Foulk.etal:2021} is forced by the space, not by the element.
+
+A $P_1$-discontinuous pressure removes them completely, with no penalty, and
+leaves exactly the six rigid-body modes. This is the claim of \S\ref{sec:hw}
+confirmed in the setting where it is cleanest to check.
+
+Enriching the pressure further changes nothing: the rank saturates at four,
+because four is all the displacement space can produce. Over-enrichment is
+wasteful here rather than harmful, at least in this rank sense.
+
+\begin{remark}
+This settles the \emph{mechanism} and nothing more. Inf-sup stability is a
+global property of a mesh sequence and is invisible on one element; the rank
+argument above says which modes exist, not whether the constant in the stability
+estimate survives refinement. Claim~1 of \S\ref{sec:verify} remains open, and
+with it the question of whether bubble enrichment is needed in practice.
+\end{remark}
+
 \section{What must be verified}
+\label{sec:verify}
 
 The formulation rests on claims that are falsifiable, and the point of stating
 them plainly is to make the first round of numerical work decisive.
@@ -444,10 +515,11 @@ them plainly is to make the first round of numerical work decisive.
         $\kappa/\mu \le 10^4$.} Verified numerically by an inf-sup eigenvalue
         test on a sequence of refined meshes; the discrete constant must not
         decay with $h$.
-  \item \textbf{No soft modes.} Eigenvalue analysis of the tangent on a
-        confined, nearly-incompressible patch, looking for the low-energy modes
-        \citet{Foulk.etal:2021} report for constant-pressure formulations. The
-        prediction is that they are absent, with no penalty applied.
+  \item \textbf{No soft modes.} \emph{Settled for a single element in
+        \S\ref{sec:firstresult}}: three spurious zero-energy modes for a
+        constant pressure, none for $P_1$-discontinuous. What remains is the
+        patch-level confirmation on an assembled mesh, where inter-element
+        coupling could in principle reintroduce them.
   \item \textbf{No volumetric locking.} Standard benchmarks at increasing
         $\kappa/\mu$: the displacement must not degrade as the ratio grows.
   \item \textbf{Plastic strain fields are smooth.} The direct comparison
