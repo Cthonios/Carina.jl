@@ -1,0 +1,30 @@
+# LaTeX intermediate files
+*.aux
+*.bbl
+*.blg
+*.brf
+*.fdb_latexmk
+*.fls
+*.idx
+*.ilg
+*.ind
+*.lof
+*.log
+*.lot
+*.nav
+*.out
+*.snm
+*.synctex.gz
+*.synctex(busy)
+*.toc
+*.vrb
+*.xdv
+
+# Generated main PDF (Overleaf builds it server-side).
+# Scoped to the top-level build output so figure PDFs remain trackable.
+/main.pdf
+
+# Editor/OS noise
+.DS_Store
+*.swp
+*~

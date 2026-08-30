@@ -1,0 +1,1584 @@
+\documentclass[12pt]{article}
+\usepackage{algorithmic}
+\usepackage{algorithm}
+\usepackage{alltt}
+\usepackage{amsbsy}
+\usepackage{amscd}
+\usepackage{amsfonts}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{amsthm}
+\usepackage{array}
+\usepackage{booktabs}
+\usepackage{epsfig}
+\usepackage{euscript}
+\usepackage{fancyhdr}
+\usepackage{float}
+\usepackage{fullpage}
+\usepackage{graphicx}
+\usepackage{ifthen}
+\usepackage{multirow}
+\usepackage{supertabular}
+\usepackage{times}
+\usepackage{verbatim}
+\usepackage{xfrac}
+\usepackage{xspace}
+\usepackage[colorlinks]{hyperref}
+\usepackage[numbers,sort&compress]{natbib}
+\usepackage{subfig}
+\usepackage[normalem]{ulem}
+\usepackage{url}
+
+\usepackage{boldtensors}
+
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+
+\newcommand{\F}{~F}
+\newcommand{\C}{~C}
+\renewcommand{\P}{~P}
+\newcommand{\eps}{~\epsilon}
+\newcommand{\epsbar}{\bar{~\epsilon}}
+\newcommand{\edev}{~e}
+\newcommand{\ebar}{\bar{~e}}
+\newcommand{\btau}{~\tau}
+\newcommand{\btaubar}{\bar{~\tau}}
+\newcommand{\sdev}{~s}
+\newcommand{\sbar}{\bar{~s}}
+\newcommand{\thbar}{\bar{\theta}}
+\newcommand{\pbar}{\bar{p}}
+\newcommand{\Reals}{\mathbb{R}}
+\newcommand{\Syms}{\mathbb{S}}
+\newcommand{\supvol}{^{\mathrm{vol}}}
+\newcommand{\supdev}{^{\mathrm{dev}}}
+\newcommand{\Symsd}{\mathbb{S}\supdev}
+\newcommand{\norm}[1]{\left\lVert {#1} \right\rVert}
+\newcommand{\abs}[1]{\left\lvert {#1} \right\rvert}
+\DeclareMathOperator{\trace}{tr}
+\DeclareMathOperator{\dev}{dev}
+\DeclareMathOperator{\vol}{vol}
+\DeclareMathOperator{\Div}{Div}
+\DeclareMathOperator{\Grad}{Grad}
+\DeclareMathOperator{\Curl}{Curl}
+\DeclareMathOperator{\sym}{sym}
+\newcommand*\diff{\mathop{}\!\mathrm{d}}
+\newcommand{\transpose}[1]{{#1}^{\mathrm{T}}}
+
+\begin{document}
+
+\setlength{\headheight}{15pt}
+\headsep = 4pt
+\pagestyle{fancyplain}
+
+\lhead
+[\fancyplain{}{\emph{A. Mota \& J. Foulk}}]
+{\fancyplain{}{\emph{A. Mota \& J. Foulk}}}
+
+\rhead
+[\fancyplain{}{\emph{SEC5L Tetrahedron}}]
+{\fancyplain{}{\emph{SEC5L Tetrahedron}}}
+
+\title{
+  SEC5L: A Five-Field Mixed Tetrahedral Finite Element on the
+  Symmetric Elasticity Complex with Logarithmic Strain}
+
+\author{
+  Alejandro Mota$^1$\thanks{Email: amota@sandia.gov},
+  James W. Foulk {III}$^1$\thanks{Email: jwfoulk@sandia.gov}\\
+  \\
+  $^1$Mechanics of Materials Department\\
+  Sandia National Laboratories\\
+  Livermore CA 94550, USA\\
+}
+
+\date{\today}
+
+\maketitle
+
+\begin{abstract}
+
+  We propose the SEC5L element, a tetrahedral finite element built
+  on the symmetric elasticity complex (SEC) with 5 independent
+  discrete fields and a logarithmic strain measure. The five fields
+  are displacement, volumetric log-strain, deviatoric log-strain,
+  hydrostatic pressure, and deviatoric Kirchhoff stress. The
+  formulation is structured so that all
+  finite-deformation nonlinearity is absorbed into the kinematic
+  relation~$\eps = \tfrac{1}{2}\log(\transpose{\F}\F)$, while the
+  constitutive relation is algebraically linear in log-strain
+  space. The orthogonal volumetric--deviatoric decomposition
+  $\eps = \tfrac{1}{3}\theta~I + \edev$, with $\theta := \trace\eps$
+  and $\edev := \dev\eps$, and $\btau = p~I + \sdev$, with
+  $p := \tfrac{1}{3}\trace\btau$ and $\sdev := \dev\btau$, is native
+  to the Hencky measure, which
+  decouples the $J_2$ plastic return map (pointwise on $\edev$)
+  from the volumetric response and exposes a natural handle for stiff
+  bulk-wave regimes. The independent strain and stress fields remove
+  the cross-space constitutive evaluation that compromises
+  stabilized displacement formulations, and all four auxiliary fields
+  admit exact $L^2$ projections from $~\varphi$ with mass matrices
+  that are constant in the reference configuration and
+  pre-factorizable, reducing the global nonlinear solve to a
+  displacement-sized problem. The formulation is intended as an
+  alternative to the composite tetrahedron of \citet{Ostien.etal:2016}
+  and its five-field reformulation \citep{Foulk.etal:2021}, targeting
+  near-incompressible finite-deformation elasticity, isochoric
+  plasticity, and weak-shock regimes with large bulk-to-shear ratio.
+  \\
+  \\
+  Keywords: SEC5L, Hu-Washizu, tetrahedron, mixed formulation,
+  logarithmic strain, Kirchhoff stress, symmetric elasticity complex,
+  plasticity.
+
+\end{abstract}
+
+\section{Introduction}
+\label{sec:introduction}
+
+Tetrahedral finite elements are the natural choice for discretizing
+solid bodies with complex geometry because they admit robust
+automatic meshing. Their performance in problems involving
+near-incompressible materials, isochoric plasticity, and stiff
+bulk-wave regimes has, however, long been the limiting factor in
+their adoption for large-deformation Lagrangian solid mechanics
+\citep{Thoutireddy.etal:2002, Puso.Solberg:2006, Irving.etal:2007,
+Danielson:2014, Scovazzi:2015}. Stabilized displacement methods
+\citep{Klaas:1999, Maniatty:2002, Scovazzi:2015} and assumed-gradient
+schemes such as the composite tetrahedron of \citet{Ostien.etal:2016}
+have made significant progress. The composite tetrahedron with
+mean-dilatation patch targets isochoric plasticity and
+near-incompressible response through a three-field Hu-Washizu
+functional with element-local discontinuous strain and stress and
+static condensation. The subsequent five-field reformulation of
+\citet{Foulk.etal:2021} adds independent Jacobian and pressure fields
+to address a deleterious soft mode that arises in constant-pressure
+formulations.
+
+The present formulation departs from the composite-tetrahedron
+lineage in three specific ways. First, the independent strain and
+stress fields are discretized in \emph{conforming} symmetric-tensor
+spaces compatible with the symmetric elasticity complex
+\citep{Arnold.Falk.Winther:2006a, Arnold.Falk.Winther:2010}, giving
+pointwise Cauchy symmetry of the discrete stress and normal-traction
+continuity across element faces as structural properties of the
+finite element spaces rather than of the constitutive law. Second,
+the finite-deformation measure is the Hencky log-strain
+$\eps := \tfrac{1}{2}\log(\transpose{\F}\F)$, with its work-conjugate
+Kirchhoff stress $\btau$; the Hencky decomposition
+$\eps = \tfrac{1}{3}(\log J)~I + \edev$ is orthogonal in the
+Frobenius inner product and separates naturally into independent
+volumetric and deviatoric discrete fields. Third, the constitutive
+law is \emph{algebraically linear} in $(\eps, \btau)$ for isotropic
+hyperelastic response, so the radial return map for $J_2$ plasticity
+reduces exactly to the small-strain algorithm of \citet{Simo:1992}
+acting pointwise on the deviatoric strain at quadrature.
+
+The combination of these choices yields a formulation in which the
+four auxiliary fields are obtained from the displacement field by
+$L^2$ projections with mass matrices that are constant in the
+reference configuration. Pre-factorization at setup reduces each
+Newton iteration to a displacement-sized nonlinear solve, while the
+auxiliary fields preserve the spatial-discretization correctness
+properties (symmetry, traction continuity) through their conforming
+finite element spaces. Dynamic and quasi-static regimes use the same
+spatial formulation; the mass matrix enters only through the
+displacement block.
+
+
+\section{Continuum Formulation}
+\label{sec:continuum}
+
+Consider a body $B \subset \Reals^3$ undergoing a motion described
+by $~x = ~\varphi(~X, t): B \times [t_1, t_2] \rightarrow \Reals^3$,
+with deformation gradient $\F := \Grad ~\varphi$ and Jacobian
+$J := \det \F$. The boundary $\partial B$ with outward unit normal
+$~N$ is partitioned into a displacement boundary
+$\partial_\varphi B$ and a traction boundary $\partial_T B$.
+Prescribed boundary data are
+$~\chi : \partial_\varphi B \times [t_1, t_2] \rightarrow \Reals^3$
+and $~T : \partial_T B \times [t_1, t_2] \rightarrow \Reals^3$.
+Let $R : B \rightarrow \Reals$ be the reference mass density and
+$~B : B \times [t_1, t_2] \rightarrow \Reals^3$ the body force per
+unit mass.
+
+\subsection{Hencky Log-Strain and Kirchhoff Stress}
+\label{sec:hencky}
+
+Let $\C := \transpose{\F}\F$ be the right Cauchy--Green tensor. The
+material Hencky log-strain is
+\begin{equation}
+  \label{eq:hencky}
+  \eps := \tfrac{1}{2} \log \C \in \Syms,
+\end{equation}
+evaluated numerically by an inverse scaling-and-squaring Pad\'e
+approximant applied to $\C$. Its orthogonal
+volumetric--deviatoric decomposition is
+\begin{equation}
+  \label{eq:voldev-strain}
+  \eps = \tfrac{1}{3}\,\theta~I + \edev,
+  \qquad
+  \theta := \trace \eps = \log J,
+  \qquad
+  \edev := \dev \eps.
+\end{equation}
+The work-conjugate stress measure is the Kirchhoff stress
+$\btau$, symmetric and defined such that $\btau : \dot{\eps}$ equals the
+stress power per unit reference volume for isotropic material
+response. Its decomposition mirrors~\eqref{eq:voldev-strain}:
+\begin{equation}
+  \label{eq:voldev-stress}
+  \btau = p~I + \sdev,
+  \qquad
+  p := \tfrac{1}{3} \trace \btau,
+  \qquad
+  \sdev := \dev \btau.
+\end{equation}
+
+\subsection{Stored Energy and Constitutive Law}
+\label{sec:stored-energy}
+
+For isotropic hyperelasticity, the Helmholtz free-energy density is
+additively decomposable in the Hencky measure:
+\begin{equation}
+  \label{eq:W-split}
+  A(\eps) = W\supvol(\theta) + W\supdev(\edev),
+  \qquad
+  W\supvol(\theta) = \frac{\kappa}{2} \theta^2,
+  \qquad
+  W\supdev(\edev) = \mu \, \norm{\edev}^2,
+\end{equation}
+with $\mu$ the shear modulus and $\kappa$ the bulk modulus. The
+constitutive law is \emph{algebraically linear}:
+\begin{equation}
+  \label{eq:constitutive}
+  p = \frac{\partial W\supvol}{\partial \theta} = \kappa \theta,
+  \qquad
+  \sdev = \frac{\partial W\supdev}{\partial \edev} = 2\mu \edev.
+\end{equation}
+Extensions to elasto-plasticity replace~\eqref{eq:constitutive}$_2$ by
+\begin{equation}
+  \label{eq:constitutive-plastic}
+  \sdev = 2\mu \left( \edev - \edev^{\mathrm{p}} \right),
+\end{equation}
+with $\edev^{\mathrm{p}}$ the deviatoric plastic log-strain
+evolved by a $J_2$ radial return map described
+in~\S\ref{sec:plasticity}.
+
+\subsection{Five-Field Hu-Washizu Functional}
+\label{sec:hw-functional}
+
+Introduce independent strain fields $\thbar$ and $\ebar$, and
+enforce their equality with the pointwise kinematic fields
+$\theta(~\varphi)$ and $\edev(~\varphi)$ weakly through Lagrange
+multipliers $\pbar$ and $\sbar$. At a stationary point the
+multipliers coincide with the work-conjugate stress fields: the
+hydrostatic pressure and the deviatoric Kirchhoff stress,
+respectively. The Hu-Washizu functional is
+\begin{equation}
+  \label{eq:hw}
+  \begin{split}
+    \Phi[~\varphi, \thbar, \ebar, \pbar, \sbar] & :=
+    \int_B W\supvol(\thbar) \diff V
+    +
+    \int_B W\supdev(\ebar) \diff V
+    \\
+    & \quad
+    +
+    \int_B \pbar \left( \theta - \thbar \right) \diff V
+    +
+    \int_B \sbar : \left( \edev - \ebar \right) \diff V
+    \\
+    & \quad
+    -
+    \int_B R ~B \cdot ~\varphi \diff V
+    -
+    \int_{\partial_T B} ~T \cdot ~\varphi \diff S,
+  \end{split}
+\end{equation}
+with $\theta$ and $\edev$ understood as pointwise functions
+of $~\varphi$ through~\eqref{eq:hencky}--\eqref{eq:voldev-strain}.
+
+\subsection{Variations and Euler-Lagrange Equations}
+\label{sec:variations}
+
+Assume $~\varphi \in U := (W^1_2(B))^3$,
+$\thbar, \pbar \in Q := L^2(B)$,
+$\ebar \in V_e := H(\Curl; B; \Symsd)$, and
+$\sbar \in V_s := H(\Div; B; \Symsd)$, where $\Symsd$ denotes the space
+of symmetric trace-free second-order tensors. Test functions are
+$~\psi \in U$ with $~\psi = \mathbf{0}$ on
+$\partial_\varphi B$, $\vartheta, \pi \in Q$, $~\eta \in V_e$, and
+$~\xi \in V_s$. The variations of~\eqref{eq:hw} are
+\begin{equation}
+  \label{eq:variations}
+  \begin{split}
+    D_{~\varphi}\Phi(~\psi)
+    & =
+    \int_B \pbar \, \frac{\partial \theta}{\partial ~\varphi}[~\psi] \diff V
+    +
+    \int_B \sbar : \frac{\partial \edev}{\partial ~\varphi}[~\psi] \diff V
+    \\
+    & \quad
+    -
+    \int_B R ~B \cdot ~\psi \diff V
+    -
+    \int_{\partial_T B} ~T \cdot ~\psi \diff S
+    = 0,
+    \\
+    D_{\thbar}\Phi(\vartheta)
+    & =
+    \int_B \left( \frac{\partial W\supvol}{\partial \thbar} - \pbar \right) \vartheta \diff V
+    = 0,
+    \\
+    D_{\ebar}\Phi(~\eta)
+    & =
+    \int_B \left( \frac{\partial W\supdev}{\partial \ebar} - \sbar \right) : ~\eta \diff V
+    = 0,
+    \\
+    D_{\pbar}\Phi(\pi)
+    & =
+    \int_B \left( \theta - \thbar \right) \pi \diff V
+    = 0,
+    \\
+    D_{\sbar}\Phi(~\xi)
+    & =
+    \int_B \left( \edev - \ebar \right) : ~\xi \diff V
+    = 0.
+  \end{split}
+\end{equation}
+The two kinematic directional derivatives appearing
+in~\eqref{eq:variations}$_1$ admit the explicit forms
+\begin{equation}
+  \label{eq:kinematic-derivatives}
+  \frac{\partial \theta}{\partial ~\varphi}[~\psi]
+  =
+  \F^{-\mathrm{T}} : \Grad ~\psi,
+  \qquad
+  \frac{\partial \edev}{\partial ~\varphi}[~\psi]
+  =
+  \mathbb{L}\supdev(\C) : \sym\!\left(\transpose{\F}\Grad ~\psi\right),
+\end{equation}
+where $\mathbb{L}(\C) := \partial \log \C / \partial \C$ is the
+fourth-order Fr\'echet derivative of the matrix logarithm and
+$\mathbb{L}\supdev(\C) := \mathbb{L}(\C) - \tfrac{1}{3}\, ~I \otimes \C^{-1}$
+its deviatoric part. The volumetric expression is algorithm-free
+thanks to Jacobi's formula, while the deviatoric one requires a
+dedicated evaluation of $\mathbb{L}(\C)$; the derivation and a
+quadrature-point evaluation strategy are given
+in~\ref{app:variations}.
+
+The corresponding Euler-Lagrange equations are
+\begin{equation}
+  \label{eq:euler-lagrange}
+  \begin{split}
+    \Div \P + R ~B & = \mathbf{0} \quad \text{in} \quad B,
+    \quad
+    \P ~N = ~T \quad \text{on} \quad \partial_T B,
+    \\
+    \pbar & = \partial W\supvol / \partial \thbar = \kappa \thbar \quad \text{in} \quad B,
+    \\
+    \sbar & = \partial W\supdev / \partial \ebar = 2\mu \ebar \quad \text{in} \quad B,
+    \\
+    \thbar & = \log J \quad \text{in} \quad B,
+    \\
+    \ebar & = \dev \left[ \tfrac{1}{2} \log (\transpose{\F}\F) \right] \quad \text{in} \quad B,
+  \end{split}
+\end{equation}
+where $\P$ is the first Piola-Kirchhoff stress reconstructed from
+the independent fields as
+\begin{equation}
+  \label{eq:P-reconstruction}
+  \P = (\pbar ~I + \sbar) \, \F^{-\mathrm{T}}
+  \quad\text{(equivalently } \P = \btau \, \F^{-\mathrm{T}} \text{ with } \btau = \pbar ~I + \sbar \text{)},
+\end{equation}
+with $\btau = J ~\sigma$ the spatial Kirchhoff stress. Equivalently, in
+a formulation organized around the Kirchhoff measure, $\P$
+is obtained by the push-forward appropriate to the chosen
+work-conjugate pair.
+
+
+\section{Discretization}
+\label{sec:discretization}
+
+\subsection{Finite Element Spaces}
+\label{sec:fe-spaces}
+
+Introduce discretizations on a simplicial mesh of $B$:
+\begin{equation}
+  \label{eq:basis-functions}
+  \begin{split}
+    ~\varphi(~X) & := N_a(~X) ~\varphi_a \in U_h \subset U,
+    \\
+    \thbar(~X) & := \mu_m(~X) \, \thbar_m \in Q_{\theta,h} \subset Q,
+    \\
+    \ebar(~X) & := ~\lambda^e_\alpha(~X) \, \ebar_\alpha \in V_{e,h} \subset V_e,
+    \\
+    \pbar(~X) & := \mu_n(~X) \, \pbar_n \in Q_{p,h} \subset Q,
+    \\
+    \sbar(~X) & := ~\lambda^s_\beta(~X) \, \sbar_\beta \in V_{s,h} \subset V_s.
+  \end{split}
+\end{equation}
+At polynomial degree $k \geq 2$, a stable choice on tetrahedra is:
+\begin{itemize}
+  \item $N_a$: continuous barycentric polynomial of degree $k$ on the tetrahedron for the displacement;
+  \item $\mu_m, \mu_n$: discontinuous $L^2$ scalar of degree $k-1$
+    for $\thbar$ and $\pbar$;
+  \item $~\lambda^e_\alpha$: symmetric-tensor-valued basis for
+    $H(\Curl; \Symsd)$ of degree $k-1$ (e.g.\ Nédélec-type rows with
+    symmetry and trace-free constraints enforced algebraically);
+  \item $~\lambda^s_\beta$: symmetric-tensor-valued basis for
+    $H(\Div; \Symsd)$ of degree $k-1$, using the weakly-symmetric
+    construction of \citet{Arnold.Falk.Winther:2007} with a skew
+    multiplier in $L^2(B; \mathbb{K})$, or the strongly-symmetric
+    construction of \citet{Arnold.Awanou.Winther:2008}.
+\end{itemize}
+Under these choices the discrete formulation satisfies the relevant
+inf-sup stability conditions for the coupled Hu-Washizu system, with
+constants independent of the bulk-to-shear ratio up to the range
+$\kappa/\mu \lesssim 10^4$ relevant to the target problem class. Full
+incompressibility ($\kappa \rightarrow \infty$) is outside the scope
+of the present formulation.
+
+Two aspects of the space choice deserve comment: why $\thbar$ and
+$\pbar$ are \emph{allowed} to be discontinuous while $\ebar$ and
+$\sbar$ are not, and why the polynomial degrees in the four
+auxiliary slots are forced to $k-1$.
+
+\textit{Integrability versus stability.} The Sobolev regularity
+required of each auxiliary field must be addressed in two stages.
+First, the HW functional~\eqref{eq:hw} and its
+variations~\eqref{eq:variations} must be well-defined: none of the
+four auxiliary fields appears under a spatial derivative, so
+$L^2(B)$ is sufficient for integrability of every term (the volumetric
+energy $W\supvol(\thbar)$ depends on values only; the Lagrange
+pairings $\int \pbar(\theta - \thbar)$ and $\int \sbar:(\edev -
+\ebar)$ carry no derivatives on the auxiliary fields; and in the
+momentum variation~\eqref{eq:variations}$_1$ the gradient acts on
+the test function $~\psi$, not on $\pbar$ or $\sbar$). Integrability
+alone would therefore admit $L^2$ for all four. Second, however, the
+coupled saddle-point system must be \emph{inf-sup stable} uniformly
+in $h$ and in $\kappa/\mu$, and stability is a stronger requirement
+than integrability.
+
+Stability is inherited from the symmetric elasticity complex
+\begin{equation}
+  \label{eq:elasticity-complex}
+  H^1(B; \mathbb{R}^3)
+  \;\xrightarrow{\mathrm{sym}\,\Grad}\;
+  H(\Curl; B; \Syms)
+  \;\xrightarrow{\mathrm{inc}}\;
+  H(\Div; B; \Syms)
+  \;\xrightarrow{\Div}\;
+  L^2(B; \mathbb{R}^3)
+\end{equation}
+\citep{Arnold.Falk.Winther:2006a,Arnold.Falk.Winther:2010}, whose
+discrete counterpart admits cochain projections and a commuting
+diagram when, and only when, each field sits in the conformity
+dictated by its slot in the sequence. Consider, for reference, a
+three-field HW formulation in the primal fields
+$(~\varphi, \epsbar, \btaubar)$, where $\epsbar \in H(\Curl; \Syms)$
+and $\btaubar \in H(\Div; \Syms)$ are independent symmetric-tensor
+fields constrained only weakly to match $\eps(~\varphi)$ and
+$\btau(\epsbar)$ through Lagrange-multiplier couplings. Even though
+$\epsbar$ and $\btaubar$ are themselves independent, their
+volumetric traces $\theta = \tfrac{1}{3}\trace \epsbar$ and $p =
+\tfrac{1}{3}\trace \btaubar$ are \emph{embedded scalar components}
+of globally-coupled tensor fields: the tangential-continuity
+requirement on $\epsbar$ and the normal-continuity requirement on
+$\btaubar$ prevent these scalar components from being chosen
+independently in discontinuous $L^2$.
+
+In the five-field decomposition, by contrast, $\thbar$, $\ebar$,
+$\pbar$, $\sbar$ are introduced as \emph{independent} auxiliary
+fields, related to the trace and trace-free parts of $\eps$ and
+$\btau$ only weakly through the Lagrange-multiplier constraints.
+Peeling the trace parts out of the tensor fields severs their
+tensorial coupling: each auxiliary field is free to sit in
+whatever space is compatible with its own weak form, subject only
+to the inf-sup requirement of the coupled system. The stability of the coupled system then factors along the
+orthogonal volumetric--deviatoric split. The deviatoric part
+$(~\varphi, \ebar, \sbar)$ is governed by a symmetric elasticity
+complex restricted to the trace-free subspace $\Symsd$, which
+dictates $\ebar \in H(\Curl; \Symsd)$ and $\sbar \in H(\Div;
+\Symsd)$; here $L^2$ conformity is insufficient and admits
+spurious stress modes (the symmetric-tensor analog of
+$P_1$-$P_0$ checkerboarding). The volumetric part $(~\varphi,
+\thbar, \pbar)$ is governed by a Stokes-type mixed sub-problem
+(detailed below), whose stability is classical and is attained
+with discontinuous $L^2$ scalars of degree $k-1$. Discontinuous
+$L^2$ bases are therefore admissible for $\thbar$ and $\pbar$, and
+inadmissible for $\ebar$ and $\sbar$: not because the scalars stand
+outside the complex algebraically, but because treating them as
+independent fields in a Stokes-like sub-problem is what permits,
+and is then stabilized by, the weaker $L^2$ conformity.
+
+\textit{The volumetric sub-problem as a Stokes-type system.} By
+``Stokes-type mixed sub-problem'' we mean a saddle-point problem
+with a vector primal field in $H^1$, a scalar multiplier in $L^2$,
+and an inf-sup pairing of the form $\int q \,\mathcal{D} v$ where
+$\mathcal{D}$ is a first-order scalar differential operator on the
+primal. The classical Stokes problem
+\begin{equation}
+  \label{eq:stokes-classical}
+  -\mu \Delta u + \Grad p = f,
+  \qquad
+  \Div u = 0,
+\end{equation}
+is the prototype: $u \in H^1(B; \mathbb{R}^3)$, $p \in L^2(B)$, and
+$p$ enforces $\Div u = 0$ through the pairing $\int p \, \Div v$.
+Its stability is the Babu\v{s}ka--Brezzi condition
+\begin{equation}
+  \label{eq:babuska-brezzi}
+  \inf_{q \in L^2}\;\sup_{v \in H^1}\;
+  \frac{\int_B q \, \Div v \diff V}
+       {\norm{v}_{H^1} \norm{q}_{L^2}}
+  \;\geq\; \beta > 0,
+\end{equation}
+and the discrete pairs satisfying its analogue uniformly in $h$
+(Taylor--Hood $P_k$--$P_{k-1}$ continuous, $P_k$--$P_{k-1}$
+discontinuous, MINI, Crouzeix--Raviart) are classical.
+
+The volumetric sub-problem $(~\varphi, \thbar, \pbar)$ has
+the same skeleton, with three substitutions summarized in
+Table~\ref{tab:stokes-correspondence}.
+\begin{table}[h]
+  \centering
+  \begin{tabular}{@{}ll@{}}
+    \toprule
+    Classical Stokes & Volumetric sub-problem \\
+    \midrule
+    velocity $u \in H^1(B; \mathbb{R}^3)$ & $~\varphi \in H^1(B; \mathbb{R}^3)$ \\
+    pressure $p \in L^2(B)$ & $\pbar \in L^2(B)$ \\
+    constraint $\Div u = 0$ &
+      $\log J - \thbar = 0$ (via $\pbar$), $\kappa \thbar - \pbar = 0$ (via $\thbar$) \\
+    pairing $\int p\,\Div v$ &
+      $\int \pbar \, \F^{-\mathrm{T}}\!:\!\Grad ~\psi = \int \pbar\, \partial \theta / \partial ~\varphi [~\psi]$ \\
+    \bottomrule
+  \end{tabular}
+  \caption{Correspondence between the classical Stokes mixed
+    problem and the volumetric sub-problem of the SEC5L element.}
+  \label{tab:stokes-correspondence}
+\end{table}
+
+At $\F = ~I$ the pairing reduces to the classical Stokes pairing
+via $\F^{-\mathrm{T}}\!:\!\Grad ~\psi \to \Div ~\psi$, so the two
+problems coincide in the small-strain limit. Away from the
+reference configuration, the pairing is the nonlinear
+finite-deformation generalization, but the saddle-point structure,
+the role of $\pbar$ as scalar multiplier, and the inf-sup stability
+requirement are the same. Consequently the stable discrete pairs
+known for Stokes lift directly to the volumetric sub-problem: in
+particular, the $P_k$--$P_{k-1}$ discontinuous pair is inf-sup
+stable (uniformly in $h$, with a $\kappa/\mu$ dependence bounded on
+the target range) and justifies the discontinuous $L^2$ choice for
+$\thbar$ and $\pbar$ at degree $k-1$.
+
+No comparable classical result exists for the deviatoric sub-problem
+$(~\varphi, \ebar, \sbar)$: its stability relies on the AFW / Hu--Zhang
+finite-element exterior calculus for the symmetric elasticity complex,
+which is what forces the stronger $H(\Curl; \Symsd)$ and
+$H(\Div; \Symsd)$ conformities there.
+
+\textit{Determination of the polynomial degrees.} The degrees are
+not free either: on trimmed (Whitney / first-kind N\'ed\'elec)
+spaces each operator of the
+complex~\eqref{eq:elasticity-complex} drops one polynomial degree,
+so selecting continuous barycentric polynomials of degree $k$ for $~\varphi$
+forces the four auxiliary slots to degree $k-1$:
+\begin{equation}
+  \label{eq:degree-ladder}
+  \underbrace{k}_{~\varphi}
+  \;\xrightarrow{\mathrm{sym}\,\Grad}\;
+  \underbrace{k-1}_{\ebar}
+  \;\xrightarrow{\mathrm{inc}}\;
+  \underbrace{k-1}_{\sbar}
+  \;\xrightarrow{\Div}\;
+  \underbrace{k-1}_{\pbar,\thbar}.
+\end{equation}
+The scalar slots $\thbar, \pbar$ acquire degree $k-1$ because they
+are dual to, respectively, the trace of $\Grad ~\varphi$ (which is
+a degree-$(k-1)$ scalar) and itself. The choice $k=2$ is the
+lowest robust one: $k=1$ triggers the $P_1$-$P_0$ analog of the
+Stokes counterexample on tetrahedra and is generically
+inf-sup-unstable for mixed elasticity without enrichment, whereas
+$k=2$ yields linear-discontinuous scalar fields for $\thbar$ and
+$\pbar$ with inf-sup constants bounded independently of $h$ and of
+$\kappa/\mu$ on the range above.
+
+\subsection{Discrete Residuals}
+\label{sec:discrete-residuals}
+
+Substituting~\eqref{eq:basis-functions} into~\eqref{eq:variations}
+yields five discrete residual equations:
+\begin{equation}
+  \label{eq:discrete-residuals}
+  \begin{split}
+    ~R_{~\varphi;a} & :=
+    \int_B \pbar \, \frac{\partial \theta}{\partial ~\varphi_a} \diff V
+    +
+    \int_B \sbar : \frac{\partial \edev}{\partial ~\varphi_a} \diff V
+    \\
+    & \quad
+    -
+    \int_B R ~B \, N_a \diff V
+    -
+    \int_{\partial_T B} ~T \, N_a \diff S
+    = \mathbf{0},
+    \\
+    R_{\thbar;m} & :=
+    \int_B \mu_m \left( \kappa \thbar - \pbar \right) \diff V
+    = 0,
+    \\
+    ~R_{\ebar;\alpha} & :=
+    \int_B ~\lambda^e_\alpha : \left( 2\mu \ebar - \sbar \right) \diff V
+    = \mathbf{0},
+    \\
+    R_{\pbar;n} & :=
+    \int_B \mu_n \left( \theta(~\varphi) - \thbar \right) \diff V
+    = 0,
+    \\
+    ~R_{\sbar;\beta} & :=
+    \int_B ~\lambda^s_\beta : \left( \edev(~\varphi) - \ebar \right) \diff V
+    = \mathbf{0}.
+  \end{split}
+\end{equation}
+The kinematic derivatives in~\eqref{eq:discrete-residuals}$_1$
+follow from~\eqref{eq:kinematic-derivatives} by taking
+$~\psi = N_a ~\psi_a$ and isolating the DOF direction
+$~\psi_a$:
+\begin{equation}
+  \label{eq:kinematic-derivatives-discrete}
+  \frac{\partial \theta}{\partial ~\varphi_a}
+  =
+  \F^{-\mathrm{T}} \Grad N_a,
+  \qquad
+  \frac{\partial \edev}{\partial ~\varphi_a}
+  =
+  \mathbb{L}\supdev(\C) : \sym\!\left(\F \otimes^s \Grad N_a\right),
+\end{equation}
+where $\F^{-\mathrm{T}} \Grad N_a \in \mathbb{R}^3$ is the
+volumetric B-vector and
+$(\F \otimes^s \Grad N_a)_{ijk} :=
+\tfrac{1}{2}\left(F_{ij} N_{a,k} + F_{ik} N_{a,j}\right) \in \Syms \otimes
+\mathbb{R}^3$ is the deviatoric B-tensor, both local to node $a$
+and evaluated quadrature-point-wise.
+
+\subsection{Projection Structure}
+\label{sec:projection}
+
+The four auxiliary equations~\eqref{eq:discrete-residuals}$_{2-5}$
+are each $L^2$ projections from pointwise quantities onto the
+corresponding finite element subspace. Define the constant mass
+operators in the reference configuration:
+\begin{equation}
+  \label{eq:mass-matrices}
+  \begin{split}
+    \left[M_\theta\right]_{mn} & := \int_B \mu_m \mu_n \diff V,
+    \qquad
+    \left[M_e\right]_{\alpha\beta} := \int_B ~\lambda^e_\alpha : ~\lambda^e_\beta \diff V,
+    \\
+    \left[M_p\right]_{mn} & := \int_B \mu_m \mu_n \diff V,
+    \qquad
+    \left[M_s\right]_{\alpha\beta} := \int_B ~\lambda^s_\alpha : ~\lambda^s_\beta \diff V.
+  \end{split}
+\end{equation}
+The discrete auxiliary fields are recovered from $~\varphi$ by
+solving four linear projections with pre-factored constant SPD
+matrices:
+\begin{equation}
+  \label{eq:projections}
+  \begin{split}
+    M_\theta \cdot \left\{\thbar\right\}_{\mathrm{dof}}
+    & =
+    \int_B \mu_m \log J(~\varphi) \diff V,
+    \\
+    M_e \cdot \left\{\ebar\right\}_{\mathrm{dof}}
+    & =
+    \int_B ~\lambda^e_\alpha : \edev(~\varphi) \diff V,
+    \\
+    M_p \cdot \left\{\pbar\right\}_{\mathrm{dof}}
+    & =
+    \int_B \mu_m \, \kappa \log J(~\varphi) \diff V,
+    \\
+    M_s \cdot \left\{\sbar\right\}_{\mathrm{dof}}
+    & =
+    \int_B ~\lambda^s_\alpha : \left[2\mu \, \edev(~\varphi) - 2\mu \, \edev^{\mathrm{p}}\right] \diff V.
+  \end{split}
+\end{equation}
+In a total-Lagrangian setting the mass matrices in
+\eqref{eq:mass-matrices} are independent of $~\varphi$ and of time;
+a single factorization at setup (block-diagonal per element for
+discontinuous $L^2$ fields, sparse and globally coupled for
+conforming $H(\Curl)$ and $H(\Div)$ fields) serves every Newton
+iteration of every time step.
+
+Substituting the projected auxiliary fields
+into~\eqref{eq:discrete-residuals}$_1$ collapses the five-field
+system to a single discrete statement in $~\varphi$ alone:
+\begin{equation}
+  \label{eq:reduced-statement}
+  \begin{split}
+    ~R_a(~\varphi) & :=
+    \int_B \pbar(~\varphi) \, \frac{\partial \theta}{\partial ~\varphi_a} \diff V
+    +
+    \int_B \sbar(~\varphi) : \frac{\partial \edev}{\partial ~\varphi_a} \diff V
+    \\
+    & \quad
+    -
+    \int_B R ~B \, N_a \diff V
+    -
+    \int_{\partial_T B} ~T \, N_a \diff S
+    = \mathbf{0},
+  \end{split}
+\end{equation}
+in which $\pbar(~\varphi)$ and $\sbar(~\varphi)$ are understood as
+the evaluations of the projections~\eqref{eq:projections} applied at
+the current $~\varphi$. The coupling to $\thbar(~\varphi)$ and
+$\ebar(~\varphi)$ enters implicitly through the plastic
+update~\eqref{eq:constitutive-plastic} and through the kinematic
+dependence of $\eps(~\varphi)$ on $~\varphi$; in the reduced
+statement~\eqref{eq:reduced-statement} these fields are used only
+to supply the stress fields needed for equilibrium.
+
+
+\section{Newton Solution}
+\label{sec:newton}
+
+\subsection{Linearization}
+\label{sec:linearization}
+
+The reduced residual~\eqref{eq:reduced-statement} is a nonlinear
+function of $~\varphi$ alone. A Newton iteration computes
+$\triangle ~\varphi$ from
+\begin{equation}
+  \label{eq:newton}
+  ~R_a(~\varphi_n) + ~K_{ab} \cdot \triangle ~\varphi_b = \mathbf{0},
+  \qquad
+  ~\varphi_{n+1} = ~\varphi_n + \triangle ~\varphi,
+\end{equation}
+with tangent
+\begin{equation}
+  \label{eq:tangent}
+  ~K_{ab}
+  :=
+  \frac{\partial ~R_a}{\partial ~\varphi_b}
+  =
+  ~K^{\mathrm{mat}}_{ab}
+  +
+  ~K^{\mathrm{geom}}_{ab},
+\end{equation}
+where the material tangent assembles contributions from both
+independent stress fields through the chain rule of the projections:
+\begin{equation}
+  \label{eq:material-tangent}
+  \begin{split}
+    ~K^{\mathrm{mat}}_{ab}
+    & =
+    \int_B
+    \frac{\partial \eps(~X)}{\partial ~\varphi_a}
+    :
+    \left[
+      \kappa\, \mathcal{P}_{p} \, ~I \otimes ~I
+      +
+      2\mu \, \mathcal{P}_{s} \, \mathcal{P}_{\dev}
+    \right]
+    :
+    \frac{\partial \eps(~X)}{\partial ~\varphi_b}
+    \diff V,
+  \end{split}
+\end{equation}
+in which $\mathcal{P}_p$ and $\mathcal{P}_s$ denote the $L^2$
+projection operators onto $Q_{p,h}$ and $V_{s,h}$ respectively, and
+$\mathcal{P}_{\dev}$ is the algebraic projector onto deviatoric
+tensors. The geometric tangent $~K^{\mathrm{geom}}_{ab}$ arises from
+the nonlinear dependence of $\eps$ on $\F$ through the matrix
+logarithm and is obtained analytically via the Fr\'echet derivative
+$\mathbb{L}(\C) = \partial \log\C / \partial \C$, evaluated by the
+hybrid algorithm of \citet{Ortiz.Radovitzky.Repetto:2001}.
+
+The effective tangent is pre-factorized at setup (for the parts of
+the projections that are constant in the reference configuration)
+and assembled at each Newton iteration. The global nonlinear system
+solved in~\eqref{eq:newton} is sized by the displacement degrees of
+freedom only.
+
+\subsection{Dynamic Extension}
+\label{sec:dynamics}
+
+For transient analyses, the momentum balance in
+\eqref{eq:euler-lagrange}$_1$ is augmented by the inertial term:
+\begin{equation}
+  \label{eq:dynamic-momentum}
+  R \, \ddot{~\varphi} - \Div \P = R ~B.
+\end{equation}
+The auxiliary fields $\thbar$, $\ebar$, $\pbar$, $\sbar$ carry no
+time derivatives: their weak statements are algebraic constraints at
+each instant. Consequently the mass matrix
+\begin{equation}
+  \label{eq:mass}
+  \left[M_{~\varphi}\right]_{ab}
+  :=
+  \int_B R \, N_a N_b \diff V
+\end{equation}
+is concentrated in the displacement block, and the semi-discrete
+system is a differential-algebraic system of index one. Standard
+Newmark-$\beta$ or Hilber-Hughes-Taylor integration applied to the
+reduced equation~\eqref{eq:reduced-statement} with the mass
+term~\eqref{eq:mass} proceeds identically as in single-field
+dynamics. The auxiliary-field projections~\eqref{eq:projections} are
+executed at each quadrature point evaluation of the residual and
+tangent, using the current $~\varphi$.
+
+
+\section{Plasticity Extension}
+\label{sec:plasticity}
+
+For isotropic $J_2$ plasticity with isotropic hardening, the
+Helmholtz free energy~\eqref{eq:W-split} is modified to depend on
+the elastic deviatoric log-strain
+$\edev^{\mathrm{e}} := \ebar - \edev^{\mathrm{p}}$
+and the equivalent plastic strain $\bar\epsilon^{\mathrm{p}}$:
+\begin{equation}
+  \label{eq:W-plastic}
+  A(\thbar, \ebar, \edev^{\mathrm{p}}, \bar\epsilon^{\mathrm{p}})
+  =
+  \tfrac{\kappa}{2} \thbar^2
+  +
+  \mu \norm{\ebar - \edev^{\mathrm{p}}}^2
+  +
+  \mathcal{H}(\bar\epsilon^{\mathrm{p}}),
+\end{equation}
+with $\mathcal{H}$ the hardening potential. The yield function is
+\begin{equation}
+  \label{eq:yield}
+  f(\sbar, \bar\epsilon^{\mathrm{p}})
+  :=
+  \norm{\sbar}
+  -
+  \sqrt{\tfrac{2}{3}} \left[\sigma_y + \mathcal{H}'(\bar\epsilon^{\mathrm{p}})\right].
+\end{equation}
+The return map is applied at each quadrature point between the
+kinematic evaluation of $\edev(~\varphi)$ and the projection onto
+$V_{s,h}$, reproducing the small-strain radial return of
+\citet{Simo:1992}:
+\begin{equation}
+  \label{eq:return-map}
+  \begin{split}
+    \edev^{\mathrm{trial}}
+    & := \edev(~\varphi)
+        - \edev^{\mathrm{p}}_{n},
+    \\
+    \sdev^{\mathrm{trial}}
+    & := 2\mu \, \edev^{\mathrm{trial}},
+    \\
+    \triangle \gamma
+    & :=
+    \frac{\norm{\sdev^{\mathrm{trial}}} - \sqrt{2/3}\,[\sigma_y + \mathcal{H}'(\bar\epsilon^{\mathrm{p}}_{n})]}
+         {2\mu + \tfrac{2}{3} \mathcal{H}''(\bar\epsilon^{\mathrm{p}}_{n})}
+    \quad\text{if } f^{\mathrm{trial}} > 0,
+    \quad \triangle\gamma := 0 \text{ otherwise},
+    \\
+    ~n & := \sdev^{\mathrm{trial}} / \norm{\sdev^{\mathrm{trial}}},
+    \\
+    \edev^{\mathrm{p}}_{n+1}
+    & := \edev^{\mathrm{p}}_{n} + \triangle \gamma \, ~n,
+    \\
+    \bar\epsilon^{\mathrm{p}}_{n+1}
+    & := \bar\epsilon^{\mathrm{p}}_{n} + \sqrt{\tfrac{2}{3}}\,\triangle \gamma,
+    \\
+    \sdev^{\mathrm{pointwise}}
+    & := 2\mu \left( \edev(~\varphi) - \edev^{\mathrm{p}}_{n+1} \right).
+  \end{split}
+\end{equation}
+The pointwise updated $\sdev^{\mathrm{pointwise}}$ is then
+projected onto $V_{s,h}$ via~\eqref{eq:projections}$_4$. Plastic
+internal variables $\edev^{\mathrm{p}}$ and
+$\bar\epsilon^{\mathrm{p}}$ are stored at quadrature points and
+evolved pointwise; they are never projected, preserving the
+exactness of the return map. The Lie-group/log-exp interpolation
+scheme of \citet{Mota.etal:2013} applies when the internal variables
+themselves are tensorial quantities requiring frame-indifferent
+interpolation across quadrature.
+
+
+\section{Discussion}
+\label{sec:discussion}
+
+The SEC5L element inherits three structural properties from its
+symmetric-elasticity-complex foundation that distinguish it from the
+composite tetrahedron:
+\begin{enumerate}
+  \item \textbf{Pointwise discrete symmetry of stress.} The
+    independent stress field $\sbar$ lives in
+    $H(\Div; \Symsd)$, so its symmetry is a property of the finite
+    element space rather than of the constitutive law. This
+    eliminates the cross-space aliasing between strain and stress
+    fields that was observed to corrupt the equivalent plastic
+    strain in stabilized displacement formulations.
+  \item \textbf{Normal-traction continuity.} The $H(\Div)$
+    conformity of $\sbar$ ensures that the normal component of
+    the traction field is continuous across element faces. In
+    regimes with large bulk-to-shear ratio, this continuity
+    suppresses pressure checkerboarding that would otherwise
+    develop with discontinuous stress representations.
+  \item \textbf{Algebraically linear constitutive relation.} The
+    Hencky--Kirchhoff pairing renders the constitutive law
+    \eqref{eq:constitutive} linear in log-strain space. The
+    $J_2$ return map~\eqref{eq:return-map} is identical in form to
+    the small-strain case of \citet{Simo:1992}; no iteration is
+    required beyond the closed-form projection. All
+    finite-deformation nonlinearity is confined to the kinematic
+    evaluation $\eps = \tfrac{1}{2}\log(\transpose{\F}\F)$ and the
+    push-forward in~\eqref{eq:P-reconstruction}.
+\end{enumerate}
+The projection-and-eliminate architecture combines these structural
+properties with a linear-algebra cost commensurate with a
+single-field displacement formulation. Pre-factorization of the
+four constant mass matrices~\eqref{eq:mass-matrices} at setup
+amortizes their cost over all Newton iterations of all time steps;
+each iteration incurs only four forward-solves (fast against
+pre-factored SPD operators) beyond the dominant displacement Newton
+solve.
+
+Future work will address the implementation of
+\begin{itemize}
+  \item symmetric-tensor-valued conforming bases on tetrahedra in the
+    \texttt{ReferenceFiniteElements.jl} library
+    \citep{Cthonios:RFE};
+  \item multi-field assembly with discontinuous $L^2$ and conforming
+    $H(\Curl)$, $H(\Div)$ spaces in
+    \texttt{FiniteElementContainers.jl} \citep{Cthonios:FEC};
+  \item verification on canonical problems on which the composite
+    tetrahedron is known to exhibit degraded performance, including
+    a three-dimensional Cook's membrane at large deformation,
+    contact-driven punch indentation, large-rotation twist of a
+    prismatic bar, and the spherical cavity expansion benchmark
+    appropriate to the high-bulk-modulus regime.
+\end{itemize}
+Verification of the inf-sup stability constants on these meshes is
+a prerequisite for quantitative assessment. Extension to
+incrementally objective integration of anisotropic plastic response
+through the multiplicative decomposition $\F = \F^{\mathrm{e}} \F^{\mathrm{p}}$,
+in which the Hencky--Kirchhoff conjugacy is no longer exact, is
+deferred to a subsequent formulation on the gradient elasticity
+complex with independent non-symmetric displacement-gradient and
+first-Piola-Kirchhoff-stress fields.
+
+
+\appendix
+
+\section{Variations of the Kinematic Relation}
+\label{app:variations}
+
+This appendix makes explicit the directional derivatives
+$\partial \theta / \partial ~\varphi$ and
+$\partial \edev / \partial ~\varphi$ appearing in the displacement
+variation~\eqref{eq:variations}$_1$. The derivation is a chain of
+elementary steps expressed through the operators $\trace$, $\vol$,
+and $\dev$, with only one non-elementary ingredient: the
+fourth-order Fr\'echet derivative of the matrix logarithm
+$\mathbb{L}(\C) := \partial \log \C / \partial \C$, whose evaluation
+by the hybrid Taylor--spectral algorithm of
+\citet{Ortiz.Radovitzky.Repetto:2001} is the subject of a separate
+kernel that is here treated as a primitive.
+
+\subsection{Chain of Partial Derivatives}
+\label{app:chain}
+
+The kinematic relation
+$\eps(~\varphi) = \tfrac{1}{2} \log(\transpose{\F} \F)$ composes four
+maps:
+\begin{equation}
+  \label{eq:app-composition}
+  ~\varphi
+  \;\stackrel{\Grad}{\longmapsto}\;
+  \F
+  \;\stackrel{\transpose{(\cdot)}(\cdot)}{\longmapsto}\;
+  \C
+  \;\stackrel{\tfrac{1}{2}\log}{\longmapsto}\;
+  \eps
+  \;\stackrel{\{\trace,\,\dev\}}{\longmapsto}\;
+  (\theta, \edev).
+\end{equation}
+Applied to a test function $~\psi \in U$ with
+$~\psi|_{\partial_\varphi B} = \mathbf{0}$, each link contributes a
+directional derivative:
+\begin{subequations}
+  \label{eq:app-links}
+  \begin{align}
+    D_{~\varphi}\F[~\psi]
+      & = \Grad ~\psi,
+      \label{eq:app-dF}
+    \\
+    D_{\F}\C[\Grad ~\psi]
+      & = \transpose{(\Grad ~\psi)}\F + \transpose{\F}\Grad ~\psi
+        = 2 \sym\!\left(\transpose{\F}\Grad ~\psi\right),
+      \label{eq:app-dC}
+    \\
+    D_{\C}\eps[\delta \C]
+      & = \tfrac{1}{2}\,\mathbb{L}(\C) : \delta \C.
+      \label{eq:app-deps}
+  \end{align}
+\end{subequations}
+Both minor symmetries of $\mathbb{L}(\C)$ follow from symmetry of
+$\C$; consequently
+$\mathbb{L}(\C) : A = \mathbb{L}(\C) : \sym A$ for any $A$.
+
+Composing~\eqref{eq:app-dF}--\eqref{eq:app-deps} gives the total
+directional derivative of the Hencky strain:
+\begin{equation}
+  \label{eq:app-deps-total}
+  \frac{\partial \eps}{\partial ~\varphi}[~\psi]
+  =
+  \mathbb{L}(\C) : \sym\!\left(\transpose{\F}\Grad ~\psi\right).
+\end{equation}
+Its volumetric and deviatoric parts are then obtained by the trace
+and deviator projections.
+
+\subsection{Trace Identity for the Log-Derivative}
+\label{app:trace-identity}
+
+The volumetric projection of the strain derivative reduces to a
+classical identity that does not require any eigenvalue information
+about $\C$. We derive it here in three steps so that the appearance
+of $\C^{-1}$ (and, through $\F\C^{-1} = \F^{-\mathrm{T}}$, of
+$\F^{-\mathrm{T}}$) in the volumetric variation is transparent.
+
+\textit{Jacobi's formula.} For any invertible second-order tensor
+$~A$, the derivative of the determinant with respect to its
+argument is
+\begin{equation}
+  \label{eq:app-jacobi}
+  \frac{\partial \det ~A}{\partial ~A}
+  =
+  (\det ~A)\,~A^{-\mathrm{T}}.
+\end{equation}
+Applying the chain rule to the composition $~A \mapsto \det ~A
+\mapsto \log \det ~A$, the outer derivative
+$\mathrm{d}(\log x)/\mathrm{d}x = 1/x$ evaluated at $x = \det ~A$
+contributes a factor $1/\det ~A$ that cancels the $\det ~A$
+in~\eqref{eq:app-jacobi}:
+\begin{equation}
+  \label{eq:app-jacobi-log}
+  \frac{\partial \log \det ~A}{\partial ~A}
+  =
+  \frac{1}{\det ~A}\,\frac{\partial \det ~A}{\partial ~A}
+  =
+  \frac{1}{\det ~A}\,(\det ~A)\,~A^{-\mathrm{T}}
+  =
+  ~A^{-\mathrm{T}}.
+\end{equation}
+Specializing to the symmetric positive-definite $\C$, where
+$\C^{-\mathrm{T}} = \C^{-1}$, gives the form used below:
+\begin{equation}
+  \label{eq:app-jacobi-C}
+  \frac{\partial \log \det \C}{\partial \C}
+  =
+  \C^{-1}.
+\end{equation}
+
+\textit{Trace--logarithm identity.} For any symmetric positive-definite
+$\C$,
+\begin{equation}
+  \label{eq:app-trlog}
+  \trace \log \C
+  =
+  \log \det \C.
+\end{equation}
+This follows from the spectral representation: if
+$\C = \sum_{i} \lambda_{i}\, ~N_{i} \otimes ~N_{i}$ with
+$\lambda_{i} > 0$, then
+$\trace \log \C = \sum_{i} \log \lambda_{i}
+ = \log \prod_{i} \lambda_{i} = \log \det \C$.
+The identity is independent of eigenvalue multiplicities and thus
+robust to coalescence.
+
+\textit{Contraction of $\mathbb{L}(\C)$ with the identity.} By
+definition $\mathbb{L}(\C) = \partial \log \C / \partial \C$, and
+differentiation commutes with the (constant-coefficient) trace
+operator, so
+\begin{equation}
+  \label{eq:app-trL-step}
+  ~I : \mathbb{L}(\C)
+  =
+  \trace \left( \frac{\partial \log \C}{\partial \C} \right)
+  =
+  \frac{\partial\, \trace \log \C}{\partial \C}.
+\end{equation}
+Combining~\eqref{eq:app-trL-step} with~\eqref{eq:app-trlog}
+and~\eqref{eq:app-jacobi-C} yields the trace identity
+\begin{equation}
+  \label{eq:app-trL}
+  ~I : \mathbb{L}(\C)
+  =
+  \frac{\partial \trace \log \C}{\partial \C}
+  =
+  \frac{\partial \log \det \C}{\partial \C}
+  =
+  \C^{-1}.
+\end{equation}
+Equation~\eqref{eq:app-trL} is a structural property of the matrix
+logarithm: it holds pointwise for every symmetric positive-definite
+$\C$, independently of the particular algorithm used to evaluate
+$\mathbb{L}(\C)$. In particular, the hybrid Taylor--spectral scheme
+of~\citet{Ortiz.Radovitzky.Repetto:2001} satisfies this identity
+exactly in both of its branches, so the volumetric part of the
+variation is always recovered in closed form as $\C^{-1}$ and does
+not inherit any of the ill-conditioning associated with eigenvalue
+coalescence.
+
+\subsection{Volumetric Part}
+\label{app:volumetric}
+
+Applying $\trace$ to~\eqref{eq:app-deps-total} and
+using~\eqref{eq:app-trL},
+\begin{equation}
+  \label{eq:app-dtheta}
+  \begin{split}
+  \frac{\partial \theta}{\partial ~\varphi}[~\psi]
+  & =
+  \trace\!\left\{
+    \frac{\partial \eps}{\partial ~\varphi}[~\psi]
+  \right\}
+  =
+  \left[~I : \mathbb{L}(\C)\right]
+  :
+  \sym\!\left(\transpose{\F}\Grad ~\psi\right)
+  \\
+  & =
+  \C^{-1} : \sym\!\left(\transpose{\F}\Grad ~\psi\right)
+  =
+  \C^{-1} : \transpose{\F}\Grad ~\psi
+  =
+  \F^{-\mathrm{T}} : \Grad ~\psi,
+  \end{split}
+\end{equation}
+where the penultimate step drops the $\sym$ because $\C^{-1}$ is
+itself symmetric. The last equality follows from moving
+$\transpose{\F}$ across the double contraction and then simplifying
+$\F \C^{-1}$. Using the standard identity
+$~A : (~B \, ~C) = (\transpose{~B} \, ~A) : ~C$ with
+$~A = \C^{-1}$, $~B = \transpose{\F}$, and
+$~C = \Grad ~\psi$,
+\begin{equation}
+  \label{eq:app-dtheta-step}
+  \C^{-1} : \transpose{\F}\Grad ~\psi
+  =
+  \left(\F \C^{-1}\right) : \Grad ~\psi,
+\end{equation}
+and the product $\F \C^{-1}$ collapses by direct algebra:
+\begin{equation}
+  \label{eq:app-FCinv}
+  \F \C^{-1}
+  =
+  \F \left(\transpose{\F}\F\right)^{-1}
+  =
+  \F \, \F^{-1} \F^{-\mathrm{T}}
+  =
+  \F^{-\mathrm{T}}.
+\end{equation}
+Substituting~\eqref{eq:app-FCinv} into~\eqref{eq:app-dtheta-step}
+gives the last equality in~\eqref{eq:app-dtheta}. The volumetric
+tensor part of the strain variation is then
+$\vol(\delta \eps) = \tfrac{1}{3}\,\delta \theta\, ~I$.
+
+Equation~\eqref{eq:app-dtheta} recovers the classical identity
+$\partial \log J / \partial \F = \F^{-\mathrm{T}}$ from within the
+log-strain framework. In the reduced residual, this means that the
+pressure term $\int_B \pbar\,(\partial \theta / \partial ~\varphi)$
+reduces to $\int_B \pbar\, \F^{-\mathrm{T}} : \Grad ~\psi$, a form
+that requires neither the full $\mathbb{L}(\C)$ nor its spectral
+decomposition.
+
+\subsection{Deviatoric Part}
+\label{app:deviatoric}
+
+Applying $\dev = \mathrm{id} - \vol$ to~\eqref{eq:app-deps-total},
+\begin{equation}
+  \label{eq:app-de}
+  \begin{split}
+  \frac{\partial \edev}{\partial ~\varphi}[~\psi]
+  & =
+  \dev\!\left\{
+    \frac{\partial \eps}{\partial ~\varphi}[~\psi]
+  \right\}
+  =
+  \frac{\partial \eps}{\partial ~\varphi}[~\psi]
+  -
+  \tfrac{1}{3}\,
+  \frac{\partial \theta}{\partial ~\varphi}[~\psi]\, ~I
+  \\
+  & =
+  \mathbb{L}(\C) : \sym\!\left(\transpose{\F}\Grad ~\psi\right)
+  -
+  \tfrac{1}{3}\left(\F^{-\mathrm{T}} : \Grad ~\psi\right)~I.
+  \end{split}
+\end{equation}
+Equivalently, introducing the deviatoric log-derivative
+\begin{equation}
+  \label{eq:app-Ldev}
+  \mathbb{L}\supdev(\C)
+  :=
+  \mathbb{L}(\C) - \tfrac{1}{3}\, ~I \otimes \C^{-1},
+\end{equation}
+the deviatoric variation has the one-line form
+\begin{equation}
+  \label{eq:app-de-compact}
+  \frac{\partial \edev}{\partial ~\varphi}[~\psi]
+  =
+  \mathbb{L}\supdev(\C) : \sym\!\left(\transpose{\F}\Grad ~\psi\right).
+\end{equation}
+By construction $~I : \mathbb{L}\supdev(\C) = \mathbf{0}$, so the
+range of~\eqref{eq:app-de-compact} is trace-free, matching the space
+$\Symsd$ of $\edev$.
+
+\textit{No further analytical reduction.} The contrast between the
+volumetric and deviatoric branches is structural. In~\ref{app:volumetric},
+the fourth-order $\mathbb{L}(\C)$ never appears in the final
+expression: the volumetric projection is the contraction
+$~I : \mathbb{L}(\C)$, and that contraction coincides with
+$\partial \log \det \C / \partial \C$, which has the closed form
+$\C^{-1}$ by Jacobi's formula~\eqref{eq:app-jacobi-log}. The
+volumetric part thus bypasses the eigenstructure of $\C$ entirely.
+In~\eqref{eq:app-de-compact}, by contrast, the deviatoric projection
+only removes from $\mathbb{L}(\C)$ the single piece already known in
+closed form; the remainder of $\mathbb{L}(\C)$ encodes the full
+fourth-order information of the matrix-logarithm derivative and has
+no closed form in general, since it depends on the divided
+differences $(\log \lambda_i - \log \lambda_j)/(\lambda_i - \lambda_j)$
+of the eigenvalues of $\C$. The deviatoric branch therefore always
+requires a dedicated evaluation of $\mathbb{L}(\C)$ ---~e.g.\ the
+hybrid Taylor--spectral algorithm
+of~\citet{Ortiz.Radovitzky.Repetto:2001} ---~and is the branch that
+inherits the eigenvalue-coalescence issue. This asymmetry motivates
+handling the volumetric and deviatoric parts with different
+quadrature-point routines rather than a single monolithic evaluation
+of $\mathbb{L}(\C)$.
+
+An eigenvalue-free alternative is the Pad\'e--Fr\'echet algorithm
+of~\citet{AlMohy.Higham.Relton:2013}, which extends the inverse
+scaling-and-squaring Pad\'e framework already invoked
+in~\eqref{eq:hencky} for $\log\C$ to produce the Fr\'echet
+derivative $L_{\log}(\C, ~E)$ in the same sweep, propagating the
+direction $~E$ through the Sylvester equations of the square-root
+chain and through the Pad\'e kernel. Applied to each of the six
+symmetric basis directions on $\Syms$, the algorithm assembles the
+full fourth-order $\mathbb{L}(\C)$ without any eigendecomposition,
+removing the coalescence branch entirely and unifying the numerical
+treatment of $\log\C$ and $\partial \log\C / \partial \C$ under a
+single kernel.
+
+\subsection{Computational Summary}
+\label{app:summary}
+
+At each quadrature point of the residual
+assembly~\eqref{eq:discrete-residuals}$_1$ the evaluation proceeds in
+five steps:
+\begin{enumerate}
+  \item Kinematics: $\F = \Grad ~\varphi_h$,
+    $\C = \transpose{\F}\F$, $\F^{-\mathrm{T}}$.
+  \item (Optionally) spectral decomposition of $\C$, skipped when
+    $\norm{\C - ~I}$ falls below the Taylor threshold of
+    \citet{Ortiz.Radovitzky.Repetto:2001}.
+  \item Evaluation of $\mathbb{L}(\C)$ by the hybrid algorithm
+    (spectral branch or Taylor recurrence).
+  \item For each displacement basis $N_a$ and direction
+    $~e_i$, with $G_{a,i} := \Grad(N_a\, ~e_i)$:
+    \begin{align*}
+      \delta\theta_{a,i}
+        & =
+        \F^{-\mathrm{T}} : G_{a,i},
+      \\
+      \delta\eps_{a,i}
+        & =
+        \mathbb{L}(\C) : \sym\!\left(\transpose{\F}\, G_{a,i}\right),
+      \\
+      \delta\edev_{a,i}
+        & =
+        \delta\eps_{a,i}
+        -
+        \tfrac{1}{3}\,\delta\theta_{a,i}\, ~I.
+    \end{align*}
+  \item Contraction with the stress fields:
+    $(\pbar\, ~I + \sbar) : \delta\eps_{a,i}
+    = \pbar\,\delta\theta_{a,i} + \sbar : \delta\edev_{a,i}$,
+    consistent with the orthogonal
+    split~\eqref{eq:voldev-strain}--\eqref{eq:voldev-stress}.
+\end{enumerate}
+The volumetric and deviatoric variations share a single evaluation
+of $\mathbb{L}(\C)$; no separate constitutive-level call is required
+for the trace, which is obtained from $\F^{-\mathrm{T}}$ alone. The
+only object that depends on the kinematic state at the current
+Newton iterate is $\mathbb{L}(\C)$ itself.
+
+
+\section{The Symmetric Elasticity Complex}
+\label{app:sec}
+
+This appendix collects the structural background behind the
+complex~\eqref{eq:elasticity-complex}. The goal is operational: to
+identify each operator, its kernel, its range, and its interaction
+with the orthogonal volumetric--deviatoric split
+$\Syms = \Syms\supvol \oplus \Symsd$ that organizes the five-field
+formulation.
+
+\subsection{The de Rham Complex and its Tensorial Lift}
+\label{app:sec-derham}
+
+On a bounded, simply-connected, Lipschitz domain
+$B \subset \Reals^3$, the scalar de Rham complex
+\begin{equation}
+  \label{eq:app-derham}
+  \Reals
+  \;\xrightarrow{\iota}\;
+  H^1(B)
+  \;\xrightarrow{\Grad}\;
+  H(\Curl; B)
+  \;\xrightarrow{\Curl}\;
+  H(\Div; B)
+  \;\xrightarrow{\Div}\;
+  L^2(B)
+  \;\xrightarrow{0}\; 0
+\end{equation}
+is exact: $\Curl \circ \Grad = 0$, $\Div \circ \Curl = 0$, and the
+kernel of each operator coincides with the range of its predecessor.
+Exactness encodes the classical vector-calculus identities
+(``$\Curl$-free implies gradient,'' ``$\Div$-free implies curl'') as
+statements about the kernels and ranges of differential operators
+between Sobolev spaces.
+
+The symmetric elasticity complex is the symmetric-tensor analog
+of~\eqref{eq:app-derham}. The Bernstein--Gel'fand--Gel'fand (BGG)
+construction of~\citet{Arnold.Falk.Winther:2006a,
+Arnold.Falk.Winther:2010} couples a scalar de Rham complex with a
+vector-valued one through an algebraic projection, resolving the
+resulting double complex to yield
+\begin{equation}
+  \label{eq:app-sec}
+  \operatorname{RM}(B)
+  \;\xrightarrow{\iota}\;
+  H^1(B; \Reals^3)
+  \;\xrightarrow{\sym\Grad}\;
+  H(\Curl; B; \Syms)
+  \;\xrightarrow{\mathrm{inc}}\;
+  H(\Div; B; \Syms)
+  \;\xrightarrow{\Div}\;
+  L^2(B; \Reals^3)
+  \;\xrightarrow{0}\; 0,
+\end{equation}
+where $\operatorname{RM}(B) = \{ ~a + ~W ~X : ~a \in \Reals^3,\,
+~W \in \mathrm{skew}(\Reals^3) \}$ is the six-dimensional space of
+infinitesimal rigid motions. Each space in~\eqref{eq:app-sec} carries
+a symmetric-tensor (or vector) field with Sobolev conformity
+dictated by the operator it must survive; the complex is exact on a
+simply-connected domain.
+
+\subsection{Operators, Kernels, and Ranges}
+\label{app:sec-ops}
+
+The three differential operators of~\eqref{eq:app-sec} are
+\begin{enumerate}
+  \item \textbf{Symmetric gradient.}
+    $\sym\Grad : H^1(B; \Reals^3) \to L^2(B; \Syms)$ with
+    \begin{equation}
+      \label{eq:app-symgrad}
+      \sym\Grad ~u
+      :=
+      \tfrac{1}{2}\!\left(\Grad ~u + \transpose{\Grad ~u}\right).
+    \end{equation}
+    Its kernel is $\operatorname{RM}(B)$, the space of infinitesimal
+    rigid motions; this is the Korn--Kirchhoff theorem.
+  \item \textbf{Incompatibility.}
+    $\mathrm{inc} : H(\Curl; B; \Syms) \to H(\Div; B; \Syms)$ is the
+    second-order operator
+    \begin{equation}
+      \label{eq:app-inc}
+      \mathrm{inc}(~\epsilon)
+      :=
+      \Curl\,\transpose{(\Curl\,~\epsilon)},
+      \qquad
+      \left[\mathrm{inc}(~\epsilon)\right]_{pq}
+      =
+      \varepsilon_{pij}\,\varepsilon_{qkl}\,\epsilon_{jl,ik},
+    \end{equation}
+    where the $\Curl$ of a tensor field acts row-wise and
+    $\varepsilon_{ijk}$ is the Levi-Civita symbol. The kernel of
+    $\mathrm{inc}$ coincides with the range of $\sym\Grad$: a
+    symmetric-tensor field $~\epsilon$ is compatible with a
+    displacement, $~\epsilon = \sym\Grad ~u$, if and only if
+    $\mathrm{inc}(~\epsilon) = 0$. This is the classical
+    \emph{Saint-Venant compatibility condition}.
+  \item \textbf{Divergence.}
+    $\Div : H(\Div; B; \Syms) \to L^2(B; \Reals^3)$ acts row-wise,
+    $(\Div ~\tau)_i = \tau_{ij,j}$. Its kernel is the range of
+    $\mathrm{inc}$: a symmetric-tensor stress field is self-equilibrated
+    if and only if it is the $\mathrm{inc}$ of a symmetric-tensor
+    strain field.
+\end{enumerate}
+The complex loses one order of regularity at each step
+($H^1 \to H(\Curl) \to H(\Div) \to L^2$) and is exact on a
+simply-connected domain. The exactness at the $L^2$ slot is the
+solvability of the equilibrium equation $\Div~\tau = -R~B$ in
+$H(\Div; \Syms)$ for any admissible body-force data.
+
+\subsection{Interaction with the Volumetric--Deviatoric Split}
+\label{app:sec-voldev}
+
+The orthogonal decomposition $\Syms = \Syms\supvol \oplus \Symsd$
+does \emph{not} descend to a pair of sub-complexes of~\eqref{eq:app-sec}.
+The middle operator $\mathrm{inc}$ mixes volumetric and deviatoric
+parts, as the following explicit computation shows.
+
+Take a purely volumetric input $~\epsilon = \alpha ~I$ with
+$\alpha \in H^1(B)$ and $~I$ the second-order identity. We regard
+$\alpha~I$ as an element of $H(\Curl; \Syms)$, not as a compatible
+strain: for generic non-affine $\alpha$ the field $\alpha~I$ lies
+outside the range of $\sym\Grad$, since
+$\mathrm{inc}(\alpha~I) = 0$ forces $\alpha_{,pq} = 0$ for $p \neq q$
+and $\Delta\alpha = \alpha_{,pp}$ (no sum), whose only solutions are
+affine $\alpha = a + b_i X_i$. The counterexample below is
+informative precisely because it probes $\mathrm{inc}$ on the
+non-compatible part of the middle space. Substituting
+$\epsilon_{jl} = \alpha\,\delta_{jl}$ into~\eqref{eq:app-inc} and
+contracting with the Levi-Civita identity
+$\varepsilon_{pij}\,\varepsilon_{qkj} = \delta_{pq}\delta_{ik} -
+\delta_{pk}\delta_{iq}$,
+\begin{equation}
+  \label{eq:app-inc-vol}
+  \left[\mathrm{inc}(\alpha~I)\right]_{pq}
+  =
+  \varepsilon_{pij}\,\varepsilon_{qki}\,\alpha_{,jk}
+  =
+  \delta_{pq}\,\alpha_{,ii} - \alpha_{,pq},
+\end{equation}
+or in coordinate-free form,
+\begin{equation}
+  \label{eq:app-inc-vol-cf}
+  \mathrm{inc}(\alpha ~I)
+  = (\Delta \alpha)\, ~I - \Grad\Grad\alpha.
+\end{equation}
+Projecting onto the vol--dev split,
+\begin{equation}
+  \label{eq:app-inc-vol-split}
+  \mathrm{inc}(\alpha ~I)
+  = \underbrace{\tfrac{2}{3}(\Delta\alpha)\,~I}_{\vol}
+  \;-\;
+  \underbrace{\!\left[\Grad\Grad\alpha - \tfrac{1}{3}(\Delta\alpha)\,~I\right]\!}_{\dev},
+\end{equation}
+where the deviatoric part is the trace-free Hessian of $\alpha$,
+generically nonzero. A purely volumetric strain is therefore mapped
+by $\mathrm{inc}$ to a stress with nonzero deviatoric part. The
+converse also fails: the trace of $\mathrm{inc}\,~\epsilon$ is
+$\trace[\mathrm{inc}\,~\epsilon] = \epsilon_{ij,ij}$, which is
+nonzero for a generic deviatoric $~\epsilon \in \Symsd$.
+
+This is the structural reason why the volumetric and deviatoric
+sub-problems of the five-field formulation cannot be decoupled at the
+level of the complex itself: the complex-compatible conformities
+$H(\Curl; \Syms)$ and $H(\Div; \Syms)$ act on full symmetric tensors,
+and the trace-free restrictions inherit their stability from the
+full-tensor theory rather than from an independent sub-complex
+result. What the vol--dev split \emph{does} provide is an
+orthogonal decomposition of the constitutive operator through its
+action on a strain field,
+\begin{equation}
+  \label{eq:app-Cvoldev}
+  \mathbb{C}\!:\!~\epsilon
+  =
+  \kappa\,(\trace ~\epsilon)\,~I
+  +
+  2\mu\,\dev ~\epsilon,
+\end{equation}
+which decouples the bulk and shear responses into additive terms
+whose ranges lie in $\Syms\supvol$ and $\Symsd$ respectively. This
+decoupling is what allows the scalar fields $\thbar$ and $\pbar$ to
+be extracted as trace-projections of the tensor fields and promoted
+to independent variables with their own inf-sup condition. The deviatoric tensor fields $\ebar \in H(\Curl; \Symsd)$
+and $\sbar \in H(\Div; \Symsd)$ inherit conformity from the
+trace-free projection of the full SEC spaces.
+
+\subsection{Discrete Spaces and Commuting Projections}
+\label{app:sec-discrete}
+
+The finite-dimensional analog of~\eqref{eq:app-sec} is a sequence of
+conforming spaces $V_{~\varphi,h}$, $V_{\ebar,h}$, $V_{\sbar,h}$,
+$V_{\pbar,h}$ on a tetrahedral mesh together with interpolation
+operators $\Pi_{~\varphi}, \Pi_{\ebar}, \Pi_{\sbar}, \Pi_{\pbar}$
+that commute with the differential operators. For sufficiently
+smooth fields,
+\begin{equation}
+  \label{eq:app-commuting}
+  \begin{CD}
+    H^1(B; \Reals^3)
+    @>\sym\Grad>>
+    H(\Curl; \Syms)
+    @>\mathrm{inc}>>
+    H(\Div; \Syms)
+    @>\Div>>
+    L^2(B; \Reals^3)
+    \\
+    @V \Pi_{~\varphi} VV
+    @V \Pi_{\ebar} VV
+    @V \Pi_{\sbar} VV
+    @V \Pi_{\pbar} VV
+    \\
+    V_{~\varphi,h}
+    @>\sym\Grad>>
+    V_{\ebar,h}
+    @>\mathrm{inc}>>
+    V_{\sbar,h}
+    @>\Div>>
+    V_{\pbar,h}.
+  \end{CD}
+\end{equation}
+The commuting diagram delivers two structural consequences: the
+discrete complex is itself exact (modulo the kernel of
+$\Pi_{~\varphi}$), and the inf-sup stability of the coupled system
+can be read off the continuous complex by pulling stability through
+the projections. This is the central result of finite-element
+exterior calculus~\citep{Arnold.Falk.Winther:2010}: cochain
+projections that commute with the differential operators transfer
+stability from the continuous to the discrete level.
+
+Two families of discrete symmetric-tensor spaces realize the commuting
+diagram~\eqref{eq:app-commuting} on tetrahedra.
+
+\begin{enumerate}
+  \item \textbf{Strongly-symmetric elements.} The
+    Arnold--Awanou--Winther
+    family~\citep{Arnold.Awanou.Winther:2008} enforces symmetry of
+    the tensor field pointwise through a vertex-edge-face-cell
+    hierarchy of degrees of freedom. The $H(\Div; \Syms)$ element of
+    lowest order on a tetrahedron uses polynomial degree $k = 3$ and
+    $162$ degrees of freedom per element. The construction is
+    geometrically clean --- symmetry is a property of the finite
+    element space --- at the cost of a high local dimension at low
+    polynomial order.
+  \item \textbf{Weakly-symmetric elements.} The
+    Arnold--Falk--Winther family~\citep{Arnold.Falk.Winther:2007}
+    trades pointwise symmetry for a smaller local dimension by
+    enforcing symmetry variationally. A skew-symmetric Lagrange
+    multiplier $~W \in L^2(B; \mathbb{K})$, with $\mathbb{K}$ the
+    space of skew-symmetric second-order tensors, imposes the
+    constraint
+    $\int_B ~W : ~\tau \diff V = 0$ on the tensor field, and
+    the $H(\Div)$ space itself need not be pointwise-symmetric.
+    The resulting mixed element uses substantially fewer degrees of
+    freedom at low polynomial order, at the cost of adding the skew
+    multiplier to the system.
+\end{enumerate}
+
+Both families admit cochain projections compatible
+with~\eqref{eq:app-commuting} and are established stable
+discretizations of the symmetric elasticity complex. The present
+formulation inherits inf-sup stability from whichever family is
+selected in \texttt{ReferenceFiniteElements.jl}
+\citep{Cthonios:RFE}; the choice affects the element-local assembly
+but does not alter the variational formulation~\eqref{eq:hw} or the
+reduced residual~\eqref{eq:discrete-residuals}.
+
+
+\bibliographystyle{plainnat}
+\bibliography{references}
+
+\end{document}

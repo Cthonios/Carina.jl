@@ -1,0 +1,9 @@
+* text=auto eol=lf
+*.tex text
+*.bib text
+*.cls text
+*.sty text
+*.pdf binary
+*.png binary
+*.jpg binary
+*.eps binary
