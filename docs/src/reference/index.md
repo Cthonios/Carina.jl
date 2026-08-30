@@ -103,7 +103,7 @@ saves time when debugging a file.
 the top level, `model`, `model.material`, `time integrator`, `solver`,
 `linear solver`, `preconditioner`, `forcing term`, `quadrature`, `output`,
 `boundary conditions`, `initial conditions`, and the individual Dirichlet,
-Neumann, body-force, initial-condition, and traveling-wave entries. An unrecognised key produces a
+Neumann, body-force, initial-condition, and traveling-wave entries. An unrecognized key produces a
 warning with a Levenshtein-based suggestion:
 
 ```
@@ -117,10 +117,10 @@ The run continues, using the default for whatever you meant to set.
 field it needs — an initial condition without a `node set`, for instance,
 naming the section and the entry index.
 
-**Unknown *values* error.** Where a key selects behaviour from a fixed set —
+**Unknown *values* error.** Where a key selects behavior from a fixed set —
 `model.type`, `time integrator.type`, `solver.type`, `linear solver.type`,
 `preconditioner.type`, `forcing term.type`, `quadrature.type`,
-`output.recovery`, `combo` — an unrecognised value aborts with the list of
+`output.recovery`, `combo` — an unrecognized value aborts with the list of
 supported spellings.  Numeric parameters with a meaningful range — the
 Eisenstat–Walker forcing-term coefficients, for one — are bounds-checked the
 same way. None of these

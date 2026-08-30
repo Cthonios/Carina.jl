@@ -181,7 +181,7 @@ $(precond)
 
     @testset "reduced-precision smoother action" begin
         # `stiffness_action_fp32` is what the GPU AMG V-cycle smooths with
-        # (`_use_fp32_smoother`).  It is device-agnostic, so its behaviour is
+        # (`_use_fp32_smoother`).  It is device-agnostic, so its behavior is
         # testable on CPU where CI can reach it.  Three things must hold, and
         # each has a distinct silent-failure mode behind it.
         mktempdir() do dir
@@ -214,7 +214,7 @@ $(precond)
             # difference to be unambiguously larger than reduction noise.
             @test norm(y32 - y64) / norm(y64) > max(1e3 * noise, 1e-10)
 
-            # (3) The model honours the requested precision.  Without this the
+            # (3) The model honors the requested precision.  Without this the
             # first two still pass while the arithmetic runs in Float64.
             fspace = Carina.FEC.function_space(asm.dof)
             Carina.FEC.foreach_block(fspace, p) do physics, ref_fe, b

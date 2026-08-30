@@ -98,7 +98,7 @@ rather than a hand-tuned `time step` leaves that headroom automatically; see
 
 With adaptive stepping enabled the integrator may additionally shrink or grow
 its step within an interval in response to solver convergence, independently of
-this snapping behaviour.
+this snapping behavior.
 
 ## Output content
 

@@ -18,7 +18,7 @@ model:
 
 The key `neohookean` in `blocks` must match a sibling key holding the property
 dictionary. The material name is matched after `lowercase(strip(...))`, so
-capitalisation and surrounding whitespace do not matter.
+capitalization and surrounding whitespace do not matter.
 
 Meshes with more than one element block assign a material to each; see
 [One material per element block](#One-material-per-element-block) below.
@@ -192,7 +192,7 @@ material.
 
 ## Unknown property keys are ignored
 
-Any key in the material dictionary that is neither `density` nor a recognised
+Any key in the material dictionary that is neither `density` nor a recognized
 alias is dropped with a warning rather than an error:
 
 ```

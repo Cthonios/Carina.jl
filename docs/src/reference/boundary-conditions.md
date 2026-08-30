@@ -28,7 +28,7 @@ boundary conditions:
     [WARNING] Unknown key "dirchlet" in boundary conditions. Did you mean "dirichlet"?
     ```
 
-    Carina releases before this behaviour matched the key exactly, so
+    Carina releases before this behavior matched the key exactly, so
     `Dirichlet:` was silently skipped and the run proceeded with no boundary
     conditions. If you are reading an older input file that behaved oddly,
     that is the likely cause.

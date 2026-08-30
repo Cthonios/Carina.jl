@@ -34,7 +34,7 @@
 
     @testset "every advertised name builds a model" begin
         # Directly guards defect 1 and 3: `nothing` means an unreachable arm,
-        # a Tuple means an arm got folded into its neighbour's return.
+        # a Tuple means an arm got folded into its neighbor's return.
         for name in Carina._MODEL_NAMES
             cm = Carina._model_ctor(name)
             @test cm !== nothing

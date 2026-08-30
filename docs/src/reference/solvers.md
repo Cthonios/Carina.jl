@@ -69,7 +69,7 @@ matrix-free solvers it is optional and defaults to `type: none`.
     (α = 1 is accepted immediately). Set `use line search: false` to disable.
 
     `use line search` reaches `newton` only. NLCG and steepest descent always
-    run their own line search, but they do honour the three `line search *`
+    run their own line search, but they do honor the three `line search *`
     tuning keys.
 
 ### Nonlinear CG only
@@ -101,7 +101,7 @@ Carina accepts three syntaxes. Prefer the first.
       - divergence: 1.0e6
 ```
 
-Four block keys are recognised, each taking a **list**:
+Four block keys are recognized, each taking a **list**:
 
 | Block key | Combines with |
 |---|---|
@@ -172,7 +172,7 @@ Points worth knowing:
   *Converged* once the iteration count is reached. Placed in a `converge when
   any` block it will force convergence on that iteration. It is only
   meaningful inside an `all` group, where it prevents premature convergence.
-- **Relative tests normalise differently.** `relative residual` divides by the
+- **Relative tests normalize differently.** `relative residual` divides by the
   **initial** residual ‖R₀‖; `relative update` divides by the **current**
   solution norm ‖U‖. Each is inert while its denominator is zero — a
   `relative update` test cannot converge on the first iteration from a zero
@@ -274,7 +274,7 @@ guarded three ways:
    point the nonlinear test will reward: `η ← max(η, safety·τ/‖Rₖ‖)`, where τ is
    the residual norm your `termination` block is actually aiming at. Carina
    reads τ from the termination tree itself, so a deck's own `converge when`
-   thresholds are honoured rather than the flat tolerance keys.
+   thresholds are honored rather than the flat tolerance keys.
 3. **A clamp to `[tolerance, maximum]`.**
 
 !!! note "A forcing term can only loosen a solve, never tighten one"
@@ -410,7 +410,7 @@ kernels, with the fine level smoothed through the matrix-free stiffness action
 so the fine matrix is never formed on the device.  It is the fastest
 quasi-static option Carina has — see `benchmark_report.md`.
 
-Two behaviours worth knowing. The near-nullspace (six rigid-body modes) is
+Two behaviors worth knowing. The near-nullspace (six rigid-body modes) is
 rebuilt from the **current** nodal coordinates `X + u` at every hierarchy
 build, not frozen at the reference configuration — a frozen reference
 nullspace degrades badly once the body rotates substantially. And the
@@ -428,7 +428,7 @@ large Δt on violently dynamic problems the Newmark predictor can overshoot
 into near-inverted configurations whose tangent is indefinite, which breaks CG
 regardless of preconditioner; explicit integration is the right tool there.
 
-An unrecognised `type` is a hard error listing the supported values:
+An unrecognized `type` is a hard error listing the supported values:
 
 ```
 Unknown preconditioner.type = "jacobbi". Supported: "jacobi", "ic" (aliases

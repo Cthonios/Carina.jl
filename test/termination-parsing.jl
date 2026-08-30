@@ -199,7 +199,7 @@
     # ----- All test types recognized ----------------------------------------
     @testset "every alias spelling maps to the same test" begin
         # The compact-syntax alias table listed "abs_residual" (and the
-        # rel/update analogues) twice where the spaced short form was
+        # rel/update analogs) twice where the spaced short form was
         # intended, so "abs residual" errored as unknown while its siblings
         # ("max iterations", "nan check") parsed.  Walk every alias group.
         groups = [

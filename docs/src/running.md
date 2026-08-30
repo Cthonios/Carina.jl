@@ -60,7 +60,7 @@ run aborts rather than silently falling back:
 --device rocm: no functional AMD GPU found.
 ```
 
-Use `auto` when you want a fallback. An unrecognised value is an error:
+Use `auto` when you want a fallback. An unrecognized value is an error:
 
 ```
 Unknown device "gpu". Expected cpu, cuda, rocm, or auto.
@@ -136,7 +136,7 @@ The `wall` figure is the time for that interval, including the Exodus write. On
 short intervals the I/O can dominate — when benchmarking, use a large `output
 interval` so the write cost is amortized.
 
-Prefixes worth recognising:
+Prefixes worth recognizing:
 
 | Prefix | Meaning |
 |---|---|

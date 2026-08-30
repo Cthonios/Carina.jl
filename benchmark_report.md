@@ -426,7 +426,7 @@ sparse-matrix bandwidth, and it is why the Float32 smoother in §2 works.
      once per run and lagged, so a production analysis with many load steps
      amortizes it in a way these two-step cubes do not.
 
-   Note that the Float32 path only pays if the constitutive model honours it.
+   Note that the Float32 path only pays if the constitutive model honors it.
    `NeoHookean.pk1_stress` had to be fixed upstream first: Float64 literals
    promoted Float32 inputs back to Float64, silently, with correct results and
    no speedup. `_use_fp32_smoother` now probes for this and falls back with a

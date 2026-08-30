@@ -225,7 +225,7 @@ at once.
 **A measurement trap worth recording.**  The first A100 batch benchmarked
 from the NFS-mounted home directory and reported 10.36 / 8.99 / 9.45 s/step.
 Each 8-step run writes a 1.6 GB Exodus file, and on a shared NAS that cost is
-neither constant nor reliably cancelled by the difference method -- write-back
+neither constant nor reliably canceled by the difference method -- write-back
 caching absorbed Chebyshev's output entirely (8.99 -> 8.95 on local disk) but
 charged Jacobi ~3.6 s/step (10.36 -> 6.71).  Both row sets are in
 `results.jsonl` (`workdir: scratch` marks the local-disk rows, which are the

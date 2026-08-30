@@ -62,7 +62,7 @@ All of these abort the run at startup:
 | `[model.material.blocks] lists N blocks, but Carina supports a single material per simulation.` | More than one block assigned — see [Materials](materials.md). |
 | `Material model "X" is assigned to block "Y" ... but [model.material] has no "X" property dict.` | `blocks` names a material with no matching property dictionary. |
 | `[model.material.blocks] refers to element block "X", which is not in the mesh.` | Block name does not match the mesh. |
-| `Unknown material model "X". Supported: ...` | Material name not recognised. |
+| `Unknown material model "X". Supported: ...` | Material name not recognized. |
 
 The property-dict one is the common mistake. A `blocks` entry such as
 `my_block: neohookean` requires a sibling key `neohookean:` holding the

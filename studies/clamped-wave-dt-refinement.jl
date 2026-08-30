@@ -20,7 +20,7 @@
 #     5.0e-8  5.845e-5
 #     2.5e-8  5.856e-5     ← spatial floor ≈ 5.86e-5
 #
-#   Implicit (consistent mass) — non-monotone, sign-cancelling temporal
+#   Implicit (consistent mass) — non-monotone, sign-canceling temporal
 #   error sweeps through a minimum and settles slightly below the explicit
 #   floor:
 #     Δt      rel L2 err

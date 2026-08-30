@@ -97,7 +97,7 @@ projected to nodes for visualization. Recovered variables take a trailing `_n`.
 | `<name>_n` | `recovery` ≠ `none` and `internal variables: true` |
 
 The value is lowercased and trimmed before matching, so `Lumped` and `L2` are
-fine. An unrecognised value is a hard error naming the supported set:
+fine. An unrecognized value is a hard error naming the supported set:
 
 ```
 Unknown output.recovery = "lmped". Supported: "lumped", "consistent" (alias "l2"), "none".

@@ -142,7 +142,7 @@ this document guessed wrong, kept here because the reasoning is instructive:
   The cost model predicted V(2,2) at ~6x a Jacobi iteration needing a >=6x
   iteration reduction; both held (measured 6.67x per application, ~16x fewer
   iterations).  The projected "2-5x wall-clock gain" was initially not
-  realised — GPU AMG merely tied CPU AMG — because the fine action was
+  realized — GPU AMG merely tied CPU AMG — because the fine action was
   leaving 3x on the table.  With that fixed the projection holds.
 - **L-BFGS on Newmark reversed.**  Candidate (e) recorded L-BFGS as ~13x
   slower than CG+Jacobi on Newmark.  After the zero-allocation fixes it became

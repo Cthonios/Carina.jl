@@ -32,7 +32,7 @@ rather than a friendly message.
 | `newmark` | `newmark-beta` | Implicit dynamics (Newmark-β / HHT-α) |
 | `central difference` | `centraldifference`, `cd` | Explicit dynamics |
 
-The value is lowercased before matching. An unrecognised type is a hard error.
+The value is lowercased before matching. An unrecognized type is a hard error.
 
 ## Adaptive time stepping
 

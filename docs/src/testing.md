@@ -70,6 +70,6 @@ sibling moved — see [Troubleshooting](troubleshooting.md).
 Tests live in `test/`, one file per case, and are registered in
 `test/runtests.jl`. Most follow the same shape: write a YAML input into a
 temporary directory, run the simulation, and assert on the results. Copying a
-neighbouring case is the fastest way to start — for instance
+neighboring case is the fastest way to start — for instance
 `test/mechanics-implicit-dynamic-cube-amg.jl`, which reuses an existing example
 mesh and varies only the solver configuration.

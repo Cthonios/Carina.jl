@@ -449,7 +449,7 @@ end
 # deliberately bypasses the geometric push-forward.  The NS = 0 method above
 # would shadow that and silently change the physics, so send it to the exact
 # kernel.  Stated as a separate method rather than a branch because it must be
-# strictly more specific than both neighbours to avoid a dispatch ambiguity.
+# strictly more specific than both neighbors to avoid a dispatch ambiguity.
 @inline stiffness_action_fp32(
     physics::SolidMechanics{CM.LinearElastic, NP, 0},
     interps, x_el, t, dt, u_el, u_el_old, v_el,

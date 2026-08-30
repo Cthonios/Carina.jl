@@ -7,7 +7,7 @@ import ConstitutiveModels as CM
 # Model name → CM constructor
 # ---------------------------------------------------------------------------
 #
-# The user-facing name is matched after a `lowercase(strip(...))` normalisation
+# The user-facing name is matched after a `lowercase(strip(...))` normalization
 # so YAML can spell the model as "linear elastic" / "neo-hookean" / "j2
 # plasticity" without each variant needing its own switch arm.
 

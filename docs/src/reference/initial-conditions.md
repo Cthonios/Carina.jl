@@ -38,7 +38,7 @@ or mapping raises e.g. `initial conditions.displacement must be a list.`
     A typo in the *section* key (`initial condition:`) is caught by top-level
     validation, which warns the same way.
 
-    Carina releases before this behaviour left all three unvalidated, so a
+    Carina releases before this behavior left all three unvalidated, so a
     misspelling meant the initial condition was silently never applied and the
     run started from rest — indistinguishable from a physics result. If you are
     reading an older input file that behaved oddly, that is worth checking.
@@ -114,7 +114,7 @@ initialization time.
 
 `wave speed` is **signed**: the sign selects the direction of travel along the
 axis. Note that `direction` names the propagation axis while `component` names
-the displaced component — for a shear wave travelling along `x` and displacing
+the displaced component — for a shear wave traveling along `x` and displacing
 `z`, use `direction: x` with `component: z`.
 
 ## Application order

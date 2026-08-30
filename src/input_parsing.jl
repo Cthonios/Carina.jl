@@ -1320,7 +1320,7 @@ function _parse_nonlinear_solver(sol_dict, ls::AbstractLinearSolver;
                             use_ls, ls_back, ls_dec, ls_max)
     else
         # Do not fall through to Newton.  Newton is the right default when
-        # `type` is absent, but an unrecognised value means the user asked for
+        # `type` is absent, but an unrecognized value means the user asked for
         # something else -- and `lbfgs`, the most likely mistake here, is a
         # `linear solver` type, not a nonlinear one.
         error("Unknown solver.type = \"$solver_type\". " * _SOLVER_TYPE_HELP)

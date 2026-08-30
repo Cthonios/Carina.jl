@@ -46,7 +46,7 @@ const _cpu_asm_ref         = Ref{Any}(nothing)  # CPU assembler reference for GP
 const _cpu_params_ref      = Ref{Any}(nothing)  # CPU params reference for GPU Cholesky
 const _backend_ref         = Ref{KA.Backend}(KA.CPU())  # active KernelAbstractions backend
 const _nonlinear_status_test = Ref{Any}(nothing)  # parsed termination criteria
-# Whether the AMG smoother's Float32 action is honoured by every model in the
+# Whether the AMG smoother's Float32 action is honored by every model in the
 # mesh; `nothing` until probed once per run by `_use_fp32_smoother`.
 const _fp32_smoother_ok      = Ref{Union{Nothing, Bool}}(nothing)
 
@@ -214,7 +214,7 @@ function NewmarkIntegrator(ns::NS, asm, β::Float64, γ::Float64, template::Vec;
     return NewmarkIntegrator(ns, asm, β, γ, α_hht,
                               U, V, A, U_prev, V_prev, A_prev,
                               U_pred, dU, R_eff, F_int_n,
-                              0.0,   # c_M initialised to 0; set by predict!
+                              0.0,   # c_M initialized to 0; set by predict!
                               time_step, min_time_step, max_time_step,
                               decrease_factor, increase_factor,
                               Ref(false),

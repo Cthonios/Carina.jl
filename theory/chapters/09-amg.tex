@@ -5,7 +5,7 @@
 \section{Why multigrid}
 
 Every preconditioner of Chapter~\ref{ch:preconditioners} is local: it couples
-each unknown to its immediate algebraic neighbours.  Local operators damp
+each unknown to its immediate algebraic neighbors.  Local operators damp
 high-frequency error efficiently and low-frequency error not at all, which is
 exactly why $\kappa(\Kmat)$ grows like $(L/h)^2$ under refinement --- the
 smoothest error modes are the ones a local operator cannot see.
@@ -183,7 +183,7 @@ that baseline, subject to a floor so that small counts do not thrash.
 On the quasi-static path this detector is the \emph{only} rebuild trigger,
 because $c_M = 0$ there and the first test never fires.  That is what makes the
 interaction with forcing terms consequential, and it is treated in
-Section~\ref{sec:etamax}'s neighbouring discussion at the end of
+Section~\ref{sec:etamax}'s neighboring discussion at the end of
 Chapter~\ref{ch:inexact}.
 
 \section{When multigrid is the right tool}

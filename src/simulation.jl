@@ -76,7 +76,7 @@ end
 """
     create_simulation(dict, basedir=""; backend=KA.CPU()) -> SingleDomainSimulation
 
-Parse a YAML dict (already loaded) and return a fully initialised simulation.
+Parse a YAML dict (already loaded) and return a fully initialized simulation.
 `basedir` is used to resolve relative file paths inside the input.
 `backend` is the `KernelAbstractions.Backend` to run on.
 """

@@ -376,7 +376,7 @@ end
 
 # Decide once per run whether the AMG smoother should use the Float32 action.
 #
-# The gate is not "did the user ask for it" but "does the model actually honour
+# The gate is not "did the user ask for it" but "does the model actually honor
 # it".  A constitutive model written with Float64 literals promotes silently and
 # returns a Float64 stress, which would leave the run correct, exactly as slow,
 # and two conversions per quadrature point worse off — the failure mode has no

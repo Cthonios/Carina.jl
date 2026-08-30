@@ -133,7 +133,7 @@ startup.
 | `Unknown model.type = "X".` | Only `solid mechanics` exists. |
 | `Unknown solver.type = "X".` | Note that `lbfgs` is a *linear* solver — set it under `linear solver`. |
 | `... is missing required key "X".` | A boundary condition, body force, or initial condition entry is incomplete. The message names the section and entry index. |
-| `... has density 0.0, but a dynamic time integrator requires a mass matrix.` | Set `density`, or check it for a typo — an unrecognised property key is dropped with a warning. |
+| `... has density 0.0, but a dynamic time integrator requires a mass matrix.` | Set `density`, or check it for a typo — an unrecognized property key is dropped with a warning. |
 | `Missing required [solver] section.` | Implicit integrators need one. Explicit does not. |
 | `Simulation type "multi" not yet supported.` | Only `single` is implemented. |
 | `Failed to establish initial equilibrium.` | The `initial equilibrium: true` solve diverged — relax tolerances or start from a better state. |

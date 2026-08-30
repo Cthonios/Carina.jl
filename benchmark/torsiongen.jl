@@ -1,6 +1,6 @@
 # Structured HEX8 torsion-bar mesh generator, for the explicit CPU-vs-GPU
 # scaling sweep.  Reproduces the geometry of `examples/meshes/torsion/torsion.g`
-# (a 0.05 x 0.05 x 1.0 bar centred on the origin, cube elements) at arbitrary
+# (a 0.05 x 0.05 x 1.0 bar centered on the origin, cube elements) at arbitrary
 # refinement, so the sweep varies only mesh size.
 #
 # Usage:  julia --project=. benchmark/torsiongen.jl <N> <out.g>
