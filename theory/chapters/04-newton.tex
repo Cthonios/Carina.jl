@@ -43,12 +43,39 @@ merit function: since $\Delta\Uvec_k$ solves $\Kmat\Delta\Uvec = \Rvec$, the
 directional derivative is $m'(0) = -\norm{\Rvec}^2 = -2m(0)$, and substituting
 into $m(\alpha) \le m(0) + c\,\alpha\, m'(0)$ gives \eqref{eq:armijo} directly.
 
+\begin{algorithm}[h]
+\caption{Newton step with Armijo backtracking}
+\label{alg:newton}
+\begin{algorithmic}[1]
+  \Require iterate $\Uvec_k$, residual $\Rvec_k$, tangent $\Kmat_k$,
+           parameters $c$, $\tau$, budget $j_{\max}$
+  \State $\eta_k \gets$ \Call{ForcingTerm}{$\cdot$}
+    \Comment{Algorithm~\ref{alg:forcing}; $\eta_k = \varepsilon_{\mathrm{lin}}$ if disabled}
+  \State solve $\Kmat_k \Delta\Uvec_k = \Rvec_k$ to relative tolerance $\eta_k$
+  \State $m_0 \gets \tfrac12\norm{\Rvec_k}^2$,\quad $\alpha \gets 1$
+  \For{$j = 1$ \textbf{to} $j_{\max}$}
+    \State evaluate $\Rvec$ at $\Uvec_k + \alpha\Delta\Uvec_k$;\quad
+           $m \gets \tfrac12\norm{\Rvec}^2$
+    \If{$m \le (1 - 2c\alpha)\,m_0$}
+      \State \Return $\Uvec_k + \alpha\Delta\Uvec_k$
+        \Comment{Armijo satisfied}
+    \EndIf
+    \State $\alpha \gets \tau\alpha$
+  \EndFor
+  \State restore the pre-step material state
+    \Comment{trials advanced it; see Remark~\ref{rem:restore}}
+  \State \Return $\Uvec_k + \Delta\Uvec_k$
+    \Comment{budget exhausted; outer failure machinery takes over}
+\end{algorithmic}
+\end{algorithm}
+
 The line search is \emph{on by default}.  It costs roughly one extra residual
 evaluation per iteration when the full step is already good, since $\alpha = 1$
 is then accepted immediately, and it is the only thing standing between a bad
 predictor and an inverted element.
 
 \begin{remark}
+\label{rem:restore}
 If the backtracking budget is exhausted without satisfying
 \eqref{eq:armijo}, Carina restores the pre-step material state and accepts the
 full step, leaving the outer failure machinery of Section~\ref{sec:adaptive} to

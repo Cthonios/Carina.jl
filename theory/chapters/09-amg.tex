@@ -115,22 +115,42 @@ One V($\nu,\nu$)-cycle applied to a residual $\vect{r}$ produces a correction
 $\vect{z}$:
 
 \begin{algorithm}[h]
-\caption{V-cycle, level $\ell$}
+\caption{$\textsc{VCycle}(\ell, \vect{b}^{\ell})$ --- returns a correction $\vect{x}^{\ell}$}
+\label{alg:vcycle}
 \begin{algorithmic}[1]
-  \STATE $\vect{x} \gets \vect{0}$
-  \STATE pre-smooth $\nu$ times on $\Kmat^{\ell}\vect{x} = \vect{b}^{\ell}$
-  \STATE $\vect{b}^{\ell+1} \gets \Rrest^{\ell}\left(\vect{b}^{\ell} - \Kmat^{\ell}\vect{x}\right)$
-  \STATE recurse to level $\ell+1$, or solve directly if coarsest
-  \STATE $\vect{x} \gets \vect{x} + \Pmat^{\ell}\vect{x}^{\ell+1}$
-  \STATE post-smooth $\nu$ times
+  \Function{VCycle}{$\ell$, $\vect{b}^{\ell}$}
+    \If{$\ell$ is the coarsest level}
+      \State \Return $\Kmat_{\ell}^{+}\,\vect{b}^{\ell}$
+        \Comment{dense pseudo-inverse, formed at build time}
+    \EndIf
+    \State $\vect{x} \gets \vect{0}$
+    \For{$i = 1$ \textbf{to} $\nu$}
+      \Comment{pre-smooth}
+      \State $\vect{x} \gets \vect{x} + \omega_{\ell}\Dmat_{\ell}^{-1}\left(\vect{b}^{\ell} - \Kmat^{\ell}\vect{x}\right)$
+    \EndFor
+    \State $\vect{r} \gets \vect{b}^{\ell} - \Kmat^{\ell}\vect{x}$
+    \State $\vect{b}^{\ell+1} \gets \Rrest^{\ell}\vect{r}$
+      \Comment{restrict}
+    \State $\vect{x} \gets \vect{x} + \Pmat^{\ell}\,\textsc{VCycle}(\ell+1,\ \vect{b}^{\ell+1})$
+      \Comment{coarse correction}
+    \For{$i = 1$ \textbf{to} $\nu$}
+      \Comment{post-smooth}
+      \State $\vect{x} \gets \vect{x} + \omega_{\ell}\Dmat_{\ell}^{-1}\left(\vect{b}^{\ell} - \Kmat^{\ell}\vect{x}\right)$
+    \EndFor
+    \State \Return $\vect{x}$
+  \EndFunction
 \end{algorithmic}
 \end{algorithm}
 
-The smoother is damped Jacobi with $\omega = 4/(3\lambda_{\max})$, the same
-weight used for prolongator smoothing, with $\lambda_{\max}$ estimated per
-level by power iteration.  The coarsest level is solved by a dense
-pseudo-inverse, formed once at build time; at that size a dense solve is
+The smoother is damped Jacobi with $\omega_{\ell} = 4/(3\lambda_{\max}^{\ell})$,
+the same weight used for prolongator smoothing, with $\lambda_{\max}^{\ell}$
+estimated per level by power iteration.  The coarsest level is solved by a
+dense pseudo-inverse, formed once at build time; at that size a dense solve is
 cheaper than another level of hierarchy.
+
+The cycle is entered as $\textsc{VCycle}(1, \vect{r})$ with $\vect{r}$ the
+conjugate-gradient residual, and the correction it returns is the preconditioner
+application $\Prec\vect{r}$ of Section~\ref{sec:pcg}.
 
 Symmetry of the cycle --- equal pre- and post-smoothing, and
 $\Rrest = \Pmat^{\mathsf{T}}$ --- is what makes the resulting operator

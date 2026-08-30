@@ -15,16 +15,29 @@ This is the third of three documents, split by the question each answers:
 
 ```
 make          # -> carina-theory.pdf
+make watch    # rebuild continuously on save
 make clean    # remove auxiliary files, keep the PDF
 make purge    # remove auxiliary files and the PDF
 ```
 
-Requires a LaTeX installation with `boldtensors`, `algorithm`, `algorithmic`,
-`booktabs` and `microtype` — all present in a standard TeX Live. The build
-deliberately does not use `latexmk`, which is not part of a base installation;
-the Makefile runs the passes directly.
-
 The PDF is a build product and is not tracked.
+
+### Requirements
+
+`lualatex`, `bibtex` and `latexmk`, plus the LaTeX packages `boldtensors`,
+`algorithm`, `algorithmicx` (for `algpseudocode`), `booktabs` and `microtype`.
+
+On Fedora these are `texlive-scheme-medium` or, if you would rather add only
+what is missing from a smaller installation:
+
+```
+sudo dnf install texlive-boldtensors texlive-algorithms \
+                 texlive-algorithmicx texlive-booktabs \
+                 texlive-microtype latexmk
+```
+
+On Debian and Ubuntu, `texlive-latex-extra texlive-science latexmk` covers all
+of them.
 
 ## Conventions
 

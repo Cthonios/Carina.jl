@@ -21,17 +21,43 @@ $\sim 10^{-16}$.
 \section{Preconditioned conjugate gradients}
 \label{sec:pcg}
 
-With a symmetric positive definite preconditioner $\Prec \approx \Kmat^{-1}$,
-the iteration is
-\begin{align}
-  \vect{z}_i &= \Prec \vect{r}_i, \qquad \rho_i = \vect{r}_i^{\mathsf{T}}\vect{z}_i, \\
-  \vect{p}_i &= \vect{z}_i + (\rho_i/\rho_{i-1})\, \vect{p}_{i-1}, \\
-  \alpha_i   &= \rho_i / \left(\vect{p}_i^{\mathsf{T}}\Kmat\vect{p}_i\right), \\
-  \Uvec_{i+1} &= \Uvec_i + \alpha_i \vect{p}_i,
-  \qquad
-  \vect{r}_{i+1} = \vect{r}_i - \alpha_i \Kmat \vect{p}_i .
-\end{align}
-One operator application and one preconditioner application per iteration.
+With a symmetric positive definite preconditioner $\Prec \approx \Kmat^{-1}$:
+
+\begin{algorithm}[h]
+\caption{Preconditioned conjugate gradients}
+\label{alg:pcg}
+\begin{algorithmic}[1]
+  \Require operator $\Kmat$, right-hand side $\vect{b}$, preconditioner $\Prec$,
+           forcing term $\eta$, iteration cap $i_{\max}$
+  \State $\vect{x} \gets \vect{0}$
+    \Comment{cold start; see below}
+  \State $\vect{r} \gets \vect{b}$,\quad
+         $\vect{z} \gets \Prec\vect{r}$,\quad
+         $\vect{p} \gets \vect{z}$,\quad
+         $\rho \gets \vect{r}^{\mathsf{T}}\vect{z}$
+  \State $\rho_0 \gets \rho$
+  \For{$i = 1$ \textbf{to} $i_{\max}$}
+    \State $\vect{q} \gets \Kmat\vect{p}$
+      \Comment{the only operator application}
+    \State $\alpha \gets \rho / \left(\vect{p}^{\mathsf{T}}\vect{q}\right)$
+    \State $\vect{x} \gets \vect{x} + \alpha\vect{p}$,\quad
+           $\vect{r} \gets \vect{r} - \alpha\vect{q}$
+    \State $\vect{z} \gets \Prec\vect{r}$
+      \Comment{the only preconditioner application}
+    \State $\rho^{\mathrm{new}} \gets \vect{r}^{\mathsf{T}}\vect{z}$
+    \If{$\sqrt{\rho^{\mathrm{new}}} \le \eta\sqrt{\rho_0}$}
+      \State \Return $\vect{x}$
+        \Comment{converged in the $\Prec$-norm}
+    \EndIf
+    \State $\vect{p} \gets \vect{z} + \left(\rho^{\mathrm{new}}/\rho\right)\vect{p}$,\quad
+           $\rho \gets \rho^{\mathrm{new}}$
+  \EndFor
+\end{algorithmic}
+\end{algorithm}
+
+\noindent One operator application and one preconditioner application per
+iteration, and no other access to $\Kmat$ --- which is what makes the
+matrix-free operators of Chapter~\ref{ch:matrixfree} usable at all.
 
 The error bound
 \begin{equation}

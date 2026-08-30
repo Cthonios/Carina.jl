@@ -59,20 +59,39 @@ variant has three properties that matter here:
 \end{itemize}
 
 With $\sigma = 1/\lambda_{\max}$ and weights $\beta_i$ tabulated for degrees
-$1$ through $16$, the recurrence from a zero initial guess is
-\begin{align}
-  \vect{z}_1 &= \tfrac43 \sigma \Dmat^{-1}\vect{b},
-  \qquad \vect{x}_1 = \vect{z}_1,
-  \qquad \vect{y} = \beta_1 \vect{z}_1, \\
-  \gamma_i &= \frac{2i-1}{2i+3},
-  \qquad
-  \rho_i = \frac{8i+4}{2i+3}\,\sigma, \\
-  \vect{z}_{i+1} &= \rho_i \Dmat^{-1}\left(\vect{b} - \Kmat\vect{x}_i\right) + \gamma_i \vect{z}_i, \\
-  \vect{x}_{i+1} &= \vect{x}_i + \vect{z}_{i+1},
-  \qquad
-  \vect{y} \leftarrow \vect{y} + \beta_{i+1}\vect{z}_{i+1},
-\end{align}
-returning $\vect{y} \approx \Kmat^{-1}\vect{b}$.
+$1$ through $16$:
+
+\begin{algorithm}[h]
+\caption{Fourth-kind Chebyshev preconditioner application, degree $k$}
+\label{alg:chebyshev}
+\begin{algorithmic}[1]
+  \Require $\vect{b}$, operator $\Kmat$, $\Dmat^{-1}$, $\sigma = 1/\lambda_{\max}$,
+           weights $\beta_1,\dots,\beta_k$
+  \Ensure $\vect{y} \approx \Kmat^{-1}\vect{b}$
+  \State $\vect{z} \gets \tfrac43\sigma\,\Dmat^{-1}\vect{b}$,\quad
+         $\vect{x} \gets \vect{z}$,\quad
+         $\vect{y} \gets \beta_1\vect{z}$
+  \For{$i = 1$ \textbf{to} $k-1$}
+    \State $\gamma_i \gets \dfrac{2i-1}{2i+3}$,\qquad
+           $\rho_i \gets \dfrac{8i+4}{2i+3}\,\sigma$
+    \State $\vect{z} \gets \rho_i\,\Dmat^{-1}\left(\vect{b} - \Kmat\vect{x}\right)
+                            + \gamma_i\vect{z}$
+      \Comment{one operator application}
+    \State $\vect{x} \gets \vect{x} + \vect{z}$
+      \Comment{raw fourth-kind iterate}
+    \State $\vect{y} \gets \vect{y} + \beta_{i+1}\vect{z}$
+      \Comment{weighted accumulation}
+  \EndFor
+  \State \Return $\vect{y}$
+\end{algorithmic}
+\end{algorithm}
+
+\noindent Note that $\vect{x}$ and $\vect{y}$ are distinct: $\vect{x}$ carries
+the unweighted recurrence that generates the polynomial basis, while $\vect{y}$
+accumulates the optimally weighted combination that is actually returned.
+Collapsing them --- returning $\vect{x}$ --- gives the ordinary fourth-kind
+polynomial without the optimal weights, and loses the positive-definiteness
+that makes the operator admissible to conjugate gradients.
 
 \paragraph{Spectral bound.}  $\lambda_{\max}$ of $\Dmat^{-1}\Kmat$ is estimated
 by ten power iterations followed by a Rayleigh quotient, then inflated by a

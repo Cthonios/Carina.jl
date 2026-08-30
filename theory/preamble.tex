@@ -9,11 +9,8 @@
 \usepackage{boldtensors}
 \usepackage{booktabs}
 \usepackage{microtype}
-% `algorithmic` rather than `algpseudocode`: the latter lives in algorithmicx,
-% which is not in a base TeX Live installation.  This manual builds against
-% texlive-latex-recommended with no extra package installs.
 \usepackage{algorithm}
-\usepackage{algorithmic}
+\usepackage{algpseudocode}
 \usepackage[margin=1.15in]{geometry}
 \usepackage[hidelinks]{hyperref}
 
@@ -88,6 +85,12 @@
   \vspace{0.4em}%
 }
 \newcommand{\code}[1]{\texttt{#1}}
+
+% algpseudocode's defaults name the loop variable and the comment delimiter in
+% a style that clashes with the notation used elsewhere here.
+\algrenewcommand{\algorithmicrequire}{\textbf{Input:}}
+\algrenewcommand{\algorithmicensure}{\textbf{Output:}}
+\algrenewcommand\algorithmiccomment[1]{\hfill\(\triangleright\) \textit{#1}}
 
 \theoremstyle{definition}
 \newtheorem{remark}{Remark}[chapter]

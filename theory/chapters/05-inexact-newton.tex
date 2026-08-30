@@ -89,6 +89,37 @@ governs rather than a nominal tolerance it may have overridden.
 \end{equation}
 where $\varepsilon_{\mathrm{lin}}$ is the deck's own linear tolerance.
 
+The order matters, and Algorithm~\ref{alg:forcing} fixes it: the two lower
+bounds are applied before the clamp, so neither can push $\eta$ outside
+$[\varepsilon_{\mathrm{lin}}, \eta_{\max}]$.
+
+\begin{algorithm}[h]
+\caption{Forcing term at Newton iteration $k$}
+\label{alg:forcing}
+\begin{algorithmic}[1]
+  \Require $\norm{\Rvec_k}$; previous $\norm{\Rvec_{k-1}}$ and $\eta_{k-1}$
+           if any; target $\tau$; parameters $\gamma, \alpha, \eta_{\max},
+           \eta_0, s$; linear tolerance $\varepsilon_{\mathrm{lin}}$
+  \If{no previous residual}
+    \State $\eta \gets \eta_0$
+      \Comment{first iteration of a step}
+  \Else
+    \State $\eta \gets \gamma\left(\norm{\Rvec_k}/\norm{\Rvec_{k-1}}\right)^{\alpha}$
+    \If{$\gamma\,\eta_{k-1}^{\alpha} > 0.1$}
+      \State $\eta \gets \max\left(\eta,\ \gamma\,\eta_{k-1}^{\alpha}\right)$
+        \Comment{safeguard 1: anti-collapse}
+    \EndIf
+  \EndIf
+  \If{$s > 0$ \textbf{and} $\norm{\Rvec_k} > 0$}
+    \State $\eta \gets \max\left(\eta,\ s\,\tau/\norm{\Rvec_k}\right)$
+      \Comment{safeguard 2: over-solve guard}
+  \EndIf
+  \State $\eta_k \gets \min\left(\max\left(\eta,\ \varepsilon_{\mathrm{lin}}\right),\ \eta_{\max}\right)$
+    \Comment{safeguard 3: clamp}
+  \State \Return $\eta_k$
+\end{algorithmic}
+\end{algorithm}
+
 \begin{proposition}[Safety]
 \label{prop:safety}
 Under \eqref{eq:clamp}, a forcing term can only loosen a linear solve relative

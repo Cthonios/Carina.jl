@@ -19,13 +19,37 @@ last $m$ secant pairs
   \qquad
   \rho_k = \frac{1}{\vect{y}_k^{\mathsf{T}}\vect{s}_k},
 \end{equation}
-and applies it through the two-loop recursion: given $\vect{q} = \Rvec_k$,
-sweep newest to oldest computing $a_i = \rho_i \vect{s}_i^{\mathsf{T}}\vect{q}$
-and $\vect{q} \leftarrow \vect{q} - a_i \vect{y}_i$; apply an initial inverse
-Hessian $\tensor{H}_0$; then sweep oldest to newest correcting with
-$b_i = \rho_i \vect{y}_i^{\mathsf{T}}\vect{d}$ and $\vect{d} \leftarrow
-\vect{d} + (a_i - b_i)\vect{s}_i$.  The cost is $O(mn)$ per iteration with no
-matrix at all.
+and applies it through the two-loop recursion of
+Algorithm~\ref{alg:twoloop}, at $O(mn)$ per iteration with no matrix at all.
+
+\begin{algorithm}[h]
+\caption{L-BFGS two-loop recursion}
+\label{alg:twoloop}
+\begin{algorithmic}[1]
+  \Require residual $\Rvec_k$, history $\{\vect{s}_i, \vect{y}_i, \rho_i\}$
+           newest first, initial inverse Hessian $\tensor{H}_0$
+  \Ensure descent direction $\vect{d}$
+  \State $\vect{q} \gets \Rvec_k$
+  \For{$i = 1$ \textbf{to} $m$}
+    \Comment{newest to oldest}
+    \State $a_i \gets \rho_i\,\vect{s}_i^{\mathsf{T}}\vect{q}$,\quad
+           $\vect{q} \gets \vect{q} - a_i\vect{y}_i$
+  \EndFor
+  \State $\vect{d} \gets \tensor{H}_0\,\vect{q}$
+    \Comment{Barzilai--Borwein, or Jacobi with no history}
+  \For{$i = m$ \textbf{down to} $1$}
+    \Comment{oldest to newest}
+    \State $b_i \gets \rho_i\,\vect{y}_i^{\mathsf{T}}\vect{d}$,\quad
+           $\vect{d} \gets \vect{d} + (a_i - b_i)\vect{s}_i$
+  \EndFor
+  \State \Return $\vect{d}$
+\end{algorithmic}
+\end{algorithm}
+
+A pair is admitted to the history only when $\vect{y}_i^{\mathsf{T}}\vect{s}_i
+> 0$.  That curvature condition is what keeps $\rho_i$ finite and the implied
+inverse Hessian positive definite, hence $\vect{d}$ a descent direction; a pair
+failing it is discarded rather than stored.
 
 The choice of $\tensor{H}_0$ matters more here than the textbook presentation
 suggests.  Carina uses Barzilai--Borwein scaling from the most recent pair,
