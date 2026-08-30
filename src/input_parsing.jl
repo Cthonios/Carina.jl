@@ -736,12 +736,57 @@ end
 # Each free DOF receives ρ · N_a · JxW summed over connected QPs — preserves
 # partition of unity even at free DOFs adjacent to constrained ones, unlike
 # the legacy `M_red * 1_free` approach.
+# Row-sum lumped mass, m_a = ρ ∫ N_a dV by partition of unity.
+#
+# That integral is positive for every linear element but NOT for higher-order
+# Lagrange elements: the quadratic tetrahedron gives negative values at its
+# vertex nodes, so a TETRA10 mesh produces a lumped mass with negative entries.
+# Explicit integration divides by that mass, so a negative entry silently
+# reverses the acceleration at those degrees of freedom and the run completes
+# while computing nothing meaningful.  Measured on the shipped
+# cube-tet10 mesh: 72 of 353 entries non-positive, minimum -25.7.
+#
+# The remedy in production codes is HRZ (diagonal-scaling) lumping, which uses
+# the consistent-mass diagonal ρ ∫ N_a² dV -- positive by construction -- and
+# rescales it per element to preserve the element mass.  That needs an
+# element-level assembly hook FEC does not currently expose, so until it does,
+# this refuses the configuration rather than producing a wrong answer.
 function _compute_lumped_mass(asm_cpu, p_cpu, ΔUu_template)
     n = length(ΔUu_template)
     U_zeros = zeros(Float64, n)
     FEC.assemble_lumped_mass!(asm_cpu, FEC.lumped_mass, U_zeros, p_cpu)
     m_cpu = copy(FEC.lumped_mass(asm_cpu))
+
+    n_bad = count(<=(0.0), m_cpu)
+    if n_bad > 0
+        el_types = _lumped_mass_element_types(asm_cpu)
+        error("Lumped mass has $n_bad non-positive entries of $(length(m_cpu)) " *
+              "(minimum $(minimum(m_cpu))).  Explicit integration divides by " *
+              "this mass, so the result would be meaningless rather than " *
+              "merely inaccurate.\n" *
+              "Element type(s) in this mesh: $el_types.  The row-sum lumped " *
+              "mass ρ∫N_a dV is negative at the vertex nodes of higher-order " *
+              "Lagrange elements; only linear elements are safe for the " *
+              "explicit integrator today.  Use a linear mesh (TETRA4, HEX8), " *
+              "or an implicit integrator, which uses the consistent mass.")
+    end
     return _to_device(m_cpu, ΔUu_template)
+end
+
+# Reference element per block, named from the type parameter of its ReferenceFE
+# so the message says `Tet{Lagrange, 2}` rather than an Exodus string.  The
+# polynomial degree is the part that matters here, and it is the part the
+# Exodus name does not always carry.
+function _lumped_mass_element_types(asm_cpu)
+    try
+        ref_fes = FEC.function_space(asm_cpu.dof).ref_fes
+        names = unique(string(nameof(typeof(r).parameters[1].name.wrapper)) *
+                       "{Lagrange, " * string(typeof(r).parameters[1].parameters[2]) * "}"
+                       for r in values(ref_fes))
+        return join(sort(names), ", ")
+    catch
+        return "unknown"
+    end
 end
 
 # Build L2 projection recovery data (CPU-only).

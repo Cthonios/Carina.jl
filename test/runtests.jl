@@ -30,6 +30,7 @@ const indexed_test_files = [
     (34, "output-interval.jl"),
     (35, "inexact-newton.jl"),
     (36, "spelling.jl"),
+    (37, "element-types-tet.jl"),
     (1, "mechanics-quasistatic-cube.jl"),
     (2, "mechanics-implicit-dynamic-cube.jl"),
     (3, "mechanics-explicit-dynamic-cube.jl"),
