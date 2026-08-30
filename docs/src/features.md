@@ -86,6 +86,11 @@ AMG, both on an A100 — the gain scales with how much of the step is the linear
 solve, so it is largest on the GPU matrix-free paths. Off by default; see
 [Solvers](reference/solvers.md#Inexact-Newton-forcing-terms).
 
+**Theory manual.** The mathematics behind all of the above — formulation,
+constitutive models, time integration, and every solver and preconditioner — is
+written up separately in `theory/`, built with `make` into a PDF. See
+`theory/README.md`.
+
 **Composable termination criteria.** Convergence and failure are expressed as a
 tree of status tests — residual, update, iteration count, divergence,
 stagnation, and finiteness — combined with `any`/`all` logic. See

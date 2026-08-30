@@ -1,0 +1,126 @@
+\chapter{Time integration}
+\label{ch:integration}
+\impl{src/integrators.jl}
+
+Three integrators share one \code{predict!}\,/\,\code{evaluate!}\,/\,%
+\code{correct!} protocol, so the nonlinear and linear machinery downstream is
+written once.
+
+\section{Quasi-static}
+\label{sec:quasistatic}
+
+Inertia is dropped from \eqref{eq:semidiscrete} and the load is applied in
+pseudo-time increments:
+\begin{equation}
+  \Rvec(\Uvec) = \Fext(t_{n+1}) - \Fint(\Uvec) = \vect{0},
+  \qquad \Kmat = \frac{\partial\Fint}{\partial\Uvec} .
+\end{equation}
+The operator is the bare tangent stiffness.  For a well-shaped mesh its
+condition number grows like $(L/h)^2$ with the mesh refinement ratio, which is
+what makes quasi-static problems the natural home for multigrid
+(Chapter~\ref{ch:amg}) and the reason a diagonal preconditioner degrades so
+visibly with problem size.
+
+\section{Newmark-\texorpdfstring{$\beta$}{beta}}
+\label{sec:newmark}
+
+The Newmark family parameterizes the step by $\beta$ and $\gamma$:
+\begin{align}
+  \Uvec_{n+1} &= \Uvec_n + \Delta t\, \Vvec_n
+                + \Delta t^2\left[\left(\tfrac12 - \beta\right)\Avec_n + \beta \Avec_{n+1}\right], \\
+  \Vvec_{n+1} &= \Vvec_n + \Delta t\left[(1-\gamma)\Avec_n + \gamma \Avec_{n+1}\right].
+\end{align}
+Carina implements this in predictor--corrector form.  The predictor collects
+everything known at $t_n$,
+\begin{equation}
+  \Uvec^{\mathrm{pred}} = \Uvec_n + \Delta t\, \Vvec_n
+                          + \Delta t^2\left(\tfrac12 - \beta\right)\Avec_n,
+  \qquad
+  \Vvec^{\mathrm{pred}} = \Vvec_n + \Delta t (1-\gamma)\Avec_n,
+\end{equation}
+after which the acceleration follows from the displacement alone:
+\begin{equation}
+  \Avec_{n+1} = c_M\left(\Uvec_{n+1} - \Uvec^{\mathrm{pred}}\right),
+  \qquad
+  \boxed{\ c_M = \frac{1}{\beta \Delta t^2}\ }
+  \label{eq:cM}
+\end{equation}
+and the corrector restores the velocity, $\Vvec_{n+1} = \Vvec^{\mathrm{pred}} +
+\gamma\Delta t\,\Avec_{n+1}$.  Displacement is thus the only unknown, and the
+Newton system for it has the \emph{effective operator}
+\begin{equation}
+  \Keff = \Kmat + c_M \Mmat .
+  \label{eq:keff}
+\end{equation}
+
+Equation~\eqref{eq:cM} governs almost everything about how implicit dynamics
+behaves numerically, and it is worth being explicit about why.  As $\Delta t$
+shrinks, $c_M \sim \Delta t^{-2}$ grows without bound and $\Keff$ becomes
+mass-dominated.  The mass matrix is well conditioned --- it is a Gram matrix of
+shape functions, independent of the deformation --- so $\Keff$ inherits that
+conditioning.  Three consequences recur throughout this manual:
+
+\begin{itemize}
+  \item A diagonal (Jacobi) preconditioner is unusually effective at small
+        $\Delta t$, because $\diag(c_M\Mmat)$ captures the dominant term.
+  \item Multigrid, whose value is mesh-independent iteration counts on a
+        stiffness-dominated operator, has little left to remove; measurements
+        confirm it does not repay its per-application cost in this regime
+        (Section~\ref{sec:amg-when}).
+  \item A low-rank quasi-Newton model of $\Keff^{-1}$ is viable at small
+        $\Delta t$ and not at all in the quasi-static limit
+        (Section~\ref{sec:lbfgs}).
+\end{itemize}
+
+\paragraph{Constrained degrees of freedom.}  The predictor is engineered so
+that \eqref{eq:cM} reproduces the prescribed acceleration exactly at
+constrained nodes: $\Uvec^{\mathrm{pred}}_{\mathrm{p}} = \Uvec_{\mathrm{p}} -
+\ddot{g}(t_{n+1})/c_M$, whence $\Avec_{\mathrm{p}} = \ddot{g}(t_{n+1})$.  This
+keeps the inertial cross-term $\Mmat_{\mathrm{fp}}\ddot{g}$ in the residual
+without special-casing it, and it is why the integrator carries full-length
+$\Uvec$, $\Vvec$, $\Avec$ arrays rather than free-DOF slices.
+
+\paragraph{Stability.}  $\beta = \tfrac14$, $\gamma = \tfrac12$ (average
+acceleration) is unconditionally stable and second-order accurate, and is the
+default.  Numerical dissipation, when wanted, is available through the
+HHT-$\alpha$ generalization the integrator carries.
+
+\section{Central difference}
+\label{sec:central-difference}
+
+The explicit integrator advances
+\begin{equation}
+  \Uvec_{n+1} = \Uvec_n + \Delta t \Vvec_n + \tfrac12 \Delta t^2 \Avec_n,
+  \qquad
+  \Avec_{n+1} = \left(\Mmat^{\mathrm{L}}\right)^{-1}\Rvec(\Uvec_{n+1}),
+\end{equation}
+followed by $\Vvec_{n+1} = \Vvec_n + \Delta t\left[(1-\gamma)\Avec_n + \gamma
+\Avec_{n+1}\right]$.  With a lumped mass the acceleration update is a
+component-wise division: no linear solve, no nonlinear solve, no tangent.
+Nothing in Chapters~\ref{ch:newton}--\ref{ch:amg} applies, which is why the
+input parser ignores the \code{solver} block entirely for this integrator.
+
+\paragraph{Critical time step.}  Stability is conditional on the CFL limit
+\begin{equation}
+  \Delta t \le \mathrm{CFL} \cdot \min_e \frac{\ell_e}{c_e},
+  \qquad c_e = \sqrt{\frac{\lambda + 2\mu}{\rho_0}},
+\end{equation}
+with $\ell_e$ a characteristic element length and $c_e$ the dilatational wave
+speed.  Carina recomputes this bound periodically during the run rather than
+once at setup, because $\ell_e$ shrinks as elements compress.
+
+\section{Adaptive time stepping}
+\label{sec:adaptive}
+
+Both implicit integrators shrink $\Delta t$ by a decrease factor when the
+nonlinear solve fails and grow it by an increase factor, up to a ceiling, when
+it succeeds.  A failure is any of: the status tree reporting
+\textsc{Failed}~(Section~\ref{sec:status}), a non-finite residual, or a domain
+error raised inside a constitutive model.
+
+The mechanism matters most for $J_2$ plasticity, where it is not merely an
+efficiency device but a correctness one.  Because the return map is path
+dependent, a step large enough to traverse the yield surface in one increment
+integrates the wrong path --- and converges perfectly well to the wrong answer.
+Step-size control plus the line search of Section~\ref{sec:linesearch} is what
+keeps the increments small enough for the return map to track the true path.

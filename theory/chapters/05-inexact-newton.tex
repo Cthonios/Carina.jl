@@ -1,0 +1,196 @@
+\chapter{Inexact Newton and forcing terms}
+\label{ch:inexact}
+\impl{src/linear\_solvers.jl}
+
+\section{The over-solving problem}
+
+Newton's step \eqref{eq:newton} is a linear system, and when it is solved by an
+iterative method the accuracy of that solve is a free parameter.  An
+\emph{inexact Newton method} accepts any $\Delta\Uvec_k$ satisfying
+\begin{equation}
+  \norm{\Rvec(\Uvec_k) - \Kmat(\Uvec_k)\Delta\Uvec_k} \le \eta_k \norm{\Rvec(\Uvec_k)},
+  \label{eq:inexact}
+\end{equation}
+where $\eta_k \in [0,1)$ is the \emph{forcing term}.  Choosing $\eta_k$
+constant and small --- the naive choice, and Carina's original behaviour ---
+solves every linear system to the same tolerance regardless of how far the
+nonlinear iteration still has to go.
+
+That this wastes work is not an abstract concern.  On a $530{,}523$-DOF Newmark
+step, conjugate gradients spent $181$, $205$, and $193$ iterations on the three
+solves of a step while the nonlinear residual fell
+\begin{equation*}
+  1.61\times10^{4} \ \longrightarrow\ 1.34\times10^{2}
+  \ \longrightarrow\ 7.79\times10^{-2} \ \longrightarrow\ 4.60\times10^{-8}.
+\end{equation*}
+The first two steps were computed to eight digits of linear accuracy and then
+discarded by the next Newton correction.  The pattern on a quasi-static $J_2$
+specimen is worse: roughly $350$ iterations on each of the first seven solves
+while the residual crawls from $1.57\times10^3$ to $1.76\times10^2$, after
+which the line search backtracks to $\alpha = \tfrac14$ and throws away most of
+the step it just paid for.
+
+\section{Eisenstat--Walker choice 2}
+
+The remedy is to tie $\eta_k$ to the convergence actually being observed.
+Carina implements choice~2 of Eisenstat and Walker~\cite{EisenstatWalker1996}:
+\begin{equation}
+  \eta_k^{\mathrm{EW}} = \gamma \left(\frac{\norm{\Rvec_k}}{\norm{\Rvec_{k-1}}}\right)^{\alpha},
+  \qquad \gamma \in (0,1], \quad \alpha \in (1,2].
+  \label{eq:ew}
+\end{equation}
+The reasoning is that the ratio of successive residual norms estimates how well
+the linear model predicted the nonlinear decrease.  When the previous step
+behaved as the model said it would, the ratio is small and a tighter solve is
+warranted; when the model is doing badly, a tight solve is refining a direction
+that is wrong anyway.  The default $\alpha = (1+\sqrt5)/2$ is the paper's, and
+recovers superlinear convergence of the outer iteration.
+
+On the first iteration of a step no ratio exists, and $\eta_0$ is taken from
+the \code{initial} parameter.
+
+\section{Three safeguards}
+\label{sec:ew-safeguards}
+
+Equation~\eqref{eq:ew} alone is not usable.  Carina composes it with three
+guards, applied in order.
+
+\paragraph{1. Against $\eta$ collapsing too fast.}  A single unusually good
+step can drive \eqref{eq:ew} to a very small value that the local convergence
+rate does not justify, wasting on the next solve exactly what the method exists
+to save.  Eisenstat and Walker's own safeguard raises $\eta$ back toward its
+predecessor whenever that predecessor was itself large:
+\begin{equation}
+  \eta_k \leftarrow \max\left(\eta_k^{\mathrm{EW}},\ \gamma\,\eta_{k-1}^{\alpha}\right)
+  \qquad\text{whenever}\qquad \gamma\,\eta_{k-1}^{\alpha} > 0.1 .
+  \label{eq:ew-guard}
+\end{equation}
+The threshold $0.1$ is the paper's and is not a tuning parameter in Carina.  It
+nonetheless has a consequence for the parameter that \emph{is} tunable, which
+Section~\ref{sec:etamax} takes up.
+
+\paragraph{2. Against over-solving the final step.}  Near convergence the ratio
+in \eqref{eq:ew} becomes tiny and demands far more linear accuracy than the
+nonlinear stopping test will ever reward.  Kelley's guard~\cite{Kelley1995}
+bounds $\eta$ from below by what the target actually requires:
+\begin{equation}
+  \eta_k \leftarrow \max\left(\eta_k,\ \frac{s\,\tau}{\norm{\Rvec_k}}\right),
+  \label{eq:kelley}
+\end{equation}
+where $\tau$ is the residual norm the nonlinear test is aiming at and $s$ a
+safety factor, $\tfrac12$ by default.  Carina reads $\tau$ from the status test
+tree of Section~\ref{sec:status}, so a deck's own \code{termination} block
+governs rather than a nominal tolerance it may have overridden.
+
+\paragraph{3. A hard clamp.}  Finally
+\begin{equation}
+  \eta_k \leftarrow \min\left(\max\left(\eta_k,\ \varepsilon_{\mathrm{lin}}\right),\ \eta_{\max}\right),
+  \label{eq:clamp}
+\end{equation}
+where $\varepsilon_{\mathrm{lin}}$ is the deck's own linear tolerance.
+
+\begin{proposition}[Safety]
+\label{prop:safety}
+Under \eqref{eq:clamp}, a forcing term can only loosen a linear solve relative
+to the fixed-tolerance baseline, never tighten one.
+\end{proposition}
+
+\noindent This is the property that makes the method switchable on without
+re-validating a model.  The lower clamp guarantees the final Newton iterations
+run at exactly the tolerance the user requested, so the converged solution is
+as accurate as it was before and an A/B comparison against a fixed tolerance
+compares like with like.  Measurements bear this out: across CPU and A100 runs
+in both implicit regimes, $\norm{\Uvec}_\infty$ agrees with the
+fixed-tolerance baseline to every printed digit at every output stop.
+
+\begin{remark}
+Preconditioned conjugate gradients stops on the preconditioned residual
+$\Prec$-norm relative to its own initial value, not on the unpreconditioned
+ratio of \eqref{eq:inexact} for which the theory is stated.  The forcing term
+is a heuristic in either norm; Proposition~\ref{prop:safety} is what bounds the
+damage when the two disagree.
+\end{remark}
+
+\section{Choosing \texorpdfstring{$\eta_{\max}$}{eta max}}
+\label{sec:etamax}
+
+The literature's default is $\eta_{\max} = 0.9$.  Carina's is $0.2$, and the
+reason is structural rather than empirical fitting.
+
+Measurements across a CPU quasi-static sweep and two A100 regimes show that the
+\emph{total} linear work is nearly invariant in $\eta_{\max}$: $63.1$k, $62.9$k
+and $63.6$k CG iterations at $\eta_{\max} = 0.1$, $0.2$, $0.5$ respectively on
+the $J_2$ specimen, and $1019$ versus $1011$ on the A100 Newmark problem.  What
+$\eta_{\max}$ actually controls is how many \emph{Newton} iterations are spent
+buying that work --- $413$ versus $547$ on the same CPU sweep.
+
+The mechanism is safeguard~\eqref{eq:ew-guard}, which activates when
+$\gamma\eta^{\alpha} > 0.1$.  At the default $\alpha$:
+\begin{center}
+\begin{tabular}{@{}lll@{}}
+\toprule
+$\eta_{\max}$ & $\eta_{\max}^{\alpha}$ & Behaviour \\
+\midrule
+$0.2$ & $0.076$ & below the knee; the residual ratio drives $\eta$ \\
+$0.5$ & $0.326$ & above it; the safeguard pins $\eta$ high for several iterations \\
+$0.9$ & $0.842$ & far above \\
+\bottomrule
+\end{tabular}
+\end{center}
+So $0.2$ is the largest round value that keeps Eisenstat--Walker's
+anti-collapse safeguard out of the way of Eisenstat--Walker's own adaptivity.
+Two different problems on two different architectures selected it
+independently.
+
+\section{What the method buys}
+
+A forcing term trades linear work for nonlinear work.  It therefore pays in
+proportion to how much of a step is the linear solve --- most on the
+matrix-free GPU paths of Chapter~\ref{ch:matrixfree}, where the step
+essentially \emph{is} the stiffness matrix--vector product, and least on
+assembled CPU runs where residual assembly and the line search already
+dominate.  Measured with the defaults:
+
+\begin{center}
+\begin{tabular}{@{}lcc@{}}
+\toprule
+Configuration & CG iterations & Per-step wall \\
+\midrule
+CPU quasi-static, $J_2$, $57$k DOF        & $2.47\times$ fewer & $1.30\times$ \\
+A100 Newmark, $530$k DOF, CG + Jacobi     & $2.27\times$ fewer & $1.45\times$ \\
+A100 quasi-static, $530$k DOF, CG + AMG   & $2.05\times$ fewer & $1.59\times$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The quasi-static figure is on top of the roughly twofold advantage algebraic
+multigrid already holds over Jacobi on that problem.
+
+\section{Interaction with lagged preconditioners}
+
+The hierarchy staleness detector of Section~\ref{sec:amg-lagging} compares
+conjugate-gradient iteration counts across solves.  Under a forcing term those
+counts are taken at \emph{different} tolerances and are not comparable as raw
+numbers.
+
+Simply ignoring loosened solves does not work, and the reason is
+guard~\eqref{eq:kelley}: it can raise $\eta$ enough that a run converges
+without ever solving at the deck's tolerance, so a detector that only counted
+full-tolerance solves would never fire at all.  Since that detector is the only
+rebuild trigger on the quasi-static path, the hierarchy would be built once at
+the reference configuration and kept for an entire load history --- precisely
+the failure Section~\ref{sec:nullspace} exists to prevent.
+
+Carina instead rescales.  Because a Krylov residual falls geometrically, the
+iteration count is roughly proportional to the number of digits of reduction
+requested, so
+\begin{equation}
+  \hat{m}_k = m_k \cdot \frac{\log \varepsilon_{\mathrm{lin}}}{\log \eta_k}
+  \label{eq:rescale}
+\end{equation}
+converts a count $m_k$ taken at tolerance $\eta_k$ into the count the same
+solve would have cost at the deck's tolerance.  At $\eta_k =
+\varepsilon_{\mathrm{lin}}$ this is exactly the identity, so a run with no
+forcing term feeds the detector precisely the numbers it always did.  The
+estimate is coarse, but the detector's threshold --- a factor of three ---
+is coarser.

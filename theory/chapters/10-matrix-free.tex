@@ -1,0 +1,103 @@
+\chapter{Matrix-free operators}
+\label{ch:matrixfree}
+\impl{src/physics.jl, src/two\_phase\_action.jl}
+
+\section{The action, not the matrix}
+
+Conjugate gradients never needs $\Kmat$ --- only its action $\Kmat\vect{v}$ on
+a sequence of vectors.  A matrix-free operator supplies that action by
+assembling directly:
+\begin{equation}
+  \left(\Kmat\vect{v}\right)_a
+  = \int_{\Omega_0} \Grad N_a \cdot \fourth{A} \cdot \Grad N_b \, \mathrm{d}V \ v_b
+  = \int_{\Omega_0} \Grad N_a \dbldot \delta\Piola(\Grad \vect{v}) \, \mathrm{d}V,
+  \label{eq:action}
+\end{equation}
+where $\delta\Piola$ is the directional derivative of the stress in the
+direction $\Grad\vect{v}$ --- equation~\eqref{eq:nh-action} for neo-Hookean.
+The right-hand form is the one that matters: the tangent's action on
+\emph{one} direction never requires the $81$-component $\fourth{A}$ to be
+formed, so the closed-form derivative costs a few $3\times3$ products per
+quadrature point.
+
+Three things follow.  Memory drops from $O(\text{nnz})$ to $O(n)$ --- measured
+at $5.83$~GB down to $0.245$~GB on a $530$k-DOF problem, which is the
+difference between fitting on a GPU and not.  There is no assembly phase and no
+sparse pattern to build.  And the operator is exactly as current as the
+displacement it is evaluated at, so no staleness question arises.
+
+The cost is that each application redoes the constitutive work.  Whether that
+is a good trade depends on the arithmetic intensity of the element kernel
+against the bandwidth of storing and re-reading a sparse matrix; on GPU it is
+decisively favourable.
+
+\section{Operator fusion}
+
+The Newmark system needs $\Keff\vect{v} = \Kmat\vect{v} + c_M\Mmat\vect{v}$.
+Computed as two separate assemblies, the element loop runs twice and each pass
+gathers the same nodal data.  Fusing them into a single kernel that accumulates
+both contributions per quadrature point halves the gather traffic, and the
+gather is what the operator is bound by.
+
+The same reasoning produces a diagonal-only kernel for the Jacobi
+preconditioner: $\diag(\Keff)$ is assembled directly rather than extracted from
+an operator that is never formed.
+
+\section{Where the time goes}
+
+Profiling the fused Newmark action on an A100 at $530$k DOF attributes $67\%$
+of device time to the stiffness matrix--vector product, with the device busy
+$72\%$ of the step.  The step, to a good approximation, \emph{is} the matvec.
+
+That single fact organizes the optimization work.  It is why atomic contention
+is not the bottleneck --- ablating the atomics changes nothing measurable ---
+and why the loss ordering across architectures tracks effective cache size
+rather than arithmetic throughput.  It is also why the forcing terms of
+Chapter~\ref{ch:inexact} pay so much better on the GPU paths than on assembled
+CPU runs: on this path, removing a conjugate-gradient iteration removes almost
+a whole iteration's worth of wall time.
+
+\section{Two-phase assembly}
+
+The default kernel assigns one thread per element: gather the element's nodal
+values, loop the quadrature points serially, scatter the results with atomic
+adds.  The working set held across that quadrature loop is what limits
+occupancy.
+
+The two-phase form splits it.  Phase one assigns one thread per
+(element, quadrature point) pair, writing each contribution to a disjoint slot
+of a staging array --- eight times the threads, an eighth of the per-thread
+state, and no atomics.  Phase two assigns one thread per node and sums the
+staging slots incident on it through an inverse adjacency built once on the
+host, again without atomics.
+
+The transformation is sound and it is implemented, but measurement did not
+support it: $0.66$ to $0.80$ times the throughput of the one-thread-per-element
+kernel on all three architectures tested.  The extra staging traffic exceeds
+what the occupancy gain returns.  It is documented here because the reasoning
+is correct and the conclusion is specific to the current data layout --- an
+element-blocked field layout could change it.
+
+\section{Mixed precision}
+\label{sec:mixed-precision}
+
+The V-cycle of Chapter~\ref{ch:amg} applies the matrix-free action five times
+per call at $\nu = 2$, which on a consumer GPU --- where double precision runs
+at $1/32$ rate --- dominates the iteration.  Carina evaluates the fine-level
+\emph{smoother} action in single precision while the operator conjugate
+gradients solves against stays in double.
+
+This is legitimate, and the argument is the one from
+Remark~\ref{ch:constitutive}.  A preconditioner may be any symmetric positive
+definite approximation; reducing its precision changes which approximation it
+is, not what the iteration converges to.  What would \emph{not} be legitimate
+is reducing the precision of the operator itself, which would change the fixed
+point.  The reduced-precision V-cycle also remains a fixed linear operator
+across applications, so ordinary conjugate gradients --- rather than a flexible
+variant --- stays valid.
+
+The gate is a property of the model, not a user request: Carina enables the
+reduced-precision path only for models that demonstrably narrow to single
+precision, and verifies this rather than assuming it.  A model whose action
+silently falls back to double would otherwise present as a preconditioner that
+was never actually accelerated.

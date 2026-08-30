@@ -1,0 +1,185 @@
+\chapter{Smoothed-aggregation multigrid}
+\label{ch:amg}
+\impl{src/gpu\_amg.jl, src/linear\_solvers.jl}
+
+\section{Why multigrid}
+
+Every preconditioner of Chapter~\ref{ch:preconditioners} is local: it couples
+each unknown to its immediate algebraic neighbours.  Local operators damp
+high-frequency error efficiently and low-frequency error not at all, which is
+exactly why $\kappa(\Kmat)$ grows like $(L/h)^2$ under refinement --- the
+smoothest error modes are the ones a local operator cannot see.
+
+Multigrid removes what smoothing cannot by representing the smooth error on a
+coarser problem, where it is no longer smooth relative to the grid.  The payoff
+is an iteration count that is nearly \emph{independent} of problem size.  On
+a $530$k-DOF torsion problem, algebraic multigrid holds $5$--$17$ conjugate
+gradient iterations across a range of $\Delta t$ over which Jacobi grows from
+$30$ to $442$.
+
+Carina uses \emph{algebraic} multigrid: the hierarchy is built from the matrix
+alone, with no geometric coarse mesh, which is what makes it applicable to
+unstructured meshes.
+
+\section{The near-nullspace}
+\label{sec:nullspace}
+
+Algebraic multigrid needs to know which error modes the smoother will not
+remove, so that the coarse space can represent them.  For elasticity these are
+the modes with no strain energy: the six rigid-body modes --- three
+translations and three rotations.  They form the columns of the
+\emph{near-nullspace} $\Bnull \in \mathbb{R}^{3n_{\mathrm{node}} \times 6}$,
+built from nodal coordinates about the centroid $\bar{\vect{x}}$:
+\begin{equation}
+  \Bnull = \left[\
+  \begin{array}{ccc|ccc}
+    1 & 0 & 0 & 0     & \hat{z}  & -\hat{y} \\
+    0 & 1 & 0 & -\hat{z} & 0     & \hat{x}  \\
+    0 & 0 & 1 & \hat{y}  & -\hat{x} & 0
+  \end{array}\ \right],
+  \qquad \hat{\vect{x}} = \vect{x} - \bar{\vect{x}},
+\end{equation}
+one such block per node, restricted to the free degrees of freedom.
+
+\paragraph{Current configuration, not reference.}  Carina builds $\Bnull$ from
+the \emph{current} nodal coordinates $\vect{X} + \disp$ at every hierarchy
+build, not from the reference configuration.  At finite deformation the true
+near-nullspace of $\Kmat(\Uvec)$ consists of rigid-body motions about the
+\emph{deformed} body; a nullspace frozen at the reference configuration
+describes rotations the body no longer has.  The consequence is not subtle:
+on a twisted-bar run, a frozen reference nullspace degraded the iteration count
+from $63$ to over $400$ as the bar rotated, while the hierarchy build count
+stayed at one and nothing in the log indicated a problem.
+
+\section{Hierarchy construction}
+
+Each level is built in four stages.
+
+\paragraph{1. Strength of connection.}  A symmetric strength measure filters
+$\Kmat$ into a graph $\tensor{S}$ retaining only algebraically strong
+couplings, so that aggregation follows the directions in which error actually
+propagates.
+
+\paragraph{2. Aggregation.}  Standard aggregation partitions the nodes of
+$\tensor{S}$ into disjoint aggregates, each becoming one coarse node.
+
+\paragraph{3. Tentative prolongator.}  For each aggregate $g$, the restriction
+of the near-nullspace to that aggregate's rows is factored,
+\begin{equation}
+  \Bnull|_g = \tensor{Q}_g \tensor{R}_g,
+\end{equation}
+by a thin QR.  The orthonormal $\tensor{Q}_g$ becomes the aggregate's block of
+the tentative prolongator $\tensor{T}$, and $\tensor{R}_g$ becomes the coarse
+near-nullspace $\Bnull_c$ for the next level.  This construction guarantees
+\begin{equation}
+  \Bnull = \tensor{T}\Bnull_c ,
+\end{equation}
+i.e.\ the coarse space represents every near-null mode \emph{exactly} --- which
+is the whole point of supplying $\Bnull$.
+
+\begin{remark}
+An aggregate with fewer nodes than $\Bnull$ has columns is rank deficient, and
+its QR yields fewer than six usable columns.  The implementation handles this
+by giving such an aggregate $r = \min(\abs{g}, 6)$ columns and leaving the
+remainder structurally empty, rather than producing near-zero columns that
+would inflate every downstream sparse product.
+\end{remark}
+
+\paragraph{4. Prolongator smoothing.}  The tentative prolongator is improved by
+one damped Jacobi sweep,
+\begin{equation}
+  \Pmat = \left(\Ident - \frac{4}{3\lambda_{\max}}\Dmat^{-1}\Kmat\right)\tensor{T},
+\end{equation}
+which lowers the energy of the coarse basis functions and is what distinguishes
+\emph{smoothed} aggregation from plain aggregation.  Restriction is
+$\Rrest = \Pmat^{\mathsf{T}}$, and the coarse operator is the Galerkin triple
+product
+\begin{equation}
+  \Kmat_c = \Rrest\, \Kmat\, \Pmat .
+  \label{eq:galerkin}
+\end{equation}
+
+\begin{remark}[Memory]
+Evaluated naively, \eqref{eq:galerkin} preallocates from an up-front
+nonzero-count estimate that is wildly pessimistic for a six-column
+near-nullspace --- demanding tens of gigabytes at $1.5$M DOF for a product
+whose true size is about $4$~GB.  Carina evaluates the fine-level product in
+column slabs of $\Pmat$, so peak transient memory is one slab's product rather
+than the whole estimate, and hands the much smaller coarse problem to the
+standard routine for the remaining levels.
+\end{remark}
+
+\section{The V-cycle}
+
+One V($\nu,\nu$)-cycle applied to a residual $\vect{r}$ produces a correction
+$\vect{z}$:
+
+\begin{algorithm}[h]
+\caption{V-cycle, level $\ell$}
+\begin{algorithmic}[1]
+  \STATE $\vect{x} \gets \vect{0}$
+  \STATE pre-smooth $\nu$ times on $\Kmat^{\ell}\vect{x} = \vect{b}^{\ell}$
+  \STATE $\vect{b}^{\ell+1} \gets \Rrest^{\ell}\left(\vect{b}^{\ell} - \Kmat^{\ell}\vect{x}\right)$
+  \STATE recurse to level $\ell+1$, or solve directly if coarsest
+  \STATE $\vect{x} \gets \vect{x} + \Pmat^{\ell}\vect{x}^{\ell+1}$
+  \STATE post-smooth $\nu$ times
+\end{algorithmic}
+\end{algorithm}
+
+The smoother is damped Jacobi with $\omega = 4/(3\lambda_{\max})$, the same
+weight used for prolongator smoothing, with $\lambda_{\max}$ estimated per
+level by power iteration.  The coarsest level is solved by a dense
+pseudo-inverse, formed once at build time; at that size a dense solve is
+cheaper than another level of hierarchy.
+
+Symmetry of the cycle --- equal pre- and post-smoothing, and
+$\Rrest = \Pmat^{\mathsf{T}}$ --- is what makes the resulting operator
+symmetric, hence admissible as a conjugate-gradient preconditioner.
+
+\section{GPU execution}
+
+The hierarchy is built on the host, where the sparse pattern already lives, and
+converted to device CSR.  The cycle then runs entirely on the device.  The fine
+level is special: rather than storing $\Kmat$ on the device, its
+matrix--vector products go through the matrix-free action of
+Chapter~\ref{ch:matrixfree}, so the fine matrix is never formed there at all.
+Only the coarse levels --- orders of magnitude smaller --- are stored
+explicitly.
+
+\section{Lagging and staleness}
+\label{sec:amg-lagging}
+
+Hierarchy setup costs seconds at $500$k DOF, far more than a single V-cycle
+application, so the hierarchy is \emph{lagged}: built once and reused across
+Newton iterations and time steps.  Reuse is safe because the hierarchy is a
+preconditioner --- an out-of-date one costs iterations, never accuracy.
+
+Two triggers force a rebuild.  A change in $c_M$ means the operator itself has
+changed (a new $\Delta t$).  And a staleness detector watches the
+conjugate-gradient iteration count: it latches a baseline on the first solve
+after a build and requests a rebuild when a later count exceeds three times
+that baseline, subject to a floor so that small counts do not thrash.
+
+On the quasi-static path this detector is the \emph{only} rebuild trigger,
+because $c_M = 0$ there and the first test never fires.  That is what makes the
+interaction with forcing terms consequential, and it is treated in
+Section~\ref{sec:etamax}'s neighbouring discussion at the end of
+Chapter~\ref{ch:inexact}.
+
+\section{When multigrid is the right tool}
+\label{sec:amg-when}
+
+AMG targets operators whose difficulty is the smooth end of the spectrum:
+quasi-static problems and moderate-$\Delta t$ dynamics.  It is not universally
+better, and two limits are worth naming.
+
+At small $\Delta t$ in implicit dynamics, $\Keff$ is mass-dominated
+(Section~\ref{sec:newmark}) and already well conditioned.  There is little
+smooth error for a coarse grid to remove, and measurements on two GPU
+architectures confirm the V-cycle does not repay its per-application cost:
+Jacobi is faster.
+
+At very large $\Delta t$ on violently dynamic problems, the Newmark predictor
+can overshoot into near-inverted configurations whose tangent is indefinite.
+Conjugate gradients is then invalid regardless of preconditioner, and explicit
+integration is the appropriate method.

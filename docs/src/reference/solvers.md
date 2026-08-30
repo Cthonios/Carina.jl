@@ -4,6 +4,12 @@ The `solver` section configures the nonlinear solve, the linear solve nested
 inside it, and the convergence criteria. It is required for `quasi static` and
 `newmark`, and **ignored entirely** by `central difference`, which is explicit.
 
+!!! tip "Looking for the mathematics?"
+    This page documents *what to write*. For why each method works — Newton and
+    its globalization, Eisenstat–Walker forcing terms, the Chebyshev
+    recurrence, smoothed-aggregation multigrid — see the theory manual in
+    `theory/`, built with `make`.
+
 ```yaml
 solver:
   type: newton

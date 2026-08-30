@@ -1,0 +1,54 @@
+\documentclass[11pt,oneside]{book}
+\input{preamble}
+
+\title{\textbf{Carina}\\[0.4em]
+       \large Theory Manual\\[0.3em]
+       \normalsize Formulation, constitutive models, and solution algorithms}
+\author{Alejandro Mota}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+\frontmatter
+\chapter*{About this manual}
+\addcontentsline{toc}{chapter}{About this manual}
+
+Carina's documentation is split by the question it answers.  The user manual
+(\code{docs/}, built with Documenter) answers \emph{what do I write in the input
+deck}.  The benchmark report (\code{benchmark\_report.md}) answers \emph{how
+fast is it, and on what hardware}.  This manual answers \emph{why the
+algorithms work}.
+
+It is written to be read alongside the source.  Each algorithm is stated in the
+form the code actually implements --- not the form most convenient to typeset
+--- and the margin of each section names the file implementing it.  Where the
+implementation departs from a textbook statement, the departure is the point of
+the section rather than a footnote to it: those departures are usually the
+result of a measurement, and the measurement is cited.
+
+Nothing here is a substitute for reading the code, and the code is the
+authority wherever the two disagree.  If you find such a disagreement, it is a
+defect in this manual.
+
+\tableofcontents
+
+\mainmatter
+
+\include{chapters/00-notation}
+\include{chapters/01-formulation}
+\include{chapters/02-constitutive}
+\include{chapters/03-integration}
+\include{chapters/04-newton}
+\include{chapters/05-inexact-newton}
+\include{chapters/06-quasi-newton}
+\include{chapters/07-krylov}
+\include{chapters/08-preconditioners}
+\include{chapters/09-amg}
+\include{chapters/10-matrix-free}
+
+\backmatter
+\bibliographystyle{plain}
+\bibliography{refs}
+
+\end{document}

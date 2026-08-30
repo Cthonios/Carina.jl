@@ -1,0 +1,95 @@
+% Shared preamble for the Carina theory manual.
+%
+% Every chapter writes tensors and matrices through the macros defined here,
+% so the notation is set in one place and cannot drift between chapters.
+
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage{amsmath, amssymb, amsthm}
+\usepackage{boldtensors}
+\usepackage{booktabs}
+\usepackage{microtype}
+% `algorithmic` rather than `algpseudocode`: the latter lives in algorithmicx,
+% which is not in a base TeX Live installation.  This manual builds against
+% texlive-latex-recommended with no extra package installs.
+\usepackage{algorithm}
+\usepackage{algorithmic}
+\usepackage[margin=1.15in]{geometry}
+\usepackage[hidelinks]{hyperref}
+
+% File paths set in typewriter cannot hyphenate, so a paragraph containing one
+% can overflow the measure.  Let TeX stretch the interword space as a last
+% resort rather than run into the margin.
+\setlength{\emergencystretch}{2.5em}
+
+% --------------------------------------------------------------------------
+% Notation
+% --------------------------------------------------------------------------
+% boldtensors makes \bf-prefixed Greek and upright symbols bold, which is what
+% carries the tensor/matrix distinction throughout.  Second-order tensors and
+% matrices are bold upright capitals, vectors bold lowercase, fourth-order
+% tensors blackboard bold.
+
+% boldtensors makes `~` and `"` active in math mode: `~X` sets X in the bold
+% tensor font, `"X` in blackboard bold.  That is the package's own interface;
+% wrapping it in named macros keeps the active characters out of the chapter
+% sources, where they would be easy to mistype and hard to grep for.
+
+\newcommand{\tensor}[1]{~#1}                  % 2nd-order tensor / matrix
+\newcommand{\vect}[1]{~#1}                    % vector
+\newcommand{\fourth}[1]{"#1}                  % 4th-order tensor
+
+% Continuum quantities
+\newcommand{\Fdef}{\tensor{F}}                % deformation gradient
+\newcommand{\Piola}{\tensor{P}}               % first Piola--Kirchhoff stress
+\newcommand{\Cauchy}{\tensor{\sigma}}         % Cauchy stress
+\newcommand{\Kirch}{\tensor{\tau}}            % Kirchhoff stress
+\newcommand{\strain}{\tensor{\varepsilon}}    % small strain
+\newcommand{\Cright}{\tensor{C}}              % right Cauchy--Green
+\newcommand{\Ident}{\tensor{I}}               % identity tensor
+\newcommand{\disp}{\vect{u}}                  % displacement field
+\newcommand{\Grad}{\nabla}
+
+% Discrete quantities
+\newcommand{\Kmat}{\tensor{K}}                % tangent stiffness
+\newcommand{\Mmat}{\tensor{M}}                % mass matrix
+\newcommand{\Keff}{\tensor{K}_{\mathrm{eff}}} % Newmark effective stiffness
+\newcommand{\Rvec}{\vect{R}}                  % residual
+\newcommand{\Uvec}{\vect{u}}                  % discrete displacement
+\newcommand{\Vvec}{\vect{v}}                  % discrete velocity
+\newcommand{\Avec}{\vect{a}}                  % discrete acceleration
+\newcommand{\Fint}{\vect{f}^{\mathrm{int}}}
+\newcommand{\Fext}{\vect{f}^{\mathrm{ext}}}
+\newcommand{\Pmat}{\tensor{P}}                % prolongation
+\newcommand{\Rrest}{\tensor{R}}               % restriction
+\newcommand{\Dmat}{\tensor{D}}                % diagonal of an operator
+\newcommand{\Bnull}{\tensor{B}}               % near-nullspace
+\newcommand{\Prec}{\tensor{M}}                % preconditioner
+
+% Operators
+\DeclareMathOperator{\dev}{dev}
+\DeclareMathOperator{\tr}{tr}
+\DeclareMathOperator{\diag}{diag}
+\DeclareMathOperator*{\argmin}{arg\,min}
+\newcommand{\norm}[1]{\left\lVert #1 \right\rVert}
+\newcommand{\abs}[1]{\left\lvert #1 \right\rvert}
+\newcommand{\inner}[2]{\left\langle #1, #2 \right\rangle}
+\newcommand{\dbldot}{\mathbin{:}}
+
+% Cross-references into the implementation.  Every chapter names the files that
+% implement it, so the two can be checked against each other.
+%
+% Set in the text flow rather than as a \marginpar: the margins here are too
+% narrow for a path like `src/nonlinear_solvers.jl`, and a marginpar that does
+% not fit is silently clipped at the page edge rather than reported.
+\newcommand{\impl}[1]{%
+  \vspace{-0.6em}%
+  {\raggedleft\small\textit{Implementation:}~\texttt{#1}\par}%
+  \vspace{0.4em}%
+}
+\newcommand{\code}[1]{\texttt{#1}}
+
+\theoremstyle{definition}
+\newtheorem{remark}{Remark}[chapter]
+\theoremstyle{plain}
+\newtheorem{proposition}{Proposition}[chapter]

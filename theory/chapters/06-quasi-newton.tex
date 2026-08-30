@@ -1,0 +1,89 @@
+\chapter{Quasi-Newton and gradient methods}
+\label{ch:quasinewton}
+\impl{src/nonlinear\_solvers.jl, src/linear\_solvers.jl}
+
+Three alternatives to Newton are implemented, all matrix-free in the sense that
+none forms or factors a tangent.  They exist for cases where assembling
+$\Kmat$ is unattractive, and each has a regime where it is the right choice
+and a regime where it fails.
+
+\section{L-BFGS}
+\label{sec:lbfgs}
+
+Limited-memory BFGS builds an implicit approximation to $\Kmat^{-1}$ from the
+last $m$ secant pairs
+\begin{equation}
+  \vect{s}_k = \Uvec_{k+1} - \Uvec_k,
+  \qquad
+  \vect{y}_k = \Rvec_k - \Rvec_{k+1},
+  \qquad
+  \rho_k = \frac{1}{\vect{y}_k^{\mathsf{T}}\vect{s}_k},
+\end{equation}
+and applies it through the two-loop recursion: given $\vect{q} = \Rvec_k$,
+sweep newest to oldest computing $a_i = \rho_i \vect{s}_i^{\mathsf{T}}\vect{q}$
+and $\vect{q} \leftarrow \vect{q} - a_i \vect{y}_i$; apply an initial inverse
+Hessian $\tensor{H}_0$; then sweep oldest to newest correcting with
+$b_i = \rho_i \vect{y}_i^{\mathsf{T}}\vect{d}$ and $\vect{d} \leftarrow
+\vect{d} + (a_i - b_i)\vect{s}_i$.  The cost is $O(mn)$ per iteration with no
+matrix at all.
+
+The choice of $\tensor{H}_0$ matters more here than the textbook presentation
+suggests.  Carina uses Barzilai--Borwein scaling from the most recent pair,
+\begin{equation}
+  \tensor{H}_0 = \gamma_0 \Ident,
+  \qquad
+  \gamma_0 = \frac{\vect{s}_k^{\mathsf{T}}\vect{y}_k}{\vect{y}_k^{\mathsf{T}}\vect{y}_k},
+\end{equation}
+once history exists, and a Jacobi diagonal before then.  The Jacobi fallback is
+not cosmetic: on the first step of an implicit dynamic problem there is no
+history, and $c_M = 1/(\beta\Delta t^2)$ can be enormous
+(equation~\ref{eq:cM}), so $\tensor{H}_0 = \Ident$ would produce a first step
+wrong by many orders of magnitude.
+
+\paragraph{Where it works, and where it does not.}  L-BFGS is the fastest
+option Carina has for implicit \emph{dynamics} on GPU, and it fails outright on
+quasi-static problems --- stalling roughly seven orders short of tolerance, on
+CPU and GPU alike, at any history size.
+
+Section~\ref{sec:newmark} explains why.  At small $\Delta t$ the effective
+operator $\Keff = \Kmat + c_M\Mmat$ is mass-dominated and strongly diagonally
+dominant, which is exactly the structure a rank-$m$ update models well.
+Quasi-static has no mass term: the operator is the bare stiffness, whose
+spectrum spans the mesh-refinement range, and a rank-$10$ model cannot
+represent it.  This is a statement about the operator, not about the
+implementation or the device --- which is why no amount of history size
+rescues it.
+
+\section{Nonlinear conjugate gradient}
+
+Preconditioned Polak--Ribi\`ere$^+$.  With $\vect{g}_k = \Prec\Rvec_k$ the
+preconditioned gradient,
+\begin{equation}
+  \beta_k = \max\left(0,\
+  \frac{\Rvec_k^{\mathsf{T}}\vect{g}_k - \Rvec_k^{\mathsf{T}}\vect{g}_{k-1}}
+       {\Rvec_{k-1}^{\mathsf{T}}\vect{g}_{k-1}}\right),
+  \qquad
+  \vect{d}_k = \vect{g}_k + \beta_k \vect{d}_{k-1}.
+\end{equation}
+The clamp at zero is the ``$+$'' variant and amounts to restarting with a
+steepest-descent direction whenever the formula would turn negative, which
+guarantees $\vect{d}_k$ remains a descent direction.  Carina restarts
+additionally when successive gradients lose orthogonality beyond a tolerance,
+and optionally at a fixed interval.
+
+Only Jacobi preconditioning is available at this level; asking for anything
+stronger is rejected rather than silently downgraded, since a preconditioner
+that silently did nothing would present as a mysterious convergence problem.
+
+\section{Preconditioned steepest descent}
+
+The direction is $\vect{d}_k = \Prec\Rvec_k$, with an Armijo line search on the
+total potential energy rather than on the residual norm:
+\begin{equation}
+  \Pi(\Uvec + \alpha\vect{d}) \le \Pi(\Uvec) + c\,\alpha\, \nabla\Pi\cdot\vect{d},
+  \qquad \nabla\Pi\cdot\vect{d} = -\Rvec^{\mathsf{T}}\vect{d}.
+\end{equation}
+Using the energy is available here because the directional derivative is exact
+and cheap, and $\Pi$ is the quantity the equilibrium problem actually
+minimizes.  This is the slowest and most robust option: linear convergence, but
+it makes progress on problems where the others stall.

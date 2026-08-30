@@ -1,0 +1,132 @@
+\chapter{Formulation}
+\label{ch:formulation}
+\impl{src/physics.jl}
+
+\section{Strong and weak form}
+
+Carina solves finite-deformation solid mechanics in the reference
+configuration.  Linear momentum balance reads
+\begin{equation}
+  \Grad \cdot \Piola + \rho_0 \vect{b} = \rho_0 \ddot{\disp},
+  \label{eq:momentum}
+\end{equation}
+with $\Piola$ the first Piola--Kirchhoff stress, $\vect{b}$ a body force per
+unit mass, and $\rho_0$ the reference density.  Multiplying by an admissible
+variation $\delta\disp$ vanishing on the Dirichlet boundary $\Gamma_u$ and
+integrating by parts gives the weak form: find $\disp$ with $\disp =
+\bar{\disp}$ on $\Gamma_u$ such that
+\begin{equation}
+  \int_{\Omega_0} \Piola \dbldot \Grad \delta\disp \, \mathrm{d}V
+  + \int_{\Omega_0} \rho_0\, \ddot{\disp} \cdot \delta\disp \, \mathrm{d}V
+  = \int_{\Omega_0} \rho_0 \vect{b}\cdot\delta\disp \, \mathrm{d}V
+  + \int_{\Gamma_t} \bar{\vect{t}} \cdot \delta\disp \, \mathrm{d}A
+  \label{eq:weak}
+\end{equation}
+for all admissible $\delta\disp$, where $\bar{\vect{t}}$ is the prescribed
+traction on $\Gamma_t$.
+
+The kinematics enter only through the deformation gradient
+\begin{equation}
+  \Fdef = \Ident + \Grad\disp ,
+\end{equation}
+and the constitutive response enters only through $\Piola(\Fdef)$.  This is the
+entire coupling surface between Chapter~\ref{ch:constitutive} and everything
+downstream: a constitutive model supplies $\Piola$ given $\Grad\disp$, and
+optionally its derivative.
+
+\section{Discretization}
+
+Introducing isoparametric shape functions $N_a$ over an element mesh and
+writing $\disp \approx \sum_a N_a \Uvec_a$, \eqref{eq:weak} becomes the
+semi-discrete system
+\begin{equation}
+  \Mmat \Avec + \Fint(\Uvec) = \Fext(t),
+  \label{eq:semidiscrete}
+\end{equation}
+with
+\begin{equation}
+  \Mmat_{ab} = \int_{\Omega_0} \rho_0 N_a N_b \, \mathrm{d}V,
+  \qquad
+  \Fint_a(\Uvec) = \int_{\Omega_0} \Piola(\Fdef) \cdot \Grad N_a \, \mathrm{d}V .
+\end{equation}
+Both integrals are evaluated by Gauss quadrature element by element.  The
+residual that every solver in this manual drives to zero is
+\begin{equation}
+  \Rvec(\Uvec) = \Fext - \Fint(\Uvec) - \Mmat\Avec ,
+  \label{eq:residual}
+\end{equation}
+with the inertial term absent in the quasi-static case
+(Section~\ref{sec:quasistatic}).
+
+\begin{remark}
+Carina stores $\Rvec$ already negated relative to the force residual, so the
+Newton system is $\Kmat\,\Delta\Uvec = \Rvec$ with a plus sign throughout the
+implementation.  The sign convention is stated in \code{linear\_solvers.jl} at
+the dispatch point and is followed uniformly here.
+\end{remark}
+
+\section{Consistent tangent}
+
+Differentiating \eqref{eq:residual} with respect to the nodal displacements
+gives the tangent stiffness
+\begin{equation}
+  \Kmat_{ab} = \frac{\partial \Fint_a}{\partial \Uvec_b}
+             = \int_{\Omega_0} \Grad N_a \cdot \fourth{A} \cdot \Grad N_b \,
+               \mathrm{d}V,
+  \qquad
+  \fourth{A} = \frac{\partial \Piola}{\partial \Grad\disp} .
+  \label{eq:tangent}
+\end{equation}
+The fourth-order material tangent $\fourth{A}$ is the only object a
+constitutive model must supply beyond the stress itself; how Carina obtains it
+--- in closed form, by automatic differentiation, or by finite differences ---
+is the subject of Section~\ref{sec:tangent-strategies}.
+
+\section{Dirichlet conditions by elimination}
+\label{sec:elimination}
+
+Prescribed displacements are imposed by removing the corresponding equations
+and unknowns, not by adding a penalty term or a Lagrange multiplier.
+Partitioning the degrees of freedom into unknowns $\mathrm{f}$ and prescribed
+values $\mathrm{p}$,
+\begin{equation}
+  \begin{bmatrix}
+    \Kmat_{\mathrm{ff}} & \Kmat_{\mathrm{fp}} \\
+    \Kmat_{\mathrm{pf}} & \Kmat_{\mathrm{pp}}
+  \end{bmatrix}
+  \begin{bmatrix} \Delta\Uvec_{\mathrm{f}} \\ \Delta\Uvec_{\mathrm{p}} \end{bmatrix}
+  =
+  \begin{bmatrix} \Rvec_{\mathrm{f}} \\ \Rvec_{\mathrm{p}} \end{bmatrix},
+\end{equation}
+only the first block row is solved, with $\Delta\Uvec_{\mathrm{p}}$ known.  The
+cross term $\Kmat_{\mathrm{fp}}\Delta\Uvec_{\mathrm{p}}$ is carried
+automatically because the element kernels read displacement fields that already
+hold the prescribed values at constrained nodes; nothing assembles
+$\Kmat_{\mathrm{fp}}$ explicitly.
+
+This choice is not cosmetic.  A penalty imposition multiplies selected
+diagonal entries by a large factor --- $10^{15}$ is typical --- which raises
+the condition number of the operator by the same factor and destroys the
+convergence rate of every Krylov method in Chapter~\ref{ch:krylov}.  The
+eliminated system carries no artificial conditioning at all, so the iteration
+counts reported throughout this manual reflect the physics of the problem
+rather than the bookkeeping of the boundary conditions.
+
+\begin{remark}
+One place in Carina does see penalty-scale entries: the assembled Chebyshev
+path, which forms $\Kmat$ including constrained rows before scaling.  That is
+why the polynomial there is built on the symmetrically scaled operator
+$\Dmat^{-1/2}\Kmat\Dmat^{-1/2}$, whose eigenvalues are $O(1)$ even when
+$\Kmat$'s are not.  See Section~\ref{sec:chebyshev}.
+\end{remark}
+
+\section{Mass matrix and lumping}
+
+The consistent mass of \eqref{eq:semidiscrete} is used by the implicit dynamic
+integrator.  The explicit integrator instead uses the row-sum lumped mass
+\begin{equation}
+  \Mmat^{\mathrm{L}}_{aa} = \sum_b \Mmat_{ab},
+\end{equation}
+which is diagonal and therefore invertible in $O(n)$ with no linear solve at
+all --- the property that makes explicit integration attractive
+(Section~\ref{sec:central-difference}).

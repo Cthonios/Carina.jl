@@ -1,0 +1,90 @@
+\chapter{Newton's method}
+\label{ch:newton}
+\impl{src/nonlinear\_solvers.jl}
+
+\section{The iteration}
+
+Newton--Raphson linearizes $\Rvec(\Uvec) = \vect{0}$ about the current iterate:
+\begin{equation}
+  \Kmat(\Uvec_k)\, \Delta\Uvec_k = \Rvec(\Uvec_k),
+  \qquad
+  \Uvec_{k+1} = \Uvec_k + \alpha_k \Delta\Uvec_k ,
+  \label{eq:newton}
+\end{equation}
+with $\Kmat$ the tangent \eqref{eq:tangent} for quasi-static problems and
+$\Keff$ of \eqref{eq:keff} for implicit dynamics.  With an exact tangent, an
+exact linear solve, and $\alpha_k = 1$, convergence near the solution is
+quadratic.  Each of those three assumptions is relaxed somewhere in Carina, and
+each relaxation is the subject of a later chapter: approximate tangents in
+Section~\ref{sec:tangent-strategies}, inexact linear solves in
+Chapter~\ref{ch:inexact}, and $\alpha_k < 1$ immediately below.
+
+\section{Globalization by line search}
+\label{sec:linesearch}
+
+Far from the solution the full Newton step can be worse than no step at all.
+At large $\Delta t$ or a large load increment the predictor may sit far enough
+from equilibrium that $\Uvec_k + \Delta\Uvec_k$ inverts elements, producing
+$J \le 0$ and a non-finite residual.
+
+Carina globalizes with Armijo backtracking on the merit function
+\begin{equation}
+  m(\alpha) = \tfrac12 \norm{\Rvec(\Uvec_k + \alpha \Delta\Uvec_k)}^2 ,
+\end{equation}
+accepting the first $\alpha \in \{1, \tau, \tau^2, \dots\}$ satisfying the
+sufficient-decrease condition
+\begin{equation}
+  m(\alpha) \le \left(1 - 2 c\, \alpha\right) m(0),
+  \label{eq:armijo}
+\end{equation}
+with backtrack factor $\tau = \tfrac12$ and $c = 10^{-4}$ by default.
+Equation~\eqref{eq:armijo} is the standard Armijo condition specialized to this
+merit function: since $\Delta\Uvec_k$ solves $\Kmat\Delta\Uvec = \Rvec$, the
+directional derivative is $m'(0) = -\norm{\Rvec}^2 = -2m(0)$, and substituting
+into $m(\alpha) \le m(0) + c\,\alpha\, m'(0)$ gives \eqref{eq:armijo} directly.
+
+The line search is \emph{on by default}.  It costs roughly one extra residual
+evaluation per iteration when the full step is already good, since $\alpha = 1$
+is then accepted immediately, and it is the only thing standing between a bad
+predictor and an inverted element.
+
+\begin{remark}
+If the backtracking budget is exhausted without satisfying
+\eqref{eq:armijo}, Carina restores the pre-step material state and accepts the
+full step, leaving the outer failure machinery of Section~\ref{sec:adaptive} to
+handle it.  Restoring the state matters: the trial evaluations have already
+advanced the internal variables of a path-dependent model, and accepting a step
+on top of a state advanced by a rejected trial would silently corrupt the
+history.
+\end{remark}
+
+\begin{remark}
+An inexact Newton direction (Chapter~\ref{ch:inexact}) remains a descent
+direction for $m$ as long as the linear residual is smaller than $\norm{\Rvec}$
+--- that is, whenever the forcing term satisfies $\eta_k < 1$, which the clamp
+of Section~\ref{sec:ew-safeguards} enforces.  The line search therefore
+composes with inexact solves without modification.
+\end{remark}
+
+\section{Status tests}
+\label{sec:status}
+
+Termination is a \emph{tree} of composable tests rather than a fixed criterion,
+following the NOX pattern.  Leaves test the residual ($\norm{\Rvec} <
+\varepsilon_a$ or $\norm{\Rvec}/\norm{\Rvec_0} < \varepsilon_r$), the update
+($\norm{\Delta\Uvec}$, absolute or relative to $\norm{\Uvec}$), the iteration
+count, finiteness, divergence, or stagnation; interior nodes combine them with
+\textsc{And}\,/\,\textsc{Or}.
+
+Two properties of the combination rules are worth stating because algorithms
+elsewhere depend on them.  In an \textsc{Or} node, \textsc{Converged} beats
+\textsc{Failed} when both occur on the same iteration.  And a
+\emph{finite-value} test is appended to every tree automatically, so a
+\textsc{NaN} residual always terminates the solve regardless of what the user
+wrote.
+
+The tree is not merely a convenience.  Section~\ref{sec:ew-safeguards} needs
+the residual norm the solve is actually aiming at, and reads it off this tree
+--- taking the loosest child of an \textsc{Or} and the tightest of an
+\textsc{And} --- rather than from a nominal tolerance that a user-supplied tree
+may have overridden.

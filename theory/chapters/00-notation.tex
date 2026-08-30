@@ -1,0 +1,69 @@
+\chapter{Notation}
+\label{ch:notation}
+
+Bold upright capitals denote second-order tensors and matrices, bold lowercase
+denotes vectors, and blackboard bold denotes fourth-order tensors.  Bold Greek
+follows the same convention through the \code{boldtensors} package: $\Cauchy$
+is the Cauchy stress tensor, $\sigma$ a scalar.
+
+\section*{Continuum quantities}
+
+\begin{tabular}{@{}ll@{}}
+\toprule
+Symbol & Meaning \\
+\midrule
+$\vect{X}$, $\vect{x}$        & material and spatial position \\
+$\disp$                       & displacement field, $\vect{x} = \vect{X} + \disp$ \\
+$\Fdef = \Ident + \Grad\disp$ & deformation gradient \\
+$J = \det\Fdef$               & Jacobian of the deformation \\
+$\Cright = \Fdef^{\mathsf{T}}\Fdef$ & right Cauchy--Green tensor \\
+$\Piola$                      & first Piola--Kirchhoff stress \\
+$\Cauchy$, $\Kirch = J\Cauchy$ & Cauchy and Kirchhoff stress \\
+$\Psi$                        & strain-energy density per unit reference volume \\
+$\fourth{A} = \partial\Piola/\partial\Grad\disp$ & material tangent \\
+$\rho_0$                      & reference mass density \\
+\bottomrule
+\end{tabular}
+
+\section*{Discrete quantities}
+
+\begin{tabular}{@{}ll@{}}
+\toprule
+Symbol & Meaning \\
+\midrule
+$n$                     & number of unknown (free) degrees of freedom \\
+$\Uvec, \Vvec, \Avec$   & nodal displacement, velocity, acceleration \\
+$\Rvec$                 & residual (out-of-balance force) \\
+$\Kmat = \partial\Rvec/\partial\Uvec$ & tangent stiffness \\
+$\Mmat$                 & mass matrix \\
+$\Keff$                 & effective operator of an implicit step \\
+$c_M$                   & mass coefficient of $\Keff$, Section~\ref{sec:newmark} \\
+$\Dmat = \diag(\Kmat)$  & diagonal of an operator \\
+$\Prec$                 & preconditioner, $\Prec \approx \Kmat^{-1}$ \\
+$\Pmat$, $\Rrest$       & prolongation and restriction \\
+$\Bnull$                & near-nullspace, Section~\ref{sec:nullspace} \\
+$\eta_k$                & forcing term at Newton iteration $k$, Chapter~\ref{ch:inexact} \\
+$\lambda_{\max}$        & largest eigenvalue of $\Dmat^{-1}\Kmat$ \\
+\bottomrule
+\end{tabular}
+
+\section*{Index conventions}
+
+Subscript $k$ indexes nonlinear (Newton) iterations, subscript $i$ or $j$
+indexes linear (Krylov) iterations, subscript $n$ indexes time steps, and
+superscript $\ell$ indexes multigrid levels.  A quantity written without a time
+subscript is understood at $t_{n+1}$, the step being solved.
+
+Norms are Euclidean unless a subscript says otherwise; $\norm{\vect{r}}_{\Prec}
+= \sqrt{\vect{r}^{\mathsf{T}}\Prec\vect{r}}$ denotes the norm induced by a
+preconditioner, which is the quantity preconditioned conjugate gradients
+actually monitors (Section~\ref{sec:pcg}).
+
+\section*{Free and constrained degrees of freedom}
+
+Carina imposes Dirichlet conditions by \emph{elimination}, never by penalty.
+The global degree-of-freedom set partitions into unknowns and prescribed
+values, and every operator named above is understood as the unknown--unknown
+block unless stated otherwise.  Chapter~\ref{ch:formulation} makes this precise
+and Section~\ref{sec:elimination} explains why the choice matters for every
+Krylov method in this manual.

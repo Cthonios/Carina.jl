@@ -1,0 +1,91 @@
+\chapter{Preconditioners}
+\label{ch:preconditioners}
+\impl{src/linear\_solvers.jl}
+
+A preconditioner is an approximation $\Prec \approx \Kmat^{-1}$ that is cheap
+to apply and reduces $\kappa(\Prec\Kmat)$ in \eqref{eq:cg-bound}.  It must be
+symmetric positive definite for conjugate gradients to remain valid.  It need
+not be accurate: Remark~\ref{ch:constitutive} applies here too --- the
+preconditioner shapes the path, never the fixed point.
+
+\section{Jacobi}
+
+$\Prec = \Dmat^{-1}$ with $\Dmat = \diag(\Kmat)$.  One vector scaling per
+application, trivially parallel, always available.  It removes the
+conditioning that comes from heterogeneous element sizes and material
+properties, and nothing else --- in particular it does nothing about the
+$(L/h)^2$ growth with mesh refinement that dominates quasi-static problems.
+
+Its unusual effectiveness in implicit dynamics at small $\Delta t$ is a direct
+consequence of \eqref{eq:cM}: when $c_M\Mmat$ dominates $\Keff$, and $\Mmat$ is
+nearly diagonal for the element types in use, the diagonal captures most of the
+operator.
+
+\section{Incomplete \texorpdfstring{$LDL^{\mathsf{T}}$}{LDLT}}
+
+An incomplete factorization $\Kmat \approx \tensor{L}\Dmat\tensor{L}^{\mathsf{T}}$
+that drops fill outside a chosen sparsity pattern, applied by two triangular
+solves.  Substantially stronger than Jacobi for ill-conditioned systems, and
+the natural choice for $J_2$ plasticity on non-uniform meshes.
+
+It is CPU-only, and the obstruction is structural rather than a missing port: a
+triangular solve is inherently sequential along each dependency chain, which is
+the one access pattern a GPU cannot exploit.  This is why the GPU path needs
+either a polynomial preconditioner or multigrid, both of which reduce to
+matrix--vector products.
+
+\section{Chebyshev polynomial preconditioner}
+\label{sec:chebyshev}
+
+A polynomial preconditioner approximates $\Kmat^{-1}$ by a polynomial in
+$\Kmat$, so applying it costs only matrix--vector products --- which makes it
+GPU-friendly where triangular solves are not.
+
+Carina implements Chebyshev polynomials of the \emph{fourth kind} with optimal
+weights, following Lottes~\cite{Lottes2022} as implemented in Ifpack2.  This
+variant has three properties that matter here:
+
+\begin{itemize}
+  \item It requires only $\lambda_{\max}$, not the eigenvalue \emph{ratio}.
+        Standard Chebyshev needs a lower bound $\lambda_{\min}$ as well, and a
+        poor estimate of it degrades the polynomial badly; $\lambda_{\min}$ is
+        also the harder of the two to estimate.
+  \item Jacobi scaling is baked into the recurrence, so $\Dmat^{-1}$ is applied
+        at each stage rather than as a separate wrapper.
+  \item The optimal weights make the resulting operator symmetric positive
+        definite \emph{by construction}, so it is admissible as a CG
+        preconditioner without the squaring trick --- costing $k$ matrix--vector
+        products per application instead of $2k$.
+\end{itemize}
+
+With $\sigma = 1/\lambda_{\max}$ and weights $\beta_i$ tabulated for degrees
+$1$ through $16$, the recurrence from a zero initial guess is
+\begin{align}
+  \vect{z}_1 &= \tfrac43 \sigma \Dmat^{-1}\vect{b},
+  \qquad \vect{x}_1 = \vect{z}_1,
+  \qquad \vect{y} = \beta_1 \vect{z}_1, \\
+  \gamma_i &= \frac{2i-1}{2i+3},
+  \qquad
+  \rho_i = \frac{8i+4}{2i+3}\,\sigma, \\
+  \vect{z}_{i+1} &= \rho_i \Dmat^{-1}\left(\vect{b} - \Kmat\vect{x}_i\right) + \gamma_i \vect{z}_i, \\
+  \vect{x}_{i+1} &= \vect{x}_i + \vect{z}_{i+1},
+  \qquad
+  \vect{y} \leftarrow \vect{y} + \beta_{i+1}\vect{z}_{i+1},
+\end{align}
+returning $\vect{y} \approx \Kmat^{-1}\vect{b}$.
+
+\paragraph{Spectral bound.}  $\lambda_{\max}$ of $\Dmat^{-1}\Kmat$ is estimated
+by ten power iterations followed by a Rayleigh quotient, then inflated by a
+safety factor of $1.1$.  The inflation is deliberate and one-sided:
+overestimating $\lambda_{\max}$ makes the polynomial conservative and merely
+slower, whereas underestimating it puts part of the spectrum outside the
+interval the polynomial damps, and the preconditioner amplifies those modes
+instead of removing them.
+
+\paragraph{Symmetric scaling.}  On the assembled path the polynomial is built
+on $\Dmat^{-1/2}\Kmat\Dmat^{-1/2}$ rather than on $\Kmat$, for the reason given
+in Section~\ref{sec:elimination}: penalty-scale entries give $\Kmat$
+eigenvalues of order $10^{15}$ while the symmetrically scaled operator has
+eigenvalues of order one, and a polynomial fitted to the former is useless.
+The preconditioner is then $\Prec = \Dmat^{-1/2} p_k(\tensor{S})\, \Dmat^{-1/2}$,
+which is symmetric positive definite whenever $p_k$ is.

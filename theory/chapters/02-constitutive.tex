@@ -1,0 +1,115 @@
+\chapter{Constitutive models}
+\label{ch:constitutive}
+\impl{src/physics.jl, src/materials.jl}
+
+Carina delegates constitutive evaluation to \code{ConstitutiveModels.jl}.  The
+interface is narrow by design: a model returns $\Piola$ given $\Grad\disp$ and,
+for models carrying internal variables, an updated state.  Four models are
+wired into the input parser.
+
+\section{Linear elastic}
+
+Small-strain isotropic elasticity, $\Cauchy = \lambda\tr(\strain)\Ident +
+2\mu\strain$ with $\strain = \tfrac12(\Grad\disp +
+\Grad\disp^{\mathsf{T}})$.  Its tangent is constant, which Carina exploits: for
+a linear-elastic model the stiffness is assembled once and the factorization
+--- or, on GPU, the Cholesky factor uploaded for triangular solves
+(Section~\ref{sec:gpu-cholesky}) --- is cached for the entire run.
+
+\section{Neo-Hookean}
+
+The compressible neo-Hookean strain energy
+\begin{equation}
+  \Psi(\Fdef) = \frac{\mu}{2}\left(\tr\Cright - 3\right) - \mu \ln J
+              + \frac{\lambda}{2}\left(\ln J\right)^2
+\end{equation}
+gives
+\begin{equation}
+  \Piola = \mu\left(\Fdef - \Fdef^{-\mathsf{T}}\right)
+         + \lambda \ln J \, \Fdef^{-\mathsf{T}} .
+\end{equation}
+This is the workhorse for the benchmark problems throughout the performance
+campaigns, and the one model whose tangent \emph{action} Carina writes in
+closed form (Section~\ref{sec:tangent-strategies}).
+
+\section{Hencky}
+
+Logarithmic (true) strain elasticity, $\Kirch = \lambda\tr(\vect{h})\Ident +
+2\mu\vect{h}$ with $\vect{h} = \tfrac12\ln\Cright$.  The matrix logarithm is
+evaluated by inverse scaling-and-squaring with Pad\'e approximants rather than
+by spectral decomposition: the spectral route loses accuracy and
+differentiability when eigenvalues of $\Cright$ coalesce, which is exactly the
+neighbourhood of the undeformed state.
+
+\section{Finite-deformation \texorpdfstring{$J_2$}{J2} plasticity}
+
+Rate-independent $J_2$ flow with linear isotropic hardening, integrated by a
+radial-return map at each quadrature point.  The trial elastic state is
+computed, and if the yield function
+\begin{equation}
+  f = \norm{\dev \Kirch^{\mathrm{tr}}} - \sqrt{\tfrac23}\left(\sigma_y + H\,\bar{\varepsilon}^p\right)
+\end{equation}
+is positive the plastic multiplier is solved for and the stress projected back
+onto the yield surface.  The model carries internal state --- the plastic
+strain tensor and the equivalent plastic strain --- which makes it
+\emph{path dependent}: the same displacement reached by different increments
+gives different stresses.  This has two consequences that surface elsewhere in
+this manual.  Large load steps miss the yield surface and must be prevented by
+adaptive stepping (Section~\ref{sec:adaptive}); and the return map can raise
+domain errors on non-physical trial states, which the solver treats as a step
+failure rather than a crash.
+
+\section{Tangent strategies}
+\label{sec:tangent-strategies}
+
+Equation~\eqref{eq:tangent} needs $\fourth{A} = \partial\Piola/\partial
+\Grad\disp$ at every quadrature point.  Carina obtains it three different ways,
+chosen by what the model can support.
+
+\paragraph{Closed form.}  For neo-Hookean the directional derivative is
+written analytically.  With $\delta\Fdef = \Grad\vect{v}$, and abbreviating
+$a = \tr(\Fdef^{-1}\delta\Fdef)$ and $\tensor{W} =
+\Fdef^{-\mathsf{T}}\delta\Fdef^{\mathsf{T}}\Fdef^{-\mathsf{T}}$,
+\begin{equation}
+  \delta\Piola = \mu\left(\delta\Fdef + \tensor{W}\right)
+               + \lambda\, a\, \Fdef^{-\mathsf{T}}
+               - \lambda \ln J\, \tensor{W} .
+  \label{eq:nh-action}
+\end{equation}
+This form is what the matrix-free operator of Chapter~\ref{ch:matrixfree}
+evaluates: it needs the tangent's action on \emph{one} direction, never the
+full $81$-component $\fourth{A}$, so the closed form costs a handful of
+$3\times3$ products instead of a rank-four object.
+
+\paragraph{Automatic differentiation.}  For stateless hyperelastic models
+generally, $\fourth{A}$ is obtained by differentiating \code{pk1\_stress}
+through dual numbers.  This is exact to machine precision and requires nothing
+from the model author.
+
+\paragraph{Finite differences.}  Models carrying state --- $J_2$ plasticity ---
+run a return map inside \code{pk1\_stress}, whose branches are not
+differentiable in the ordinary sense.  Carina falls back to a forward finite
+difference over the nine components of $\Grad\disp$,
+\begin{equation}
+  \fourth{A}_{ijkl} \approx
+  \frac{\Piola_{ij}(\Grad\disp + h_{kl}\,\vect{e}_k\otimes\vect{e}_l) - \Piola_{ij}(\Grad\disp)}{h_{kl}},
+\end{equation}
+at a cost of nine stress evaluations per quadrature point.  The perturbation is
+adaptive,
+\begin{equation}
+  h_{kl} = \max\left(\sqrt{\varepsilon_{\mathrm{mach}}}\,\abs{(\Grad\disp)_{kl}},\ h_{\min}\right),
+  \qquad h_{\min} = 10^{-10},
+\end{equation}
+following the Sierra/SM convention.  The relative term dominates wherever the
+strain is resolved; the floor prevents a vanishing perturbation --- and hence
+catastrophic cancellation --- at components that happen to be near zero, which
+in an undeformed region is most of them.
+
+\begin{remark}
+The finite-difference tangent is a \emph{tangent}, not the residual: it enters
+only the Newton direction and the preconditioner, never the convergence test.
+An approximate tangent slows Newton's asymptotic rate but cannot change the
+solution it converges to, because that is fixed by $\Rvec = \vect{0}$.  The
+same argument licenses the reduced-precision operator of
+Section~\ref{sec:mixed-precision}.
+\end{remark}

@@ -1,0 +1,88 @@
+\chapter{Krylov methods}
+\label{ch:krylov}
+\impl{src/linear\_solvers.jl}
+
+\section{Why conjugate gradients}
+
+Every operator Carina hands to a linear solver is symmetric positive definite:
+the tangent stiffness of a hyperelastic material is the Hessian of a stored
+energy, and the Newmark effective operator \eqref{eq:keff} adds $c_M\Mmat$ with
+$c_M > 0$, which can only improve matters.  Conjugate gradients is therefore
+the method of choice, and the input parser maps every iterative alias
+--- \code{cg}, \code{krylov}, \code{minres} --- onto it.
+
+The assumption is checked rather than trusted.  Carina measures
+$\norm{\Kmat - \Kmat^{\mathsf{T}}}_\infty / \norm{\Kmat}_\infty$ once per run
+and reports if the tangent is not symmetric to roundoff, since CG applied to a
+non-symmetric operator does not merely converge slowly --- it converges to the
+wrong answer, silently.  The measured value on the assembled path is
+$\sim 10^{-16}$.
+
+\section{Preconditioned conjugate gradients}
+\label{sec:pcg}
+
+With a symmetric positive definite preconditioner $\Prec \approx \Kmat^{-1}$,
+the iteration is
+\begin{align}
+  \vect{z}_i &= \Prec \vect{r}_i, \qquad \rho_i = \vect{r}_i^{\mathsf{T}}\vect{z}_i, \\
+  \vect{p}_i &= \vect{z}_i + (\rho_i/\rho_{i-1})\, \vect{p}_{i-1}, \\
+  \alpha_i   &= \rho_i / \left(\vect{p}_i^{\mathsf{T}}\Kmat\vect{p}_i\right), \\
+  \Uvec_{i+1} &= \Uvec_i + \alpha_i \vect{p}_i,
+  \qquad
+  \vect{r}_{i+1} = \vect{r}_i - \alpha_i \Kmat \vect{p}_i .
+\end{align}
+One operator application and one preconditioner application per iteration.
+
+The error bound
+\begin{equation}
+  \norm{\vect{e}_i}_{\Kmat} \le 2\left(\frac{\sqrt{\kappa}-1}{\sqrt{\kappa}+1}\right)^{i}
+                                 \norm{\vect{e}_0}_{\Kmat},
+  \qquad \kappa = \kappa(\Prec\Kmat),
+  \label{eq:cg-bound}
+\end{equation}
+is what every preconditioner in Chapter~\ref{ch:preconditioners} exists to
+improve, and it is also the justification for the rescaling
+\eqref{eq:rescale}: \eqref{eq:cg-bound} is geometric in $i$, so iterations are
+proportional to digits of reduction requested.
+
+\paragraph{Stopping.}  Carina terminates on the preconditioned residual
+$\Prec$-norm relative to its own initial value, $\sqrt{\rho_i} \le \eta
+\sqrt{\rho_0}$, because $\rho_i = \vect{r}_i^{\mathsf{T}}\Prec\vect{r}_i$ is
+already computed each iteration and needs no extra inner product.  The
+consequence for the forcing-term theory is noted in
+Chapter~\ref{ch:inexact}.
+
+\paragraph{Cold start.}  The workspace solution is zeroed before every solve
+rather than warm-started from the previous Newton iteration.  A stale
+warm-start is not merely unhelpful here: the operator has changed between
+Newton iterations, so the previous solution is the answer to a different
+question, and beginning from it can leave the residual larger than beginning
+from zero.
+
+\section{Device-resident conjugate gradients}
+\label{sec:device-cg}
+
+On GPU the entire iteration runs on the device.  This is not a detail of
+implementation but a change in what dominates the cost: a host-resident CG must
+transfer $\rho_i$ and $\alpha_i$ back to the host each iteration to make the
+scalar decisions, and each transfer is a synchronization point that idles the
+device for longer than the arithmetic it guards.
+
+The dot products are reduced on-device by a two-stage tree --- a fixed number
+of workgroups each reducing a strided slice, then a single workgroup reducing
+the partials --- and the scalars stay in device memory.  The only quantity that
+must reach the host is the convergence flag.
+
+\section{Direct solvers}
+\label{sec:gpu-cholesky}
+
+A sparse $LDL^{\mathsf{T}}$ factorization remains the right choice for small to
+medium problems on CPU: it needs no tuning and cannot fail to converge.  It is
+unavailable on GPU, and asking for it there is a hard error rather than a
+silent fallback.
+
+One hybrid exists.  For a linear-elastic model the stiffness is constant, so
+Carina factors $\Kmat$ once on the host, uploads the Cholesky factor to the
+device, and thereafter solves by two device triangular solves.  This gives
+direct-solver robustness with no host transfer per step, and applies only
+because linearity makes the factorization reusable for the entire run.
