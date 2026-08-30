@@ -7,9 +7,40 @@ Status: **theory in progress, nothing implemented.** Carina has no SEC5L
 element, and none of the infrastructure it needs (below). This directory holds
 the argument, not an implementation.
 
+## Building
+
 ```
-make        # -> main.pdf   (20 pages)
+make          # -> main.pdf   (20 pages)
+make watch    # rebuild continuously on save
+make clean    # remove auxiliary files, keep the PDF
+make purge    # remove auxiliary files and the PDF
 ```
+
+`pdflatex` via `latexmk`, not the `lualatex` the theory manual uses — this
+document was written against Overleaf's default toolchain and keeps it.
+
+The PDF is a build product and is not tracked.
+
+### Requirements
+
+`pdflatex`, `bibtex` and `latexmk`. Most of the LaTeX packages are in any TeX
+Live installation; the ones a smaller install is likely to be missing are
+`boldtensors`, `algorithms` (for `algorithm`/`algorithmic`), `multirow`,
+`supertabular`, `subfig`, `xfrac`, `ulem`, `fancyhdr`, `float`, `natbib`,
+`preprint` (for `fullpage`) and `psnfss` (for `times`).
+
+On Fedora, `texlive-scheme-medium` covers everything, or add only what is
+missing:
+
+```
+sudo dnf install texlive-boldtensors texlive-algorithms texlive-multirow \
+                 texlive-supertabular texlive-subfig texlive-xfrac \
+                 texlive-ulem texlive-fancyhdr texlive-float \
+                 texlive-natbib texlive-preprint texlive-psnfss latexmk
+```
+
+On Debian and Ubuntu, `texlive-latex-extra texlive-science
+texlive-fonts-recommended latexmk` covers them.
 
 ## The problem it addresses
 
