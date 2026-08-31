@@ -686,7 +686,74 @@ Adding one vector bubble per element raises the isochoric fraction to
 0.56--0.62, in line with $P_0$ and without $P_0$'s element-level degeneracy.
 That, rather than the soft-mode argument, is what the enrichment is for.
 
-\subsection{The eigenvalue sweep}
+\subsection{Stability, measured against a validated instrument}
+\label{sec:beta}
+
+The counting argument of \S\ref{sec:infsup} is \emph{necessary}. Whether it is
+sufficient is a different question, and the answer is no --- which is worth
+establishing carefully, because this note leaned on the count.
+
+Two changes make a long mesh sequence reachable. With $~K = \transpose{~P} ~L
+\transpose{~L} ~P$ from a sparse Cholesky, $\transpose{q} ~G ~K^{-1}
+\transpose{~G} q = \lVert ~L^{-1} (\transpose{~G} q)_{[p]} \rVert^2$, so
+$\beta_h$ is the smallest \emph{nonzero singular value} of $~W = ~L^{-1}
+\transpose{~G} ~M^{-1/2}$ --- never forming $~G ~K^{-1} \transpose{~G}$, and so
+never squaring the condition number of the very quantity being measured. And
+the null dimension is fixed independently as $n_p - \operatorname{rank}~G$, so
+the cut is taken by index rather than by guessing a threshold. In practice the
+gap is unambiguous: $O(10^{-15})$ below it against $O(10^{-2})$ above.
+
+Crucially the sweep now carries a \emph{positive} control. A negative control
+alone --- $P_1/P_0$, known unstable --- cannot catch an instrument that
+condemns everything.
+
+\begin{table}[h]
+\centering
+\begin{tabular}{@{}lrrrrr@{}}
+\toprule
+Pair & $h = 1/2$ & $1/4$ & $1/6$ & $1/8$ & fitted rate \\
+\midrule
+$P_2/P_1$ continuous (control) & 0.1734 & 0.2186 & 0.2214 & \textbf{0.2216} & $-0.009$ \\
+$P_2/P_0$                      & 0.1001 & 0.0755 & 0.0544 & 0.0418 & $0.88$ \\
+$P_2/P_1^{\mathrm{disc}}$      & 0.1132 & 0.0424 & 0.0277 & --- & $1.05$ \\
+\bottomrule
+\end{tabular}
+\caption{$\beta_h$ over a Freudenthal mesh sequence, all-Dirichlet. Rate fitted
+over the last four points. Script: \code{prototype/beta.jl}.}
+\label{tab:beta}
+\end{table}
+
+The control behaves exactly as it must: $\beta_h$ rises and settles on
+$0.2216$, flat to three digits over the last three refinements. Taylor--Hood is
+stable in three dimensions and the instrument says so, which is what licenses
+reading the other two rows.
+
+And they say that \textbf{neither element-local pair is uniformly stable on
+this mesh family}. $P_2/P_0$ decays at a rate approaching one, despite passing
+the degree-of-freedom count at a comfortable $0.284$.
+
+\begin{remark}[The count is necessary, not sufficient]
+\label{rem:necessary}
+$P_2/P_0$ is the counterexample to any reading of \S\ref{sec:infsup} as having
+settled the question in general. It passes the count with room to spare and
+still fails. A ratio above one \emph{refutes} a pair; a ratio below one
+establishes nothing. The enriched pair's $0.613$ is therefore not evidence that
+it works --- only that it is not excluded --- and it remains untested, since no
+bubble element exists to test.
+\end{remark}
+
+\begin{remark}[Mesh dependence]
+\label{rem:structured}
+These results are for the Freudenthal subdivision, a highly structured family,
+and structured meshes are where pair counterexamples characteristically live
+--- the $P_1/P_0$ checkerboard is at its worst on them. A pair can degenerate
+on a structured mesh and behave on a general one. So the honest statement is
+that $P_2/P_0$ and $P_2/P_1^{\mathrm{disc}}$ decay \emph{here}; confirming that
+as a property of the pairs rather than of the mesh needs a sequence of
+unstructured meshes, which this study does not have.
+\end{remark}
+
+\subsection{The earlier eigenvalue sweep}
 \label{sec:eigensweep}
 
 Table~\ref{tab:infsup} reports \eqref{eq:infsup-eig} over the same mesh family,
@@ -756,12 +823,14 @@ them plainly is to make the first round of numerical work decisive.
 
 \begin{enumerate}
   \item \textbf{The pair is inf-sup stable in three dimensions, uniformly on
-        $\kappa/\mu \le 10^4$.} \emph{Settled in \S\ref{sec:infsup} for the
-        unenriched pair, in the negative}: $P_2/P_1^{\mathrm{disc}}$ fails the
-        degree-of-freedom count at every refinement, so the bubble enrichment
-        is mandatory rather than advisory. What remains is to confirm that the
-        enriched pair is stable in fact and not merely in count, which does
-        require the eigenvalue sweep on an implemented bubble element.
+        $\kappa/\mu \le 10^4$.} \emph{Settled in the negative for both
+        element-local pairs} (\S\ref{sec:beta}): on the mesh family tested,
+        $\beta_h$ decays for $P_2/P_0$ and for $P_2/P_1^{\mathrm{disc}}$, while
+        the Taylor--Hood control settles on a constant. The enriched pair is
+        \emph{not excluded} by the count but is otherwise unverified, and
+        Remark~\ref{rem:necessary} is the reason that distinction matters. The
+        remaining work is an implemented bubble element and the same sweep, and
+        ideally an unstructured mesh sequence (Remark~\ref{rem:structured}).
   \item \textbf{No soft modes.} \emph{Settled, and not as expected.} Three
         spurious zero-energy modes per element for a constant pressure
         (\S\ref{sec:firstresult}), but none of them survive assembly under

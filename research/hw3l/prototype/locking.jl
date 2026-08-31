@@ -2,7 +2,7 @@
 #
 # softmode.jl counted spurious modes on ONE element.  Those are element-local
 # statements, and an element-local mode only survives assembly if its trace is
-# compatible with its neighbours across every shared face, so the global count
+# compatible with its neighbors across every shared face, so the global count
 # could be far smaller -- possibly zero.  This measures it on assembled meshes.
 #
 # The same assembly answers the locking question, and again by counting rather

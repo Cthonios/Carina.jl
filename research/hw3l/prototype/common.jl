@@ -76,6 +76,14 @@ mesh_of(N, p) = p == 1 ? tet4_mesh(N) : promote_to_p2(tet4_mesh(N)...)
 pressure_basis(::Val{1}, xi) = (1.0,)
 pressure_basis(::Val{4}, xi) = (1.0, xi[1], xi[2], xi[3])
 
+# Continuous P1 pressure on the tetrahedron vertices -- the Taylor-Hood pair.
+# Carried here as a POSITIVE CONTROL: it is stable in three dimensions, so a
+# test that reports it decaying is measuring something other than what it
+# claims.  A negative control alone (P1/P0, known unstable) cannot catch a test
+# that condemns everything.
+const _P1C = -1
+p1_shape(xi) = (1 - xi[1] - xi[2] - xi[3], xi[1], xi[2], xi[3])
+
 ref_element(p) = p == 1 ? RFE.Tet{RFE.Lagrange, 1}() : RFE.Tet{RFE.Lagrange, 2}()
 
 # Boundary condition selectors.  `:all` fixes the whole boundary, which is the
@@ -136,13 +144,18 @@ eliminated:
     G[m,i]    = int phi_m div(N_i)                    volumetric coupling
     M[m,n]    = int phi_m phi_n                       pressure mass
 """
-function assemble_all(coords, conn, p::Int, m::Int; mu = 1.0, q_degree = 2, bc::Symbol = _BC_ALL)
+function assemble_all(coords, conn, p::Int, m::Int; mu = 1.0, q_degree = 2,
+                      bc::Symbol = _BC_ALL, nvert::Int = 0)
     ref  = RFE.ReferenceFE(ref_element(p), RFE.GaussLegendre(q_degree))
     nqp  = RFE.num_cell_quadrature_points(ref)
     nen  = size(conn, 1)
     nelem = size(conn, 2)
     free, gmap = free_dofs(coords, bc)
-    nu, np = length(free), m * nelem
+    # Continuous P1 pressure is numbered by vertex; every discontinuous space is
+    # numbered element by element.
+    continuous = m == _P1C
+    nu = length(free)
+    np = continuous ? nvert : m * nelem
 
     DI, DJ, DV = Int[], Int[], Float64[]
     HI, HJ, HV = Int[], Int[], Float64[]
@@ -163,7 +176,9 @@ function assemble_all(coords, conn, p::Int, m::Int; mu = 1.0, q_degree = 2, bc::
             B  = bmatrix(dN, nen)
             Bd = _DEV * B
             Ke = dV * 2mu * (Bd' * _VOIGT_W * Bd)
-            phi = pressure_basis(Val(m), xi)
+            phi = continuous ? p1_shape(xi) : pressure_basis(Val(m), xi)
+            prow = continuous ? (a -> conn[a, e]) : (a -> m * (e - 1) + a)
+            npl = continuous ? 4 : m
             trB = B[1, :] + B[2, :] + B[3, :]
 
             for (i, ri) in enumerate(rows)
@@ -180,13 +195,13 @@ function assemble_all(coords, conn, p::Int, m::Int; mu = 1.0, q_degree = 2, bc::
                     push!(HI, ri); push!(HJ, rj)
                     push!(HV, dV * dot(dN[a, :], dN[b, :]))
                 end
-                for mm in 1:m
-                    push!(GI, m * (e - 1) + mm); push!(GJ, ri)
+                for mm in 1:npl
+                    push!(GI, prow(mm)); push!(GJ, ri)
                     push!(GV, dV * phi[mm] * trB[i])
                 end
             end
-            for mm in 1:m, nn in 1:m
-                push!(MI, m * (e - 1) + mm); push!(MJ, m * (e - 1) + nn)
+            for mm in 1:npl, nn in 1:npl
+                push!(MI, prow(mm)); push!(MJ, prow(nn))
                 push!(MV, dV * phi[mm] * phi[nn])
             end
         end
