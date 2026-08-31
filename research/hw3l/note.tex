@@ -438,7 +438,46 @@ all four properties at once. Remark~\ref{rem:coaxial} also applies: with an
 independent $\bar\sdev$, the residual must be assembled from
 \eqref{eq:P-general} and not from the push-forward \eqref{eq:P-simple}.
 
-\section{First numerical result}
+\section{Numerical results}
+\label{sec:results}
+
+Two experiments have been run. Both work on the linear condensed operator
+\eqref{eq:condensed}, so neither needs a solver, a material model, or a mesh
+reader; the scripts are in \code{prototype/} and each prints its own verdict.
+
+\subsection{Method}
+\label{sec:method}
+
+Meshes are generated rather than read, so the refinement sequence is exact.
+The unit cube is divided into $N^3$ cubes and each cube into six tetrahedra by
+the Freudenthal (Kuhn) subdivision --- the six permutations $(a,b,c)$ giving
+$\{~0, ~e_a, ~e_a + ~e_b, (1,1,1)\}$. That
+decomposition is conforming across shared cube faces, which the more obvious
+five-tetrahedron split is not. Quadratic meshes add edge midpoints in the node
+order the reference element expects.
+
+For the stability test the displacement is fixed on the entire boundary and
+three operators are assembled,
+\begin{equation}
+  \label{eq:infsup-ops}
+  K_{ij} = \int \Grad N_i : \Grad N_j \diff V,
+  \qquad
+  G_{mi} = \int \mu_m \, \Div N_i \diff V,
+  \qquad
+  M_{mn} = \int \mu_m \mu_n \diff V,
+\end{equation}
+with $K$ the $H^1$ seminorm --- the standard choice, and necessarily so, since
+$~K\supdev$ is singular on exactly the modes at issue. The discrete inf-sup
+constant is $\beta_h = \sqrt{\lambda_{\min}}$ over the nonzero spectrum of
+\begin{equation}
+  \label{eq:infsup-eig}
+  ~G ~K^{-1} \transpose{~G}\, q = \lambda ~M q .
+\end{equation}
+Boundary data fixed everywhere always leaves one zero mode, the hydrostatic
+one, because $\int \Div ~v = 0$ for $~v \in H^1_0$; any zero beyond
+that is a spurious pressure mode.
+
+\subsection{Spurious modes on one element}
 \label{sec:firstresult}
 
 The soft-mode claim reduces, for linear response, to a rank count on a single
@@ -507,7 +546,7 @@ estimate survives refinement. Claim~1 of \S\ref{sec:verify} remains open, and
 with it the question of whether bubble enrichment is needed in practice.
 \end{remark}
 
-\section{The pair, settled by counting}
+\subsection{The pair, settled by counting}
 \label{sec:infsup}
 
 Section~\ref{sec:firstresult} settled which modes exist on one element. Whether
@@ -568,15 +607,66 @@ side by the count above. The bubble enrichment is the only one of the three
 that satisfies both, and that is the whole argument for it.
 \end{remark}
 
+\subsection{The eigenvalue sweep}
+\label{sec:eigensweep}
+
+Table~\ref{tab:infsup} reports \eqref{eq:infsup-eig} over the same mesh family,
+with $P_1/P_0$ included as a control: it is known unstable, so a test that
+fails to condemn it is not measuring what it claims to.
+
+\begin{table}[h]
+\centering
+\begin{tabular}{@{}lrrrrr@{}}
+\toprule
+Pair & $N$ & $n_u$ & $n_p$ & zero modes & $\beta_h$ \\
+\midrule
+$P_1/P_0$ (control)       & 2 & 3    & 48   & 45   & 0.333 \\
+                          & 3 & 24   & 162  & 138  & 0.229 \\
+                          & 4 & 81   & 384  & 303  & 0.165 \\
+                          & 5 & 192  & 750  & 558  & 0.129 \\
+\midrule
+$P_2/P_0$                 & 2 & 81   & 48   & 4    & 0.100 \\
+                          & 3 & 375  & 162  & 4    & 0.093 \\
+                          & 4 & 1029 & 384  & 4    & 0.076 \\
+                          & 5 & 2187 & 750  & 4    & 0.063 \\
+\midrule
+$P_2/P_1^{\mathrm{disc}}$ & 2 & 81   & 192  & 111  & 0.113 \\
+                          & 3 & 375  & 648  & 285  & 0.057 \\
+                          & 4 & 1029 & 1536 & 579  & 0.042 \\
+                          & 5 & 2187 & 3000 & 1029 & 0.034 \\
+\bottomrule
+\end{tabular}
+\caption{Numerical inf-sup sweep. Script: \code{prototype/infsup.jl}.}
+\label{tab:infsup}
+\end{table}
+
+The control behaves as it must: $\beta_h$ falls steadily and the zero count
+grows with the mesh, which is the checkerboard instability $P_1/P_0$ is known
+for. The test detects what it is supposed to detect.
+
+Beyond that these numbers carry much less weight than the count, and the note
+does not lean on them.
+
+The zero counts for $P_2/P_1^{\mathrm{disc}}$ --- 111, 285, 579, 1029 --- are
+not an independent finding: they are $n_p - n_u$ to within a few modes, which
+is the rank deficiency \S\ref{sec:infsup} already explains by counting. The
+same is true of the control at these mesh sizes, where $n_u$ is so small that
+$n_p > n_u$ regardless of the pair.
+
+The apparent decay of $\beta_h$ for $P_2/P_0$ is the one line that would be
+interesting if it held up, since that pair passes the count comfortably. It
+should not be trusted from this data. A dense generalized eigensolver caps the
+sequence at $N = 5$, far short of an asymptotic regime, and $\beta_h \sim
+h^{1/2}$ over less than a decade of $h$ is equally consistent with a
+pre-asymptotic transient. Establishing it would need a sparse eigensolver and
+meshes several refinements finer.
+
 \begin{remark}
-The script also runs the eigenvalue sweep, computing
-$\beta_h$ from $~G ~K^{-1} \transpose{~G}\, q = \lambda ~M q$ over a refinement
-sequence, with $P_1/P_0$ included as a control that the test detects a pair
-known to be unstable. Those numbers are reported but carry much less weight
-than the count: the meshes reachable with a dense generalized eigensolver are
-coarse enough that the asymptotic regime is not clearly entered, and for
-$P_2/P_1^{\mathrm{disc}}$ the spectrum is dominated by the rank deficiency the
-count already explains. The counting argument needs no such caveat.
+The contrast between the two tests is the methodological point. The counting
+argument is exact, needs no solver, and scales to any mesh size; the spectral
+one is approximate, expensive, and here mostly re-derives what counting already
+gave. Where a necessary condition settles the question, it is worth checking
+before reaching for the eigenvalues.
 \end{remark}
 
 \section{What must be verified}
