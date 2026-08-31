@@ -319,14 +319,24 @@ discontinuous pressure requires bubble enrichment.}
 \label{tab:pairs}
 \end{table}
 
-The recommended pair is \textbf{$P_2$ enriched with face and interior bubbles
-over $P_1^{\mathrm{disc}}$}. The bubbles are element-interior and condense
-locally, so they add no global degrees of freedom. Taylor--Hood $P_2/P_1$
-continuous is the conservative fallback: unimpeachably stable in three
-dimensions, at the cost of a globally coupled pressure that cannot be
+The pair this formulation \emph{wants} is $P_2$ enriched with face and interior
+bubbles over $P_1^{\mathrm{disc}}$: the bubbles are element-interior and
+condense locally, so they add no global degrees of freedom and the elimination
+of \S\ref{sec:local} stays element-by-element.
+
+The pair currently \emph{demonstrated} to work is Taylor--Hood $P_2/P_1$
+continuous, whose discrete inf-sup constant is measured settling on $0.2216$ in
+\S\ref{sec:beta}, at the cost of a globally coupled pressure that cannot be
 eliminated element by element.
 
+Those are not the same statement, and \S\ref{sec:beta} is the reason for
+keeping them apart. Both element-local pairs that can be assembled today ---
+$P_2/P_0$ and the unenriched $P_2/P_1^{\mathrm{disc}}$ --- were measured
+\emph{unstable}, and the enriched pair is unverified rather than verified,
+because no element exists to test it on.
+
 \subsection{Local elimination}
+\label{sec:local}
 
 Because $Q_h$ is discontinuous, the mass matrix
 $[M]_{mn} = \int_B \mu_m \mu_n \diff V$ is block diagonal by element and
@@ -862,13 +872,21 @@ same meshes.
 
 \section{Risks}
 
-\emph{The bubble enrichment is mandatory, not optional.} \S\ref{sec:infsup}
-removes the possibility of skipping it: the unenriched pair fails by counting.
-The bubbles add element-interior degrees of freedom that condense locally, so
-the cost is contained, but they must be implemented --- and no such element
-exists in ReferenceFiniteElements today. Taylor--Hood $P_2/P_1$-continuous
-remains the fallback that needs no new element, at the cost of local
-elimination.
+\emph{The element-local pair is unverified, and this is now the central risk.}
+Both element-local pairs that can be built today were measured unstable
+(\S\ref{sec:beta}), and the enriched pair is not verified but merely not
+excluded --- the degree-of-freedom count that clears it is necessary and not
+sufficient, as $P_2/P_0$ demonstrates by passing the count at $0.284$ and
+failing anyway (Remark~\ref{rem:necessary}). Verifying it requires an element
+that does not exist in ReferenceFiniteElements, so the cost of finding out is
+the cost of building one.
+
+Taylor--Hood is the only pair here demonstrated to work. Everything this note
+argues about locality --- matrix-free operators, element-local condensation,
+local mass conservation for the return map --- is an argument against the only
+verified option in favor of an unverified one. That is a defensible position
+only for as long as the enriched element remains untested, and it is an
+argument for testing it soon rather than for assuming it.
 
 \emph{Quadratic tetrahedra are more expensive per element.} The claim that
 fewer of them are needed is plausible and unproven for this problem class. It
