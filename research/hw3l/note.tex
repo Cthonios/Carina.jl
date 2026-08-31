@@ -56,17 +56,33 @@
 
 \begin{abstract}
 \noindent
-A tetrahedral element for very large deformation and deviatoric plasticity
-that is free of volumetric locking and of spurious soft modes \emph{by
-construction}, with no stabilization term of any kind. Three fields --- motion,
-volumetric logarithmic strain, and pressure --- are coupled through a
-Hu--Washizu functional in Hencky strain. The deviatoric response is evaluated
-pointwise at quadrature, so the constitutive law is an unmodified small-strain
-algorithm and the formulation is agnostic to the material model. Both auxiliary
-fields are discontinuous, so their elimination is element-local. The central
-claim is that locking and soft modes are two failure directions of a single
-inf-sup condition, and that choosing an inf-sup stable displacement--pressure
-pair removes both without a penalty, a subgrid model, or a tuned coefficient.
+A tetrahedral element for very large deformation and deviatoric plasticity,
+aimed at removing the stabilization that the composite-tetrahedron and
+variational-multiscale lineages both carry. Three fields --- motion, volumetric
+logarithmic strain, and pressure --- are coupled through a Hu--Washizu
+functional in Hencky strain. The deviatoric response is evaluated pointwise at
+quadrature, so the constitutive law is an unmodified small-strain algorithm and
+the formulation is agnostic to the material model, and both auxiliary fields
+are discontinuous, so their elimination is element-local.
+
+The working hypothesis is that volumetric locking and spurious soft modes are
+two failure directions of a single inf-sup condition, so that an inf-sup stable
+displacement--pressure pair removes both without a penalty, a subgrid model, or
+a tuned coefficient. With both auxiliary fields in one space the functional
+reduces exactly to mean dilatation (\S\ref{sec:meandilatation}): the mechanism
+is classical, and the open question is which pressure space to project onto.
+
+Numerical work on that question is reported here and is so far negative for the
+pairs that can be built. Both element-local candidates --- constant and linear
+discontinuous pressure over a quadratic tetrahedron --- were measured
+\emph{unstable} against a Taylor--Hood control that behaves correctly, and a
+degree-of-freedom count that clears a pair turns out to be necessary and not
+sufficient. The bubble-enriched pair the formulation wants is not excluded but
+is unverified, for want of an element to test it on. The soft-mode argument
+against a constant pressure did not survive assembly and has been withdrawn;
+the locking argument did, and is now the case for enrichment. The measurement
+that motivated the whole exercise --- whether plastic strain fields come out
+smooth --- remains untested.
 \end{abstract}
 
 \section{Problem statement}
@@ -194,7 +210,70 @@ The deviatoric energy is evaluated at the \emph{pointwise} strain
 $\edev(\disp)$ and carries no auxiliary field. This is deliberate and is
 discussed in Remark~\ref{rem:whynodev}.
 
+\subsection{What the functional reduces to}
+\label{sec:meandilatation}
+
+It is worth being blunt about what \eqref{eq:hw} is, because the answer places
+this formulation in a lineage rather than outside one.
+
+Put $\bar\theta$ and $\bar p$ in the same discrete space $Q_h$, which
+\S\ref{sec:fe-spaces} does for reasons of its own. Stationarity in $\bar\theta$
+then gives $\bar p = \kappa\bar\theta$ \emph{exactly} rather than after a
+projection, and stationarity in $\bar p$ gives $\bar\theta = \Pi_h\,\theta$,
+the $L^2$ projection of $\theta = \log J$ onto $Q_h$. The constraint term of
+\eqref{eq:hw} then vanishes identically:
+\begin{equation}
+  \label{eq:constraint-vanishes}
+  \int_B \bar p \left(\theta - \bar\theta\right) \diff V
+  = \kappa \int_B \bar\theta \left(\theta - \Pi_h \theta\right) \diff V = 0,
+\end{equation}
+because $\kappa\bar\theta \in Q_h$ while $(\theta - \Pi_h\theta) \perp Q_h$ by
+the definition of the projection. What is left is a functional in the motion
+alone,
+\begin{equation}
+  \label{eq:collapsed}
+  \Pi[\disp] = \int_B W\supdev\!\left(\edev(\disp)\right) \diff V
+             + \int_B \tfrac{\kappa}{2}\left(\Pi_h \log J\right)^2 \diff V,
+\end{equation}
+whose stationarity conditions are exactly the three-field equations of
+\S\ref{sec:variations}.
+
+\begin{remark}[This is mean dilatation, and the pressure space is the contribution]
+\label{rem:meandilatation}
+Equation~\eqref{eq:collapsed} is a displacement formulation carrying a
+projected volumetric strain --- the mean-dilatation construction of
+\citet{SimoTaylorPister:1985}, and the mechanism of the $\bar{B}$ and
+$\bar{F}$ families. Three consequences follow, and none of them should be
+soft-pedalled.
+
+The reduction is \emph{exact}, not an approximation, and it is exact because of
+the Hencky measure: with $W = \tfrac{\kappa}{2}(\trace\eps)^2 + \mu\lVert
+\dev\eps\rVert^2$ and $\trace\eps = \log J$ identically, subtracting the
+pointwise volumetric energy from $W$ leaves the deviatoric part with no
+remainder. For a material without that additive split the same manipulation
+would leave volumetric content inside the ``deviatoric'' term, and the
+formulation would be quietly wrong rather than visibly so. The implementation
+in Norma refuses such materials for this reason.
+
+The novelty here is therefore \emph{not the mechanism}. Projecting the
+volumetric strain is four decades old. What is open, and what
+\S\ref{sec:fe-spaces} and \S\ref{sec:results} are about, is which space to
+project onto --- a question the classical elements answer by defaulting to a
+single constant per element, and which \S\ref{sec:beta} shows is not a free
+choice.
+
+And it means this formulation shares its mechanism with the $\bar{F}$ lineage
+it is meant to improve on. That is worth stating plainly rather than leaving a
+reader to discover it. The claim is not that the mechanism is new; it is that
+the mechanism was never the problem, and that the constant-pressure choice made
+alongside it was. Whether replacing that choice is enough is what the
+verification list of \S\ref{sec:verify} is for, and item~4 --- the smoothness
+of plastic strain fields, the failure that motivated the whole exercise ---
+remains untested.
+\end{remark}
+
 \subsection{Variations}
+\label{sec:variations}
 
 With $\disp \in U$, $\bar\theta, \bar p \in Q$ and test functions
 $\testd \in U$ vanishing on $\partial_\disp B$, $\vartheta, \pi \in Q$:
