@@ -42,6 +42,8 @@
 
 \theoremstyle{definition}
 \newtheorem{remark}{Remark}
+\theoremstyle{plain}
+\newtheorem{proposition}{Proposition}
 
 \title{\textbf{HW3L}\\[0.3em]
   \large A Three-Field Hu--Washizu Tetrahedron in Logarithmic Strain\\[0.2em]
@@ -272,6 +274,7 @@ field should a later requirement demand it.
 \section{Discretization}
 
 \subsection{The pair}
+\label{sec:fe-spaces}
 
 Let $U_h \subset U$ carry the motion and $Q_h \subset Q$ carry both
 $\bar\theta$ and $\bar p$. Two requirements fix the choice.
@@ -504,6 +507,78 @@ estimate survives refinement. Claim~1 of \S\ref{sec:verify} remains open, and
 with it the question of whether bubble enrichment is needed in practice.
 \end{remark}
 
+\section{The pair, settled by counting}
+\label{sec:infsup}
+
+Section~\ref{sec:firstresult} settled which modes exist on one element. Whether
+the constant in the stability estimate survives refinement is a property of a
+mesh sequence, and the answer turns out not to need an eigenvalue at all.
+
+Write $n_u$ for the number of free displacement degrees of freedom and $n_p$
+for the pressure degrees of freedom. The Schur complement of the mixed system
+is $~S = ~G ~K^{-1} \transpose{~G}$, an $n_p \times n_p$ matrix of rank at most
+$n_u$. If $n_p > n_u$ then $~S$ is singular \emph{by counting}, the pressure
+space carries modes no displacement can resist, and no inf-sup constant exists
+--- whatever the constants would otherwise have done.
+
+Table~\ref{tab:dofcount} counts them on a Freudenthal-subdivided cube.
+
+\begin{table}[h]
+\centering
+\begin{tabular}{@{}lrrrr@{}}
+\toprule
+Pair & $N$ & $n_u$ & $n_p$ & $n_p/n_u$ \\
+\midrule
+$P_2/P_0$                              & 12 & 36{,}501 & 10{,}368 & 0.284 \\
+$P_2/P_1^{\mathrm{disc}}$              & 12 & 36{,}501 & 41{,}472 & \textbf{1.136} \\
+$P_2 \oplus \text{bubble} / P_1^{\mathrm{disc}}$ & 12 & 67{,}605 & 41{,}472 & 0.613 \\
+\bottomrule
+\end{tabular}
+\caption{Degree-of-freedom counts on the unit cube, displacement fixed on the
+boundary. Script: \code{prototype/infsup.jl}.}
+\label{tab:dofcount}
+\end{table}
+
+The middle row is the result. For $P_2/P_1^{\mathrm{disc}}$ the ratio exceeds
+one at \emph{every} refinement, and the asymptotics are exact rather than
+suggestive: the quadratic nodes of this mesh family fill the $(2N+1)^3$ grid,
+so $n_u \to 3(2N-1)^3 \to 24N^3$, while $n_p = 4 \cdot 6N^3 = 24N^3$. The ratio
+approaches one from above and never crosses it. The pair is critically
+determined in the limit, which is precisely the situation an inf-sup condition
+cannot survive.
+
+\begin{proposition}
+$P_2/P_1^{\mathrm{disc}}$ on tetrahedra is not inf-sup stable, and no
+refinement rescues it.
+\end{proposition}
+
+Adding one vector bubble per element supplies $3n_{\mathrm{el}}$ further
+displacement degrees of freedom and moves the ratio to $0.613$, comfortably
+clear of the bound. This is the quantitative content of the recommendation in
+\S\ref{sec:fe-spaces}: the enrichment is not a refinement of taste, it is what
+makes the count work.
+
+\begin{remark}
+The two experiments bracket the design from opposite sides, and neither alone
+would have. $P_0$ is safe on the pressure side --- ratio $0.284$ --- and fails
+on the displacement side, leaving three spurious zero-energy modes per element
+(\S\ref{sec:firstresult}). $P_1^{\mathrm{disc}}$ fixes the displacement side
+exactly, constraining all four volumetric directions, and fails on the pressure
+side by the count above. The bubble enrichment is the only one of the three
+that satisfies both, and that is the whole argument for it.
+\end{remark}
+
+\begin{remark}
+The script also runs the eigenvalue sweep, computing
+$\beta_h$ from $~G ~K^{-1} \transpose{~G}\, q = \lambda ~M q$ over a refinement
+sequence, with $P_1/P_0$ included as a control that the test detects a pair
+known to be unstable. Those numbers are reported but carry much less weight
+than the count: the meshes reachable with a dense generalized eigensolver are
+coarse enough that the asymptotic regime is not clearly entered, and for
+$P_2/P_1^{\mathrm{disc}}$ the spectrum is dominated by the rank deficiency the
+count already explains. The counting argument needs no such caveat.
+\end{remark}
+
 \section{What must be verified}
 \label{sec:verify}
 
@@ -512,9 +587,12 @@ them plainly is to make the first round of numerical work decisive.
 
 \begin{enumerate}
   \item \textbf{The pair is inf-sup stable in three dimensions, uniformly on
-        $\kappa/\mu \le 10^4$.} Verified numerically by an inf-sup eigenvalue
-        test on a sequence of refined meshes; the discrete constant must not
-        decay with $h$.
+        $\kappa/\mu \le 10^4$.} \emph{Settled in \S\ref{sec:infsup} for the
+        unenriched pair, in the negative}: $P_2/P_1^{\mathrm{disc}}$ fails the
+        degree-of-freedom count at every refinement, so the bubble enrichment
+        is mandatory rather than advisory. What remains is to confirm that the
+        enriched pair is stable in fact and not merely in count, which does
+        require the eigenvalue sweep on an implemented bubble element.
   \item \textbf{No soft modes.} \emph{Settled for a single element in
         \S\ref{sec:firstresult}}: three spurious zero-energy modes for a
         constant pressure, none for $P_1$-discontinuous. What remains is the
@@ -539,10 +617,13 @@ same meshes.
 
 \section{Risks}
 
-\emph{The bubble enrichment may be awkward in practice.} It is standard theory
-but adds element-interior degrees of freedom that must be condensed. If it
-proves troublesome, Taylor--Hood $P_2/P_1$-continuous is the fallback, at the
-cost of local elimination.
+\emph{The bubble enrichment is mandatory, not optional.} \S\ref{sec:infsup}
+removes the possibility of skipping it: the unenriched pair fails by counting.
+The bubbles add element-interior degrees of freedom that condense locally, so
+the cost is contained, but they must be implemented --- and no such element
+exists in ReferenceFiniteElements today. Taylor--Hood $P_2/P_1$-continuous
+remains the fallback that needs no new element, at the cost of local
+elimination.
 
 \emph{Quadratic tetrahedra are more expensive per element.} The claim that
 fewer of them are needed is plausible and unproven for this problem class. It
