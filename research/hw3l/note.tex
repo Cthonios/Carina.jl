@@ -578,13 +578,24 @@ boundary. Script: \code{prototype/infsup.jl}.}
 \label{tab:dofcount}
 \end{table}
 
-The middle row is the result. For $P_2/P_1^{\mathrm{disc}}$ the ratio exceeds
-one at \emph{every} refinement, and the asymptotics are exact rather than
-suggestive: the quadratic nodes of this mesh family fill the $(2N+1)^3$ grid,
-so $n_u \to 3(2N-1)^3 \to 24N^3$, while $n_p = 4 \cdot 6N^3 = 24N^3$. The ratio
-approaches one from above and never crosses it. The pair is critically
-determined in the limit, which is precisely the situation an inf-sup condition
-cannot survive.
+The middle row is the result, and the asymptotics behind it are exact rather
+than suggestive. The quadratic nodes of this mesh family fill the $(2N+1)^3$
+grid, so with the whole boundary fixed $n_u = 3(2N-1)^3 \to 24N^3$, while
+$n_p = 4 \cdot 6N^3 = 24N^3$ regardless of boundary data. The ratio tends to
+one. \emph{The pair is critically determined in the limit}, which is precisely
+the situation a uniform inf-sup condition cannot survive.
+
+\begin{remark}[What the finite-$N$ column does and does not show]
+\label{rem:bc-caveat}
+The ratios above exceed one at every $N$ in the table, but that part is an
+artifact of the boundary condition and should not be read as the result.
+Fixing the whole boundary removes $O(N^2)$ displacement unknowns and none of
+the pressure, so the approach to the limit is from above; fixing only one face
+gives $n_u = 6N(2N+1)^2$ and the approach is from below, with the ratio
+\emph{under} one at every computable $N$. Both tend to one, and it is the limit
+that carries the argument. The finite-$N$ sign is a property of how the block
+is held.
+\end{remark}
 
 \begin{proposition}
 $P_2/P_1^{\mathrm{disc}}$ on tetrahedra is not inf-sup stable, and no
@@ -597,15 +608,83 @@ clear of the bound. This is the quantitative content of the recommendation in
 \S\ref{sec:fe-spaces}: the enrichment is not a refinement of taste, it is what
 makes the count work.
 
-\begin{remark}
-The two experiments bracket the design from opposite sides, and neither alone
-would have. $P_0$ is safe on the pressure side --- ratio $0.284$ --- and fails
-on the displacement side, leaving three spurious zero-energy modes per element
-(\S\ref{sec:firstresult}). $P_1^{\mathrm{disc}}$ fixes the displacement side
-exactly, constraining all four volumetric directions, and fails on the pressure
-side by the count above. The bubble enrichment is the only one of the three
-that satisfies both, and that is the whole argument for it.
-\end{remark}
+\noindent
+Whether that limiting degeneracy is the practically decisive objection is a
+separate question, and \S\ref{sec:assembled} answers it differently than
+expected.
+
+\subsection{Assembled behavior, and a correction}
+\label{sec:assembled}
+
+The element census of \S\ref{sec:firstresult} is a local statement. An
+element-local mode survives assembly only if its trace is compatible with every
+neighbor across every shared face, so the global count can be far smaller than
+$3n_{\mathrm{el}}$ --- and it is worth knowing whether it is, because that count
+is what the argument against a constant pressure rests on.
+
+Table~\ref{tab:assembled} assembles $~K\supdev + \kappa \transpose{~G} ~M^{-1}
+~G$ over meshes under two boundary conditions: the whole boundary fixed, and
+only $z = 0$ fixed. The second matters because it is far closer to the
+confined-but-not-clamped conditions under which soft modes are reported.
+
+The locking measure is again a rank. A displacement mode costs volumetric
+energy exactly when it lies outside $\ker ~G$, so as $\kappa \to \infty$ the
+reachable deformations collapse onto that kernel and
+$\dim\ker ~G = n_u - \operatorname{rank} ~G$ is the discretely isochoric
+subspace. A healthy fraction means the element still deforms; a collapse toward
+zero is volumetric locking.
+
+\begin{table}[h]
+\centering
+\begin{tabular}{@{}llrrrrrr@{}}
+\toprule
+BC & Pair & $N$ & $n_u$ & $\operatorname{rank}~G$ & isochoric & fraction & zero modes \\
+\midrule
+all   & $P_2/P_0$                 & 3 & 375  & 158  & 217  & 0.579 & 0 \\
+      &                           & 4 & 1029 & 380  & 649  & 0.631 & 0 \\
+      & $P_2/P_1^{\mathrm{disc}}$ & 3 & 375  & 363  & 12   & \textbf{0.032} & 0 \\
+      &                           & 4 & 1029 & 957  & 72   & \textbf{0.070} & 0 \\
+\midrule
+$z=0$ & $P_2/P_0$                 & 3 & 882  & 162  & 720  & 0.816 & 0 \\
+      &                           & 4 & 1944 & 384  & 1560 & 0.802 & 0 \\
+      & $P_2/P_1^{\mathrm{disc}}$ & 3 & 882  & 522  & 360  & 0.408 & 0 \\
+      &                           & 4 & 1944 & 1216 & 728  & 0.374 & 0 \\
+\bottomrule
+\end{tabular}
+\caption{Assembled census at $\kappa/\mu = 10^4$. Script:
+\code{prototype/locking.jl}.}
+\label{tab:assembled}
+\end{table}
+
+Two findings, and the first corrects this note.
+
+\paragraph{The constant-pressure soft modes do not survive assembly.}
+Zero spurious modes, under both boundary conditions, at every mesh. Nor are
+they present as merely low-energy ones: the smallest eigenvalue relative to the
+deviatoric scale is $1.51\times10^{-3}$ for $P_0$ against $1.84\times10^{-3}$
+for $P_1^{\mathrm{disc}}$ on the same mesh --- indistinguishable, and both
+simply reflecting the long-wavelength modes of a lightly held block. The three
+modes per element of \S\ref{sec:firstresult} are real but element-local, and
+their traces do not match across faces.
+
+So the soft-mode objection to a constant pressure, on \emph{these} elements, is
+not supported at the assembled level, and the earlier framing of it here
+overstated the case. The composite tetrahedron of \citet{Foulk.etal:2021} is
+built on a subdivided-linear displacement space rather than $P_2$, which is a
+different kernel and is not modeled here; that lineage's soft mode may well be
+specific to it. Nothing above contradicts their observation --- it simply fails
+to reproduce it on a quadratic tetrahedron.
+
+\paragraph{The unenriched pair locks, and that is the real objection.}
+With the boundary fixed, $P_2/P_1^{\mathrm{disc}}$ retains 3--7\% of its
+deformation modes as $\kappa$ grows, against 58--63\% for $P_0$. Under lighter
+support it is 37--41\% against 80\%. Either way it is the pair that
+over-constrains, and locking is a far more damaging failure in practice than a
+spurious mode, because it is silent: the element simply returns a stiff answer.
+
+Adding one vector bubble per element raises the isochoric fraction to
+0.56--0.62, in line with $P_0$ and without $P_0$'s element-level degeneracy.
+That, rather than the soft-mode argument, is what the enrichment is for.
 
 \subsection{The eigenvalue sweep}
 \label{sec:eigensweep}
@@ -683,13 +762,20 @@ them plainly is to make the first round of numerical work decisive.
         is mandatory rather than advisory. What remains is to confirm that the
         enriched pair is stable in fact and not merely in count, which does
         require the eigenvalue sweep on an implemented bubble element.
-  \item \textbf{No soft modes.} \emph{Settled for a single element in
-        \S\ref{sec:firstresult}}: three spurious zero-energy modes for a
-        constant pressure, none for $P_1$-discontinuous. What remains is the
-        patch-level confirmation on an assembled mesh, where inter-element
-        coupling could in principle reintroduce them.
-  \item \textbf{No volumetric locking.} Standard benchmarks at increasing
-        $\kappa/\mu$: the displacement must not degrade as the ratio grows.
+  \item \textbf{No soft modes.} \emph{Settled, and not as expected.} Three
+        spurious zero-energy modes per element for a constant pressure
+        (\S\ref{sec:firstresult}), but none of them survive assembly under
+        either boundary condition tested (\S\ref{sec:assembled}). The
+        soft-mode argument against a constant pressure does not hold on
+        quadratic tetrahedra; the argument for the enriched pair rests on
+        locking instead.
+  \item \textbf{No volumetric locking.} \emph{Settled for the pairs that can be
+        assembled today} (\S\ref{sec:assembled}), by measuring the isochoric
+        subspace $\dim\ker ~G$ rather than by running benchmarks:
+        $P_1^{\mathrm{disc}}$ locks badly, $P_0$ does not, and the enriched
+        pair does not by the same count. What remains is a benchmark
+        confirmation on the enriched element once it exists, since a healthy
+        isochoric fraction is necessary and not obviously sufficient.
   \item \textbf{Plastic strain fields are smooth.} The direct comparison
         against stabilized formulations. Equivalent plastic strain in a
         confined plastic zone should show no oscillation and require no
