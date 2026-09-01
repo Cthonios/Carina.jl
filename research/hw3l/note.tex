@@ -555,7 +555,8 @@ $\testd \in U$ vanishing on $\partial_\disp B$, $\vartheta, \pi \in Q$:
 The kinematic derivatives are
 \begin{equation}
   \label{eq:kinematic}
-  \frac{\partial\theta}{\partial\disp}[\testd] = \F^{-\mathsf{T}} : \Grad\testd,
+  \frac{\partial\theta}{\partial\disp}[\testd]
+    = \theta'(J)\, J\, \F^{-\mathsf{T}} : \Grad\testd,
   \qquad
   \frac{\partial\edev}{\partial\disp}[\testd]
     = \mathbb{L}\supdev(\C) : \sym\!\left(\transpose{\F}\Grad\testd\right),
@@ -563,8 +564,11 @@ The kinematic derivatives are
 with $\mathbb{L}(\C) := \partial \log\C/\partial\C$ the Fr\'echet derivative of
 the matrix logarithm \citep{AlMohy.Higham.Relton:2013} and
 $\mathbb{L}\supdev := \mathbb{L} - \tfrac13 \Id \otimes \C^{-1}$. The
-volumetric derivative follows from Jacobi's formula and needs no special
-machinery.
+volumetric derivative follows from Jacobi's formula and \eqref{eq:dtheta}. The
+deviatoric expression is written for the Hencky instance of
+Table~\ref{tab:instances}; the Simo--Hughes instance replaces it with the
+variation of $\bar{~b}^{\mathrm e}$, and nothing outside this equation
+changes.
 
 \subsection{Stress reconstruction}
 \label{sec:stress}
@@ -573,7 +577,8 @@ Collecting \eqref{eq:variations}$_1$ into the form $\int \P : \Grad\testd$
 gives, in general,
 \begin{equation}
   \label{eq:P-general}
-  \P = \bar p\, \F^{-\mathsf{T}} + \F \left( \mathbb{L}\supdev(\C) : \sdev \right).
+  \P = \theta'(J)\, J\, \bar p\, \F^{-\mathsf{T}}
+     + \F \left( \mathbb{L}\supdev(\C) : \sdev \right).
 \end{equation}
 Because $\sdev$ here is computed \emph{pointwise} from $\edev(\disp)$ by an
 isotropic law, $\sdev$ is coaxial with $\C$ at every quadrature point. The
@@ -581,9 +586,20 @@ off-diagonal contributions of $\mathbb{L}\supdev$ in the principal basis then
 vanish identically and \eqref{eq:P-general} collapses to the push-forward
 \begin{equation}
   \label{eq:P-simple}
-  \P = \left( \bar p \Id + \sdev \right) \F^{-\mathsf{T}} = \btau \, \F^{-\mathsf{T}},
-  \qquad \btau := \bar p \Id + \sdev = J\,~\sigma .
+  \P = \left( \varpi \Id + \sdev \right) \F^{-\mathsf{T}} = \btau \, \F^{-\mathsf{T}},
+  \qquad
+  \btau := \varpi \Id + \sdev = J\,~\sigma,
+  \qquad
+  \varpi := \theta'(J)\, J\, \bar p .
 \end{equation}
+
+The Kirchhoff pressure $\varpi$ carries the whole of the instance dependence.
+For the Hencky instance $\theta'(J)J = 1$ and $\varpi = \bar p$; for the
+Simo--Hughes instance $\theta'(J)J = J$ and $\varpi = J\bar p$, giving
+$\btau = J\bar p\,\Id + \sdev$ with $\bar p = \kappa(J-1)$, which is the
+Kirchhoff stress of \citet[BOX 9.1]{SimoHughes:1998} and is what both codes
+compute. That the general form reproduces each implementation without
+adjustment is the check that \eqref{eq:thetadef} was normalized correctly.
 
 \begin{remark}
 \label{rem:coaxial}
@@ -811,18 +827,18 @@ immaterial; only the lumped result must be positive, and under HRZ it is.
 \emph{Critical time step.} Quadratic elements carry a higher maximum
 eigenvalue than linear elements on the same mesh, so the explicit stable step
 is smaller for a given $h$ --- roughly a factor of two, with the bubble
-enrichment costing a little more. Against this, a $P_2$ mesh resolves a given
-feature with far fewer elements. The trade is favorable or not depending on the
-problem, and it should be measured rather than argued.
+enrichment reducing it further. Against this, a $P_2$ mesh resolves a given
+feature with far fewer elements. Whether the trade-off is favorable
+depends on the problem and should be measured.
 
 \section{Optional five-field variant}
 \label{sec:fivefield}
 
 Should an independent deviatoric strain field become necessary --- for
 non-local regularization, or for internal variables requiring their own
-discrete representation --- the disciplined extension introduces
+discrete representation --- the systematic extension introduces
 $\bar\edev$ and $\bar\sdev$ \emph{in the same discontinuous space}, of the same
-degree as $Q_h$. Sharing the space is not a convenience: it makes the
+degree as $Q_h$. Sharing the space is not merely convenient: it makes the
 constitutive relation hold pointwise rather than after a projection, keeps the
 return map at shared quadrature points, keeps every elimination element-local,
 and leaves the discrete system non-singular. Placing $\bar\edev$ and $\bar\sdev$
@@ -917,7 +933,7 @@ Script: \code{prototype/softmode.jl}.}
 \label{tab:census}
 \end{table}
 
-Three consequences.
+Three consequences follow.
 
 The constant-pressure element carries three modes that are \emph{exactly}
 zero-energy, not merely soft. A mode with no energy at all cannot be tolerated,
@@ -926,7 +942,7 @@ remedy in \citet{Foulk.etal:2021} is forced by the space, not by the element.
 
 A $P_1$-discontinuous pressure removes them completely, with no penalty, and
 leaves exactly the six rigid-body modes. This is the claim of \S\ref{sec:hw}
-confirmed in the setting where it is cleanest to check.
+confirmed in the setting where it can be verified most directly.
 
 Enriching the pressure further changes nothing: the rank saturates at four,
 because four is all the displacement space can produce. Over-enrichment is
@@ -952,7 +968,7 @@ for the pressure degrees of freedom. The Schur complement of the mixed system
 is $~S = ~G ~K^{-1} \transpose{~G}$, an $n_p \times n_p$ matrix of rank at most
 $n_u$. If $n_p > n_u$ then $~S$ is singular \emph{by counting}, the pressure
 space carries modes no displacement can resist, and no inf-sup constant exists
---- whatever the constants would otherwise have done.
+--- regardless of the values those constants would otherwise take.
 
 Table~\ref{tab:dofcount} counts them on a Freudenthal-subdivided cube.
 
@@ -997,10 +1013,10 @@ refinement rescues it.
 \end{proposition}
 
 Adding one vector bubble per element supplies $3n_{\mathrm{el}}$ further
-displacement degrees of freedom and moves the ratio to $0.613$, comfortably
-clear of the bound. This is the quantitative content of the recommendation in
-\S\ref{sec:fe-spaces}: the enrichment is not a refinement of taste, it is what
-makes the count work.
+displacement degrees of freedom and moves the ratio to $0.613$, clear of the
+bound. This is the quantitative content of the recommendation in
+\S\ref{sec:fe-spaces}: the enrichment is not a matter of preference; it is what
+makes the count admissible.
 
 \noindent
 Whether that limiting degeneracy is the practically decisive objection is a
@@ -1025,7 +1041,7 @@ The locking measure is again a rank. A displacement mode costs volumetric
 energy exactly when it lies outside $\ker ~G$, so as $\kappa \to \infty$ the
 reachable deformations collapse onto that kernel and
 $\dim\ker ~G = n_u - \operatorname{rank} ~G$ is the discretely isochoric
-subspace. A healthy fraction means the element still deforms; a collapse toward
+subspace. A large fraction means the element still deforms; a collapse toward
 zero is volumetric locking.
 
 \begin{table}[h]
@@ -1057,7 +1073,7 @@ Zero spurious modes, under both boundary conditions, at every mesh. Nor are
 they present as merely low-energy ones: the smallest eigenvalue relative to the
 deviatoric scale is $1.51\times10^{-3}$ for $P_0$ against $1.84\times10^{-3}$
 for $P_1^{\mathrm{disc}}$ on the same mesh --- indistinguishable, and both
-both reflecting the long-wavelength modes of a lightly constrained block. The three
+reflecting the long-wavelength modes of a lightly constrained block. The three
 modes per element of \S\ref{sec:firstresult} are real but element-local, and
 their traces do not match across faces.
 
@@ -1094,10 +1110,10 @@ $\beta_h$ is the smallest \emph{nonzero singular value} of $~W = ~L^{-1}
 \transpose{~G} ~M^{-1/2}$ --- never forming $~G ~K^{-1} \transpose{~G}$, and so
 never squaring the condition number of the very quantity being measured. And
 the null dimension is fixed independently as $n_p - \operatorname{rank}~G$, so
-the cut is taken by index rather than by guessing a threshold. In practice the
+the cut is taken by index rather than by selecting a threshold. In practice the
 gap is unambiguous: $O(10^{-15})$ below it against $O(10^{-2})$ above.
 
-Crucially the sweep now carries a \emph{positive} control. A negative control
+The sweep also carries a \emph{positive} control. A negative control
 alone --- $P_1/P_0$, known unstable --- cannot detect a test that reports every
 pair as unstable.
 
@@ -1122,15 +1138,14 @@ $0.2216$, flat to three digits over the last three refinements. Taylor--Hood is
 stable in three dimensions and the test reports it as such, which is what
 validates reading the other two rows.
 
-And they say that \textbf{neither element-local pair is uniformly stable on
-this mesh family}. $P_2/P_0$ decays at a rate approaching one, despite passing
-the degree-of-freedom count at a comfortable $0.284$.
+The remaining two rows show that \textbf{neither element-local pair is
+uniformly stable on this mesh family}. $P_2/P_0$ decays at a rate approaching
+one, despite passing the degree-of-freedom count at $0.284$.
 
 \begin{remark}[The count is necessary, not sufficient]
 \label{rem:necessary}
 $P_2/P_0$ is the counterexample to any reading of \S\ref{sec:infsup} as having
-settled the question in general. It passes the count with room to spare and
-still fails. A ratio above one \emph{refutes} a pair; a ratio below one
+settled the question in general. It passes the count with margin and still fails. A ratio above one \emph{refutes} a pair; a ratio below one
 establishes nothing. The enriched pair's $0.613$ is therefore not evidence that
 it works --- only that it is not excluded --- and it remains untested, since no
 bubble element exists to test.
@@ -1139,10 +1154,11 @@ bubble element exists to test.
 \begin{remark}[Mesh dependence]
 \label{rem:structured}
 These results are for the Freudenthal subdivision, a highly structured family,
-and structured meshes are where pair counterexamples characteristically live
+and structured meshes are where pair counterexamples characteristically arise
 --- the $P_1/P_0$ checkerboard is at its worst on them. A pair can degenerate
 on a structured mesh and remain well behaved on a general one. The accurate
-statement is that $P_2/P_0$ and $P_2/P_1^{\mathrm{disc}}$ decay \emph{here}; confirming that
+statement is that $P_2/P_0$ and $P_2/P_1^{\mathrm{disc}}$ decay \emph{here};
+confirming that
 as a property of the pairs rather than of the mesh needs a sequence of
 unstructured meshes, which this study does not have.
 \end{remark}
@@ -1182,10 +1198,10 @@ $P_2/P_1^{\mathrm{disc}}$ & 2 & 81   & 192  & 111  & 0.113 \\
 
 The control behaves as it must: $\beta_h$ falls steadily and the zero count
 grows with the mesh, which is the checkerboard instability $P_1/P_0$ is known
-for. The test detects what it is supposed to detect.
+for. The test detects the instability it should.
 
-Beyond that these numbers carry much less weight than the count, and the note
-does not lean on them.
+Beyond that, these numbers carry much less weight than the count, and the note
+does not rely on them.
 
 The zero counts for $P_2/P_1^{\mathrm{disc}}$ --- 111, 285, 579, 1029 --- are
 not an independent finding: they are $n_p - n_u$ to within a few modes, which
@@ -1193,9 +1209,9 @@ is the rank deficiency \S\ref{sec:infsup} already explains by counting. The
 same is true of the control at these mesh sizes, where $n_u$ is so small that
 $n_p > n_u$ regardless of the pair.
 
-The apparent decay of $\beta_h$ for $P_2/P_0$ is the one line that would be
-interesting if it held up, since that pair passes the count comfortably. It
-should not be trusted from this data. A dense generalized eigensolver caps the
+The apparent decay of $\beta_h$ for $P_2/P_0$ is the one row that would be
+significant if it were reliable, since that pair passes the count. It is not
+supported by these data. A dense generalized eigensolver caps the
 sequence at $N = 5$, far short of an asymptotic regime, and $\beta_h \sim
 h^{1/2}$ over less than a decade of $h$ is equally consistent with a
 pre-asymptotic transient. Establishing it would need a sparse eigensolver and
