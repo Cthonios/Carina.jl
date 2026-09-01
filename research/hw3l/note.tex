@@ -38,6 +38,7 @@
 \newcommand{\diff}{\,\mathrm{d}}
 \newcommand{\supvol}{^{\mathrm{vol}}}
 \newcommand{\supdev}{^{\mathrm{dev}}}
+\newcommand{\supiso}{^{\mathrm{iso}}}
 \newcommand{\code}[1]{\texttt{#1}}
 
 \theoremstyle{definition}
@@ -187,6 +188,13 @@ $\sdev = 2\mu(\edev - \edev^{\mathrm p})$, with $\edev^{\mathrm p}$ evolved by
 the return map of \S\ref{sec:plasticity}. Nothing else in the formulation
 changes.
 
+Equation \eqref{eq:energy} is one admissible material, not the requirement.
+What the formulation actually needs is an exact volumetric--isochoric split
+with a quadratic volumetric term, which \eqref{eq:energy} satisfies in the
+variable $\theta = \log J$ and which the Simo--Hughes $J_2$ model satisfies in
+$J - 1$. \S\ref{sec:matreq} separates the requirements and reports which
+materials meet them.
+
 \subsection{Three-field functional}
 \label{sec:hw}
 
@@ -246,14 +254,19 @@ projected volumetric strain --- the mean-dilatation construction of
 $\bar{F}$ families. Three consequences follow, and none of them should be
 soft-pedalled.
 
-The reduction is \emph{exact}, not an approximation, and it is exact because of
-the Hencky measure: with $W = \tfrac{\kappa}{2}(\trace\eps)^2 + \mu\lVert
-\dev\eps\rVert^2$ and $\trace\eps = \log J$ identically, subtracting the
-pointwise volumetric energy from $W$ leaves the deviatoric part with no
-remainder. For a material without that additive split the same manipulation
-would leave volumetric content inside the ``deviatoric'' term, and the
-formulation would be quietly wrong rather than visibly so. The implementation
-in Norma refuses such materials for this reason.
+The reduction is \emph{exact}, not an approximation, and the reason is
+\eqref{eq:constraint-vanishes} and nothing else: $\bar p$ lies in $Q_h$, and
+$(\theta - \Pi_h\theta)$ is orthogonal to $Q_h$ by the definition of the
+projection. No property of the logarithmic measure is used, and none of a
+quadratic $W\supvol$. An earlier version of this note asserted that the
+exactness followed from the Hencky measure; that was wrong, and the error
+mattered, because it made a property of the \emph{discretization} --- that the
+two auxiliary fields share one space --- look like a property of the
+\emph{material}. What the material must actually supply is weaker, and is set
+out in \S\ref{sec:matreq}: an exact volumetric--isochoric split, without which
+the subtraction leaves volumetric content inside the ``deviatoric'' term and
+the formulation is quietly rather than visibly wrong. The implementation in
+Norma refuses materials that fail it.
 
 The novelty here is therefore \emph{not the mechanism}. Projecting the
 volumetric strain is four decades old. What is open, and what
@@ -270,6 +283,140 @@ alongside it was. Whether replacing that choice is enough is what the
 verification list of \S\ref{sec:verify} is for, and item~4 --- the smoothness
 of plastic strain fields, the failure that motivated the whole exercise ---
 remains untested.
+\end{remark}
+
+\subsection{What the formulation requires of the material}
+\label{sec:matreq}
+
+Section~\ref{sec:meandilatation} shows the reduction is exact whenever $\bar p$
+and $\bar\theta$ share a space. That is a statement about the discretization
+and says nothing about the material. What the material must supply is a
+separate question, and the answer is weaker than \eqref{eq:energy} makes it
+look. Three conditions are involved, they are not equally necessary, and this
+note previously ran them together.
+
+\paragraph{An exact volumetric--isochoric split.} This one is structural. The
+element evaluates $W$ at the pointwise deformation, subtracts the pointwise
+volumetric energy and adds it back at the projected strain, so the subtraction
+must leave no volumetric remainder:
+\begin{equation}
+  \label{eq:matsplit}
+  W(\F) = W\supvol(J) + W\supiso(\bar{\F}),
+  \qquad
+  \bar{\F} := J^{-1/3}\F,
+  \qquad
+  \det\bar{\F} = 1 .
+\end{equation}
+Whether a material satisfies \eqref{eq:matsplit} is decidable without knowing
+$W\supvol$: if the split exists then $W(\F) - W(\bar{\F}) = W\supvol(J) -
+W\supvol(1)$ depends on $J$ alone, so holding $J$ fixed while varying the
+isochoric part must leave the difference unmoved. Column~2 of
+Table~\ref{tab:split} is that test, run over every material Norma implements.
+Five of the seven pass, which is four more than the implementation currently
+admits.
+
+\paragraph{A quadratic $W\supvol$.} This one is a convenience, and it is worth
+saying plainly that it is only that. Stationarity in $\bar\theta$ gives
+\begin{equation}
+  \label{eq:pbar-general}
+  \bar p = \Pi_h\!\left(\partial W\supvol/\partial\bar\theta\right)
+\end{equation}
+in general. When $W\supvol$ is quadratic its derivative is linear,
+$\kappa\bar\theta$ already lies in $Q_h$, the projection in
+\eqref{eq:pbar-general} is the identity, and $\bar p = \kappa\bar\theta$ holds
+\emph{pointwise}. That is what makes the elimination of \S\ref{sec:local} a
+single linear element-local solve rather than a local Newton iteration on
+$\bar\theta$. The reduction \eqref{eq:collapsed} is exact either way; only the
+cost of the elimination changes.
+
+\paragraph{The logarithmic measure itself.} This one is required by nothing in
+the present section. It is required by \S\ref{sec:plasticity}, and for an
+unrelated reason: only in logarithmic strain is the constitutive law
+algebraically linear, which is what allows a small-strain return map to be
+reused verbatim.
+
+\begin{table}[tbp]
+  \centering
+  \caption{What the materials implemented in Norma satisfy. Column~2 is the
+  spread of $W(\F) - W(\bar{\F})$ across isochoric parts at fixed $J$, relative
+  to its own magnitude; machine zero means the split \eqref{eq:matsplit} is
+  exact. Columns~3 and~4 are the relative residual of a least-squares fit of
+  the extracted $W\supvol$ to a quadratic in each candidate volumetric
+  variable. Two materials admit a quadratic $W\supvol$, and they disagree on
+  the variable.}
+  \label{tab:split}
+  \begin{tabular}{lccc}
+    \toprule
+    & split \eqref{eq:matsplit} & \multicolumn{2}{c}{$W\supvol$ quadratic in} \\
+    \cmidrule(lr){3-4}
+    material & spread at fixed $J$ & $J - 1$ & $\log J$ \\
+    \midrule
+    Linear elastic              & $1.5\times10^{0}$   & ---                 & ---                 \\
+    Saint-Venant Kirchhoff      & $1.4\times10^{0}$   & ---                 & ---                 \\
+    Neo-Hookean                 & $4.6\times10^{-13}$ & $5.8\times10^{-2}$  & $1.1\times10^{-1}$  \\
+    Reciprocal neo-Hookean      & $4.6\times10^{-13}$ & $1.7\times10^{-1}$  & $6.6\times10^{-3}$  \\
+    Seth--Hill ($m = n = 1$)    & $7.2\times10^{-13}$ & $1.7\times10^{-1}$  & $6.6\times10^{-3}$  \\
+    Hencky                      & $3.9\times10^{-13}$ & $1.7\times10^{-1}$  & $\mathbf{4.4\times10^{-15}}$ \\
+    $J_2$, Simo--Hughes         & $6.8\times10^{-13}$ & $\mathbf{1.1\times10^{-14}}$ & $1.7\times10^{-1}$ \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\paragraph{The restriction taken here.} The formulation is developed for
+materials satisfying \eqref{eq:matsplit} \emph{with} a quadratic $W\supvol$.
+Table~\ref{tab:split} admits exactly two, and they do not agree on the
+variable: Hencky is quadratic in $\log J$ to $4.4\times10^{-15}$, and the
+Simo--Hughes $J_2$ model that Norma and Carina both ship is quadratic in $J-1$
+to $1.1\times10^{-14}$. Each is exact in its own variable and wrong by $17\%$
+in the other, so the pair (material, volumetric variable) travels together and
+neither choice generalizes to the other material.
+
+The three remaining split materials --- neo-Hookean, its reciprocal, and
+Seth--Hill --- are excluded for now, not because the formulation fails on them
+but because admitting them costs more than it currently buys. What they would
+need is set out in Remark~\ref{rem:nonquadratic}.
+
+\begin{remark}[Extending to a non-quadratic $W\supvol$]
+\label{rem:nonquadratic}
+Nothing in \S\ref{sec:hw} or \S\ref{sec:meandilatation} breaks. Three things
+change, all in the implementation.
+
+First, \eqref{eq:projection} stops being a linear solve. $\bar\theta = \Pi_h
+\theta$ still comes from one mass-matrix solve, but $\bar p$ must then be
+obtained from \eqref{eq:pbar-general}, which for a nonlinear $W\supvol{}'$
+requires projecting a nonlinear function of $\bar\theta$ --- a local Newton
+iteration per element, on as many scalars as $Q_h$ has dimensions per element.
+That is cheap per iteration and element-local, so \S\ref{sec:local} survives,
+but it introduces a local solve that can fail to converge where the global one
+would not.
+
+Second, the tangent acquires a term in $W\supvol{}''(\bar\theta)$ that is no
+longer constant, so the factorization reused across every Newton iteration in
+\S\ref{sec:local} must be refreshed whenever $\bar\theta$ moves.
+
+Third, and least obviously, the choice of volumetric variable stops being
+forced. For a quadratic $W\supvol$ the variable is whichever one makes it
+quadratic, and Table~\ref{tab:split} settles it. For a non-quadratic
+$W\supvol$ any monotone $\theta(J)$ is admissible, and by
+Remark~\ref{rem:thetachoice} the choice changes the element. It would have to
+be justified rather than read off.
+\end{remark}
+
+\begin{remark}[The volumetric variable is a modeling choice]
+\label{rem:thetachoice}
+Projecting $\log J$ and projecting $J$ do not give the same element. Measured
+on one \code{TETRA10} under a non-affine displacement, with a Hencky material
+so that both variants use the same exact $W\supvol$, the element energies
+differ by
+$3.9\times10^{-4}$ at $0.5\%$ strain,
+$3.8\times10^{-3}$ at $5\%$,
+$1.3\times10^{-2}$ at $20\%$ and
+$2.8\times10^{-2}$ at $50\%$.
+The difference is $O(\text{strain})$ and vanishes with it, so both are
+consistent discretizations of the same continuum problem; they are simply
+different elements, and they differ by about $3\%$ in exactly the
+finite-deformation regime this formulation exists to address. Which variable is
+projected is therefore a modeling decision, not a change of notation.
 \end{remark}
 
 \subsection{Variations}
@@ -423,11 +570,17 @@ constant in the reference configuration. One factorization at setup serves
 every Newton iteration of every step, and
 \begin{equation}
   \label{eq:projection}
-  M \{\bar\theta\} = \int_B \mu_m \log J(\disp) \diff V,
+  M \{\bar\theta\} = \int_B \mu_m \, \theta(\disp) \diff V,
   \qquad
   \bar p = \kappa \bar\theta ,
 \end{equation}
-is an element-local solve. Substituting $\bar p(\disp)$ into
+is an element-local solve, with $\theta = \log J$ for a Hencky material and
+$\theta = J - 1$ for the Simo--Hughes one (\S\ref{sec:matreq}). The second
+relation in \eqref{eq:projection} holds \emph{pointwise}, rather than only
+after projection, precisely because $W\supvol$ is quadratic; for a material
+where it is not, this step becomes a local Newton iteration and the
+factorization can no longer be reused across iterations
+(Remark~\ref{rem:nonquadratic}). Substituting $\bar p(\disp)$ into
 \eqref{eq:variations}$_1$ leaves a displacement-sized nonlinear problem whose
 tangent retains the sparsity of the displacement mesh --- the auxiliary fields
 never couple two elements. This is the property that makes the composite
@@ -490,6 +643,32 @@ strain in stabilized formulations has no mechanism here.
 \emph{No stabilization enters the deviator.} There is no subgrid term, no
 penalty and no tuned coefficient anywhere in the formulation, so nothing of the
 form \eqref{eq:vms} can reach the return map.
+
+\begin{remark}[What the codes actually ship, and what claim~4 will be measured on]
+\label{rem:whichj2}
+Equation \eqref{eq:return} is the return map this formulation specifies.
+Neither Norma nor Carina implements it. Both ship the Simo--Hughes $J_2$ model
+\citep{SimoHughes:1998}: a neo-Hookean volumetric--isochoric split,
+$W = \tfrac{\kappa}{2}(J-1)^2 + \tfrac{\mu}{2}(\trace\bar{~b}^{\mathrm e} - 3)$,
+with the radial return taken on the isochoric elastic left Cauchy--Green tensor
+rather than on logarithmic strain. It satisfies \eqref{eq:matsplit} exactly ---
+$\det\bar{~b}^{\mathrm e} = 1$ makes the isochoric term independent of $J$ by
+construction rather than by an identity --- and its $W\supvol$ is quadratic in
+$J-1$, so it is admissible here in the variable $J-1$.
+
+Two consequences should not be glossed. The first is that claim~4 of
+\S\ref{sec:verify} will be measured on Simo--Hughes unless a logarithmic $J_2$
+is written for the purpose; the smoothness of equivalent plastic strain is a
+question about whether strain and stress cross discretizations, which is
+independent of the elastic split carrying them, so this is a reasonable
+substitution --- but it is a substitution.
+
+The second is that the portability argument above is weakened by it. The claim
+that any small-strain model ports without reformulation is a property of the
+logarithmic measure, and Simo--Hughes does not have it: its return map is
+specific to its own structure. The argument stands for the formulation as
+specified and does not describe what is currently running.
+\end{remark}
 
 \section{Dynamics}
 
@@ -937,7 +1116,9 @@ them plainly is to make the first round of numerical work decisive.
   \item \textbf{Plastic strain fields are smooth.} The direct comparison
         against stabilized formulations. Equivalent plastic strain in a
         confined plastic zone should show no oscillation and require no
-        filtering.
+        filtering. This will be measured on the Simo--Hughes $J_2$ model both
+        codes ship rather than on the logarithmic return map of
+        \eqref{eq:return}, for the reasons in Remark~\ref{rem:whichj2}.
   \item \textbf{Element-local cost.} The assembled tangent must retain
         displacement-mesh sparsity, confirming the elimination never couples
         elements.
