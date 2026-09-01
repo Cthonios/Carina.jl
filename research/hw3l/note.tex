@@ -60,11 +60,16 @@
 A tetrahedral element for very large deformation and deviatoric plasticity,
 aimed at removing the stabilization that the composite-tetrahedron and
 variational-multiscale lineages both carry. Three fields --- motion, volumetric
-logarithmic strain, and pressure --- are coupled through a Hu--Washizu
-functional in Hencky strain. The deviatoric response is evaluated pointwise at
-quadrature, so the constitutive law is an unmodified small-strain algorithm and
-the formulation is agnostic to the material model, and both auxiliary fields
-are discontinuous, so their elimination is element-local.
+strain, and pressure --- are coupled through a Hu--Washizu functional. The
+deviatoric response is evaluated pointwise at quadrature, so the constitutive
+law is an unmodified small-strain algorithm, and both auxiliary fields are
+discontinuous, so their elimination is element-local. The material is not
+arbitrary, and \S\ref{sec:matreq} says how far it is not: the stored energy
+must split exactly into volumetric and isochoric parts, with the volumetric
+part quadratic in the variable that gets projected. Five of the seven materials
+implemented in Norma admit the split and two admit it quadratically --- Hencky
+in $\log J$, and the Simo--Hughes $J_2$ model in $J-1$ --- so a material and
+its volumetric variable travel as a pair.
 
 The working hypothesis is that volumetric locking and spurious soft modes are
 two failure directions of a single inf-sup condition, so that an inf-sup stable
@@ -83,7 +88,8 @@ is unverified, for want of an element to test it on. The soft-mode argument
 against a constant pressure did not survive assembly and has been withdrawn;
 the locking argument did, and is now the case for enrichment. The measurement
 that motivated the whole exercise --- whether plastic strain fields come out
-smooth --- remains untested.
+smooth --- remains untested, and will be made on the Simo--Hughes model both
+codes ship rather than on the logarithmic return map specified here.
 \end{abstract}
 
 \section{Problem statement}
@@ -506,12 +512,15 @@ Let $U_h \subset U$ carry the motion and $Q_h \subset Q$ carry both
 $\bar\theta$ and $\bar p$. Two requirements fix the choice.
 
 \emph{Same space for both scalars.} $\bar\theta$ and $\bar p$ are placed in one
-space $Q_h$. Then \eqref{eq:variations}$_2$ reads $\bar p = \kappa\bar\theta$
-exactly rather than in a projected sense, and the composition
-$\bar p = \kappa\,\Pi_{Q_h}(\log J)$ is well defined. Splitting them across two
-different spaces makes the constitutive relation hold only after a projection,
-determines one field only through its projection onto the other's space, and
-can leave the discrete system singular.
+space $Q_h$. This is what makes the constraint term vanish identically and the
+functional reduce to \eqref{eq:collapsed}; it is the only thing that reduction
+needs. Given it, and a quadratic $W\supvol$ (\S\ref{sec:matreq}),
+\eqref{eq:variations}$_2$ reads $\bar p = \kappa\bar\theta$ pointwise rather
+than in a projected sense, and the composition
+$\bar p = \kappa\,\Pi_{Q_h}(\theta)$ is well defined. Splitting the two scalars
+across different spaces makes the constitutive relation hold only after a
+projection, determines one field only through its projection onto the other's
+space, and can leave the discrete system singular.
 
 \emph{Inf-sup stability, in three dimensions.} The pairing
 $\int \bar p \,\F^{-\mathsf T}\!:\!\Grad\testd$ reduces at $\F = \Id$ to the
@@ -633,7 +642,11 @@ map $\C \mapsto \eps$ and the tangent map $\mathbb{L}(\C)$
 algorithm. Any model already written for small strain --- $J_2$, kinematic
 hardening, viscoplasticity, damage --- ports without reformulation. This is the
 practical content of preferring a Hu--Washizu structure over one built around a
-particular stress--strain pairing.
+particular stress--strain pairing. Note that this property belongs to the
+logarithmic measure and not to the Hu--Washizu structure, so it is the one
+place where \S\ref{sec:matreq} does \emph{not} apply: an admissible material
+in the sense of \eqref{eq:matsplit} need not have it, and the Simo--Hughes
+model both codes ship does not (Remark~\ref{rem:whichj2}).
 
 \emph{Strain and stress never cross discretizations.} $\edev$ is evaluated and
 $\sdev$ returned at the same quadrature point of the same element. There is no
@@ -1156,6 +1169,19 @@ should be measured on the benchmark set, not assumed.
 positivity, but the reduced critical time step is real. If weak shocks can be
 run with the implicit dynamic integrator the objection disappears; if they must
 be explicit, this trade needs measuring before commitment.
+
+\emph{The formulation restricts the material, and the restriction is narrow.}
+\S\ref{sec:matreq} requires an exact volumetric--isochoric split with a
+quadratic volumetric energy, and of the seven materials Norma implements only
+two qualify. That is narrower than the earlier framing of this note implied,
+and it cuts against the claim of material-agnosticism that motivated a
+Hu--Washizu structure in the first place. Two mitigations exist and neither is
+free: admitting the three split-but-non-quadratic materials costs a local
+Newton per element (Remark~\ref{rem:nonquadratic}), and anisotropic or
+non-separable models are outside the split altogether and would need the
+five-field variant of \S\ref{sec:fivefield} or something else again. The
+restriction should be stated whenever the formulation is compared against
+$\bar F$, which carries no such requirement.
 
 \emph{Nothing here is novel in its parts.} Mixed volumetric treatment
 \citep{SimoTaylorPister:1985}, logarithmic-strain plasticity
