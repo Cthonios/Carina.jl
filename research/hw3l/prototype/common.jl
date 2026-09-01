@@ -71,6 +71,86 @@ end
 mesh_of(N, p) = p == 1 ? tet4_mesh(N) : promote_to_p2(tet4_mesh(N)...)
 
 # --------------------------------------------------------------------------
+# Quadrature
+# --------------------------------------------------------------------------
+# ReferenceFiniteElements supplies tetrahedron rules only up to degree three.
+# That is ample for P2 alone -- the shape function gradients are linear, so
+# every integrand below is quadratic -- but not for the enriched space.  The
+# quartic bubble has a cubic gradient, so the bubble block of Kdev and Kh1 is
+# of degree six.
+#
+# Under-integration would not announce itself.  It would soften precisely the
+# degrees of freedom whose effect on beta_h is the question being asked, and
+# the Taylor-Hood control cannot catch it, having no bubble to under-integrate.
+# A rule of arbitrary degree is therefore constructed here.
+#
+# The construction is the conical product: the cube [0,1]^3 is mapped onto the
+# reference tetrahedron by
+#
+#     x = u,   y = v (1 - u),   z = w (1 - u)(1 - v),
+#
+# whose Jacobian is (1 - u)^2 (1 - v).  Absorbing that factor into Gauss-Jacobi
+# weights rather than into the integrand keeps the rule exact: a monomial
+# x^a y^b z^c of total degree d pulls back to
+#
+#     [u^a (1-u)^{b+c}] [v^b (1-v)^c] [w^c]
+#
+# against the weights (1-u)^2, (1-v) and 1, with degrees d, d and c
+# respectively.  An n-point Gauss rule is exact to degree 2n-1, so
+# n = ceil((d+1)/2) suffices in every direction.
+
+"""
+Gauss-Jacobi nodes and weights on [0,1] for the weight (1-t)^a, by
+Golub-Welsch.  `a = 0` is Gauss-Legendre.
+"""
+function gauss_jacobi01(n::Int, a::Real)
+    n >= 1 || error("need at least one quadrature point, got $n")
+    # Recurrence coefficients for the weight (1-x)^a on [-1,1] (Gautschi), the
+    # b = 0 case of the Jacobi family.
+    mu0 = 2.0^(a + 1) / (a + 1)
+    d = Vector{Float64}(undef, n)
+    d[1] = -a / (a + 2)
+    for k in 1:(n - 1)
+        d[k + 1] = -a^2 / ((2k + a) * (2k + a + 2))
+    end
+    e = Vector{Float64}(undef, n - 1)
+    for k in 1:(n - 1)
+        b = k == 1 ? 4 * (a + 1) / ((a + 2)^2 * (a + 3)) :
+                     4 * k^2 * (k + a)^2 /
+                         ((2k + a)^2 * (2k + a + 1) * (2k + a - 1))
+        e[k] = sqrt(b)
+    end
+    F = eigen(SymTridiagonal(d, e))
+    x = F.values
+    w = mu0 .* vec(F.vectors[1, :]) .^ 2
+    # Map [-1,1] -> [0,1] by t = (1+x)/2, which carries (1-x)^a dx into
+    # 2^(a+1) (1-t)^a dt.
+    return (1 .+ x) ./ 2, w ./ 2.0^(a + 1)
+end
+
+"""
+Conical-product rule on the reference tetrahedron, exact to total degree
+`deg`.  Returns points as a 3 x nqp matrix and the matching weights, which sum
+to the reference volume 1/6.
+"""
+function tet_rule(deg::Int)
+    n = cld(deg + 1, 2)
+    tu, wu = gauss_jacobi01(n, 2)
+    tv, wv = gauss_jacobi01(n, 1)
+    tw, ww = gauss_jacobi01(n, 0)
+    pts = zeros(NSD, n^3)
+    wts = zeros(n^3)
+    q = 0
+    for i in 1:n, j in 1:n, k in 1:n
+        u, v, w = tu[i], tv[j], tw[k]
+        q += 1
+        pts[:, q] = [u, v * (1 - u), w * (1 - u) * (1 - v)]
+        wts[q] = wu[i] * wv[j] * ww[k]
+    end
+    return pts, wts
+end
+
+# --------------------------------------------------------------------------
 # Spaces and bookkeeping
 # --------------------------------------------------------------------------
 pressure_basis(::Val{1}, xi) = (1.0,)
@@ -135,6 +215,99 @@ const _DEV = let I6 = Matrix{Float64}(I, 6, 6)
     I6
 end
 
+# --------------------------------------------------------------------------
+# Bubble enrichment
+# --------------------------------------------------------------------------
+# The three-dimensional Crouzeix-Raviart displacement space over a
+# discontinuous P1 pressure is P2 enriched by BOTH an interior bubble and one
+# bubble per face.  The two are not interchangeable and they are not the same
+# kind of object:
+#
+#   interior, b = 256 L1 L2 L3 L4 (quartic), vanishes on the whole element
+#       boundary.  Its three degrees of freedom are element-local: never
+#       shared, never reached by a boundary condition, condensable.  Its
+#       divergence integrates to zero against any CONSTANT, so it contributes
+#       nothing at all to a P0 pressure -- it acts only on the linear modes.
+#
+#   face, b_f = 27 La Lb Lc (cubic) over the three vertices of face f, vanishes
+#       on the other three faces but NOT on its own.  Both elements sharing a
+#       face see the same cubic on it, so the enrichment is conforming, and its
+#       three degrees of freedom are therefore SHARED: they are global unknowns
+#       and cannot be condensed element by element.  A face bubble on the
+#       domain boundary is fixed by the displacement boundary condition.
+#
+# That distinction matters beyond bookkeeping.  The claim that the enrichment
+# "adds no global degrees of freedom" holds for the interior bubble alone; the
+# face bubbles are precisely the part that does add them.
+
+bary(xi) = (1 - xi[1] - xi[2] - xi[3], xi[1], xi[2], xi[3])
+const _BARY_GRAD = ([-1.0, -1.0, -1.0], [1.0, 0.0, 0.0],
+                    [0.0, 1.0, 0.0],    [0.0, 0.0, 1.0])
+
+"Face f is the one opposite vertex f, over the remaining three vertices."
+const _TET_FACES = ((2,3,4), (1,3,4), (1,2,4), (1,2,3))
+
+"Value and reference gradient of `scale * prod(L[m] for m in idx)`."
+function _bubble_of(idx, scale, xi)
+    L = bary(xi)
+    v = scale * prod(L[m] for m in idx)
+    g = zeros(NSD)
+    for m in idx
+        c = scale
+        for n in idx
+            n == m || (c *= L[n])
+        end
+        g .+= c .* _BARY_GRAD[m]
+    end
+    return v, g
+end
+
+"Quartic interior bubble, unit height at the centroid."
+interior_bubble(xi) = _bubble_of((1, 2, 3, 4), 256.0, xi)
+
+"Cubic bubble on face `f`, unit height at that face's centroid."
+face_bubble(f, xi) = _bubble_of(_TET_FACES[f], 27.0, xi)
+
+const _ENRICH = (:none, :interior, :full)
+
+"""
+Global face numbering for the tetrahedral mesh, with faces on the constrained
+boundary removed.
+
+Returns `(nfree, fmap)` where `fmap[f, e]` is the free-face index of local face
+`f` of element `e`, or 0 if that face carries a displacement boundary
+condition.  A face is on the boundary exactly when its centroid is, which on
+this cube is an exact test: a centroid can only reach a bounding plane if all
+three of its vertices already lie on it.
+"""
+function face_table(coords, conn, bc::Symbol)
+    tol = 1e-10
+    onbnd = if bc === _BC_ALL
+        x -> any(abs(x[d]) < tol || abs(x[d] - 1) < tol for d in 1:NSD)
+    elseif bc === _BC_ZFACE
+        x -> abs(x[3]) < tol
+    else
+        error("unknown boundary condition $bc")
+    end
+    ids = Dict{NTuple{3,Int}, Int}()
+    fmap = zeros(Int, 4, size(conn, 2))
+    n = 0
+    for e in axes(conn, 2), f in 1:4
+        vs = ntuple(k -> conn[_TET_FACES[f][k], e], 3)
+        key = Tuple(sort(collect(vs)))
+        centroid = sum(coords[:, v] for v in vs) ./ 3
+        onbnd(centroid) && continue
+        id = get(ids, key, 0)
+        if id == 0
+            n += 1
+            id = n
+            ids[key] = id
+        end
+        fmap[f, e] = id
+    end
+    return n, fmap
+end
+
 """
 Assemble the operators the prototypes need, with boundary displacement
 eliminated:
@@ -143,19 +316,49 @@ eliminated:
     Kh1[i,j]  = int grad(N_i) : grad(N_j)             H1 seminorm
     G[m,i]    = int phi_m div(N_i)                    volumetric coupling
     M[m,n]    = int phi_m phi_n                       pressure mass
+
+`bubble` selects the displacement enrichment: `:none`, `:interior` for the
+element-local quartic bubble alone, or `:full` for the three-dimensional
+Crouzeix-Raviart space, interior plus one bubble per face.  Only `:interior`
+leaves the added degrees of freedom element-local; `:full` shares its face
+bubbles between neighbors.
+
+The returned `nu_nodal`, `n_int` and `n_face` give the three blocks of the
+displacement numbering, in that order.
 """
-function assemble_all(coords, conn, p::Int, m::Int; mu = 1.0, q_degree = 2,
+function assemble_all(coords, conn, p::Int, m::Int; mu = 1.0,
+                      bubble::Symbol = :none,
+                      q_degree::Int = bubble === :none ? 2 : 6,
                       bc::Symbol = _BC_ALL, nvert::Int = 0)
-    ref  = RFE.ReferenceFE(ref_element(p), RFE.GaussLegendre(q_degree))
-    nqp  = RFE.num_cell_quadrature_points(ref)
+    bubble in _ENRICH || error(
+        "unknown enrichment $bubble; expected one of $(_ENRICH)")
+    if bubble !== :none
+        p == 2 || error("the bubble enrichment is defined on P2 only, got p = $p")
+        q_degree >= 6 || error(
+            "the enriched space needs a rule exact to degree 6 -- the quartic " *
+            "interior bubble has a cubic gradient, so its block of Kdev and " *
+            "Kh1 is of degree 6 -- but q_degree = $q_degree was given. " *
+            "Under-integrating it would soften exactly the modes this study " *
+            "measures.")
+    end
+    el   = ref_element(p)
+    qpts, qwts = tet_rule(q_degree)
+    nqp  = length(qwts)
     nen  = size(conn, 1)
     nelem = size(conn, 2)
     free, gmap = free_dofs(coords, bc)
     # Continuous P1 pressure is numbered by vertex; every discontinuous space is
     # numbered element by element.
     continuous = m == _P1C
-    nu = length(free)
+    nu_nodal = length(free)
+    n_int  = bubble === :none ? 0 : NSD * nelem
+    nfaces, fmap = bubble === :full ? face_table(coords, conn, bc) : (0, zeros(Int, 4, nelem))
+    n_face = NSD * nfaces
+    nu = nu_nodal + n_int + n_face
     np = continuous ? nvert : m * nelem
+    nen_a = nen + (bubble === :none ? 0 : 1) + (bubble === :full ? 4 : 0)
+    int_off  = nu_nodal
+    face_off = nu_nodal + n_int
 
     DI, DJ, DV = Int[], Int[], Float64[]
     HI, HJ, HV = Int[], Int[], Float64[]
@@ -166,14 +369,37 @@ function assemble_all(coords, conn, p::Int, m::Int; mu = 1.0, q_degree = 2,
         X = coords[:, conn[:, e]]
         gdofs = [NSD * (conn[a, e] - 1) + d for a in 1:nen for d in 1:NSD]
         rows  = [gmap[g] for g in gdofs]
+        # The interior bubble is always free: it vanishes on the element
+        # boundary, so no boundary condition can reach it.  A face bubble is
+        # free only when its face is not on the constrained boundary.
+        if bubble !== :none
+            append!(rows, [int_off + NSD * (e - 1) + d for d in 1:NSD])
+        end
+        if bubble === :full
+            for f in 1:4
+                fid = fmap[f, e]
+                append!(rows, [fid == 0 ? 0 : face_off + NSD * (fid - 1) + d
+                               for d in 1:NSD])
+            end
+        end
         for q in 1:nqp
-            dN_ref = RFE.cell_shape_function_gradient(ref, q)
-            w  = RFE.cell_quadrature_weight(ref, q)
-            xi = RFE.cell_quadrature_point(ref, q)
+            xi = qpts[:, q]
+            w  = qwts[q]
+            dN_ref = RFE.shape_function_gradient(el, xi)
             J  = X * dN_ref
             dN = dN_ref / J
+            if bubble !== :none
+                _, gb = interior_bubble(xi)
+                dN = vcat(dN, reshape(gb, 1, NSD) / J)
+            end
+            if bubble === :full
+                for f in 1:4
+                    _, gf = face_bubble(f, xi)
+                    dN = vcat(dN, reshape(gf, 1, NSD) / J)
+                end
+            end
             dV = w * det(J)
-            B  = bmatrix(dN, nen)
+            B  = bmatrix(dN, nen_a)
             Bd = _DEV * B
             Ke = dV * 2mu * (Bd' * _VOIGT_W * Bd)
             phi = continuous ? p1_shape(xi) : pressure_basis(Val(m), xi)
@@ -210,5 +436,5 @@ function assemble_all(coords, conn, p::Int, m::Int; mu = 1.0, q_degree = 2,
               Kh1 = sparse(HI, HJ, HV, nu, nu),
               G   = sparse(GI, GJ, GV, np, nu),
               M   = sparse(MI, MJ, MV, np, np),
-              nu, np, nelem)
+              nu, np, nelem, nu_nodal, n_int, n_face)
 end

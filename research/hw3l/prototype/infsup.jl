@@ -226,14 +226,23 @@ end
 # sizes the eigenvalue sweep cannot reach, which is where the asymptotic ratio
 # becomes visible.
 
-function dof_counts(N::Int, p::Int, m::Int; bubbles_per_elem::Int = 0)
+# `face_bubbles` counts the interior faces, one shared vector unknown each.
+# Unlike the interior bubble these are global: the two elements meeting at a
+# face share the same cubic on it, so they do not condense away.  On this mesh
+# the count is exact -- (4*nelem + n_boundary)/2 distinct faces, less the ones
+# on the constrained boundary.
+function dof_counts(N::Int, p::Int, m::Int; bubbles_per_elem::Int = 0,
+                    face_bubbles::Bool = false)
     coords, conn = tet4_mesh(N)
     p == 2 && ((coords, conn) = promote_to_p2(coords, conn))
     nelem = size(conn, 2)
     tol = 1e-10
     onbnd(x) = any(abs(x[d]) < tol || abs(x[d] - 1) < tol for d in 1:NSD)
     nfree = count(n -> !onbnd(coords[:, n]), axes(coords, 2))
-    nu = NSD * nfree + NSD * bubbles_per_elem * nelem
+    nbnd_faces = 12 * N^2                       # 6 cube faces, 2N^2 triangles each
+    nfree_faces = (4 * nelem + nbnd_faces) ÷ 2 - nbnd_faces
+    nu = NSD * nfree + NSD * bubbles_per_elem * nelem +
+         (face_bubbles ? NSD * nfree_faces : 0)
     np = m * nelem
     return (; nu, np, nelem, ratio = np / nu)
 end
@@ -244,14 +253,18 @@ println()
     println("Dimension count: n_p / n_u must stay comfortably BELOW 1.")
     println("At or above 1 the Schur complement is singular by counting alone.")
     println("="^74)
-    cases = (("P2 / P0",                        2, 1, 0),
-             ("P2 / P1 disc",                   2, 4, 0),
-             ("P2 + vector bubble / P1 disc",   2, 4, 1))
-    for (label, p, m, nb) in cases
+    println("Clearing this count does NOT establish stability: beta.jl measures")
+    println("two pairs that clear it comfortably and decay anyway.  A ratio above")
+    println("one refutes a pair; a ratio below one only fails to refute it.")
+    cases = (("P2 / P0",                            2, 1, 0, false),
+             ("P2 / P1 disc",                       2, 4, 0, false),
+             ("P2 + interior bubble / P1 disc",     2, 4, 1, false),
+             ("P2 + interior + face / P1 disc",     2, 4, 1, true))
+    for (label, p, m, nb, fb) in cases
         println("\n", label)
         println("  ", rpad("N", 4), rpad("elems", 9), rpad("n_u", 9), rpad("n_p", 9), "n_p/n_u")
         for N in (2, 3, 4, 5, 6, 8, 10, 12)
-            c = dof_counts(N, p, m; bubbles_per_elem = nb)
+            c = dof_counts(N, p, m; bubbles_per_elem = nb, face_bubbles = fb)
             flag = c.ratio >= 1.0 ? "   SINGULAR by counting" : ""
             println("  ", rpad(string(N), 4), rpad(string(c.nelem), 9),
                     rpad(string(c.nu), 9), rpad(string(c.np), 9),
