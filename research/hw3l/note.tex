@@ -18,6 +18,7 @@
 \newcommand{\eps}{~\epsilon}
 \newcommand{\edev}{~e}
 \newcommand{\sdev}{~s}
+\newcommand{\sdevx}{~s_{\!x}}
 \newcommand{\btau}{~\tau}
 \newcommand{\disp}{~\varphi}
 \newcommand{\testd}{~\psi}
@@ -65,36 +66,41 @@ deviatoric response is evaluated pointwise at quadrature, so the constitutive
 law is an unmodified small-strain algorithm, and both auxiliary fields are
 discontinuous, so their elimination is element-local. The material is not
 arbitrary, and \S\ref{sec:matreq} says how far it is not: the stored energy
-must split exactly into volumetric and isochoric parts, with the volumetric
-part quadratic in the variable that gets projected. Five of the seven materials
-implemented in Norma admit the split and two admit it quadratically --- Hencky
-in $\log J$, and the Simo--Hughes $J_2$ model in $J-1$ --- so the material and
-its volumetric variable are not chosen independently.
+must split exactly into volumetric and isochoric parts. Five of the seven
+materials implemented in Norma do. Two of them have a volumetric part quadratic
+in the projected variable --- Hencky in $\log J$, and the Simo--Hughes $J_2$
+model in $J-1$ --- which makes the discrete pressure equal $\kappa\bar\theta$
+pointwise and is the case developed here, so the material and its volumetric
+variable are not chosen independently.
 
 The working hypothesis is that volumetric locking and spurious soft modes are
-two failure directions of a single inf-sup condition, so that an inf-sup stable
-displacement--pressure pair removes both without a penalty, a subgrid model, or
-a tuned coefficient. With both auxiliary fields in one space the functional
+the two hypotheses of Brezzi's theorem --- an inf-sup condition on the pair and
+coercivity on the discretely isochoric subspace --- so that a pair satisfying
+both removes both without a penalty, a subgrid model, or a tuned coefficient. With both auxiliary fields in one space the functional
 reduces exactly to mean dilatation (\S\ref{sec:meandilatation}): the mechanism
 is classical, and the open question was which pressure space to project onto.
 
-That question is answered here. Of the four element-local pairs measured, three
-are unstable --- constant and linear discontinuous pressure over a quadratic
-tetrahedron, and the linear one enriched by an interior bubble --- while the
-full three-dimensional Crouzeix--Raviart pair, with face bubbles as well,
-settles on a discrete inf-sup constant of $0.2968$, above the $0.2216$ of the
-Taylor--Hood control that validates the test. The face bubbles are what
-distinguishes the two enrichments, and they are shared between neighbors rather
-than element-local, so the stable pair costs global degrees of freedom that an
-earlier version of this note claimed it did not: $3.5$ times the displacement
-dimension of $P_2/P_0$ on the same mesh. A degree-of-freedom count that clears
-a pair remains necessary and not sufficient --- two of the three failures clear
-it. The soft-mode argument against a constant pressure did not survive assembly
-and has been withdrawn; the locking argument did, and is the case for
-enrichment. The measurement this formulation is intended to address --- whether
-plastic strain fields are smooth --- remains untested, and will be made on the
-Simo--Hughes model both codes ship rather than on the logarithmic return map
-specified here.
+That question is answered here, and the answer is the one
+\citet{BoffiBrezziFortin:2013} predict. Six element-local pairs are measured
+against a Taylor--Hood control that validates the test. Quadratic displacement
+over a constant or a linear discontinuous pressure decays, with or without an
+interior bubble; face bubbles stabilize the constant pressure; and the full
+three-dimensional Crouzeix--Raviart pair --- face and interior bubbles over a
+linear discontinuous pressure --- settles on a discrete inf-sup constant of
+$0.2968$ with a one-dimensional pressure null space, above the control's
+$0.2216$. The face bubbles are shared between neighbors rather than
+element-local, so the stable pair costs global degrees of freedom that an
+earlier version of this note claimed it did not: $2.6$ times the incumbent's
+on the same mesh, with the pressure elimination still element-local. A
+degree-of-freedom count that clears a pair is necessary and not sufficient ---
+two of the failures clear it. The soft-mode argument against a constant
+pressure was tested here by counting exact zeros, which is the wrong test: the
+question is coercivity on the discretely isochoric subspace, closed for the
+stable pair in elasticity and open in plasticity. The measurement this
+formulation is intended to address --- whether plastic strain fields are
+smooth --- remains untested, and will be made on the Simo--Hughes model both
+codes ship, which substitutes a multiplicative plasticity model for the
+additive logarithmic one specified here.
 \end{abstract}
 
 \section{Problem statement}
@@ -117,10 +123,15 @@ with an element-constant pressure. \citet{Foulk.etal:2021} report that this
 choice --- and it is the choice, not the element --- produces a deleterious
 soft mode ``common to both the quadratic and composite tetrahedral element with
 constant pressure formulations,'' remedied there by a convex energy penalty.
-The mechanism is direct: an element-constant multiplier cannot see
-near-isochoric displacement patterns that vary within the element. Those
-patterns cost only shear energy, so at $\kappa/\mu \gg 1$ they are soft, and
-confined deformation excites them.
+The mechanism is a coercivity failure on the discretely isochoric subspace: an
+element-constant multiplier cannot see displacement patterns whose volume
+change varies within the element and averages to zero, so those patterns cost
+only shear energy. In elasticity that is the price every projected-pressure
+element pays, and a stable pair keeps it bounded; in a confined plastic zone
+the shear response itself softens along the flow direction and the pattern can
+become nearly free. \S\ref{sec:assembled} records that on the quadratic
+tetrahedron these patterns are not \emph{exactly} zero-energy, and
+\S\ref{sec:verify} records why that does not settle the question.
 
 \paragraph{Residual-based stabilization contaminates the deviator.}
 Variational-multiscale stabilization of linear tetrahedra
@@ -140,13 +151,20 @@ deviator, and therefore the plastic return map, which is the observed origin of
 oscillations in equivalent plastic strain. No choice of $c_\tau$ removes this,
 because the contamination path is the formulation.
 
-\paragraph{The common cause.} Both are symptoms of one condition. The
-volumetric constraint space must be \emph{rich enough} to see the
-near-isochoric modes, or soft modes survive; and \emph{poor enough} not to
-over-constrain the displacement space, or the element locks. That is the
-inf-sup condition, read in both directions. Neither difficulty is a
-stabilization problem. Both are consequences of a pair that sits outside the
-admissible window, and the remedy is to choose a pair inside it.
+\paragraph{The common cause.} Both are symptoms of one theorem, and an earlier
+version of this paragraph compressed its two hypotheses into one. Brezzi's
+theorem for the mixed problem asks two things of the pair
+\citep[\S3.4, \S5.2]{BoffiBrezziFortin:2013}: the inf-sup condition, that every
+pressure mode be resisted by some displacement --- its failure is locking on
+one side and spurious pressure on the other --- and ellipticity of the
+deviatoric form on the discretely isochoric subspace, that no displacement the
+pressure cannot see be free --- its failure is a soft mode. The first is a
+property of the pair alone and is settled in \S\ref{sec:beta}. The second is a
+property of the pair \emph{and} the material tangent; it holds in elasticity
+for any conforming pair, and plasticity is where it is threatened. Neither
+difficulty is a stabilization problem. Both are consequences of a pair that
+sits outside the admissible window, and the remedy is to choose a pair inside
+it --- and then to check the second hypothesis where the material can break it.
 
 \section{Continuum formulation}
 
@@ -216,8 +234,9 @@ Given \eqref{eq:energy}, the volumetric constitutive relation is linear,
   p = \partial W\supvol/\partial\theta = \kappa\theta ,
 \end{equation}
 and it is this linearity --- not the choice of $\theta$, and not the
-logarithmic measure specifically --- that the element-local elimination of
-\S\ref{sec:local} rests on.
+logarithmic measure specifically --- that makes the discrete pressure equal
+$\kappa\bar\theta$ pointwise in \S\ref{sec:local}. The elimination itself rests
+on less, as \S\ref{sec:matreq} shows.
 
 The isochoric response is whatever $W\supiso$ the material supplies. It is
 evaluated at the pointwise $\bar{\F}$ and is never projected, which is the
@@ -236,7 +255,7 @@ multiplier $\bar p$, which at stationarity is the pressure:
   \begin{split}
     \Pi[\disp, \bar\theta, \bar p] & :=
     \int_B W\supvol(\bar\theta) \diff V
-    + \int_B W\supdev\!\left(\edev(\disp)\right) \diff V
+    + \int_B W\supiso\!\left(\bar{\F}(\disp)\right) \diff V
     + \int_B \bar p \left(\theta(\disp) - \bar\theta\right) \diff V
     \\
     & \quad
@@ -244,8 +263,9 @@ multiplier $\bar p$, which at stationarity is the pressure:
     - \int_{\partial_T B} \bT \cdot \disp \diff S .
   \end{split}
 \end{equation}
-The deviatoric energy is evaluated at the \emph{pointwise} strain
-$\edev(\disp)$ and carries no auxiliary field. This is deliberate and is
+The isochoric energy is evaluated at the \emph{pointwise} $\bar{\F}(\disp)$
+--- for the Hencky instance of \S\ref{sec:instances}, at $\edev(\disp)$ ---
+and carries no auxiliary field. This is deliberate and is
 discussed in Remark~\ref{rem:whynodev}.
 
 \subsection{What the functional reduces to}
@@ -281,7 +301,9 @@ whose stationarity conditions are exactly the three-field equations of
 Equation~\eqref{eq:collapsed} is a displacement formulation carrying a
 projected volumetric strain --- the mean-dilatation construction of
 \citet{SimoTaylorPister:1985}, and the mechanism of the $\bar{B}$ and
-$\bar{F}$ families. Three consequences follow.
+$\bar{F}$ families; \citet[\S8.12]{BoffiBrezziFortin:2013} set out the
+relation between reduced integration, projected pressure, and the mixed
+method it is equivalent to. Three consequences follow.
 
 The reduction is \emph{exact}, not an approximation, and the reason is
 \eqref{eq:constraint-vanishes} and nothing else: $\bar p$ lies in $Q_h$, and
@@ -293,8 +315,8 @@ mattered, because it made a property of the \emph{discretization} --- that the
 two auxiliary fields share one space --- look like a property of the
 \emph{material}. What the material must actually supply is weaker, and is set
 out in \S\ref{sec:matreq}: an exact volumetric--isochoric split, without which
-the subtraction leaves volumetric content inside the ``deviatoric'' term and
-the formulation is incorrect with no accompanying symptom. The implementation
+the subtraction leaves unprojected volumetric content inside the
+``deviatoric'' term, which then locks. The implementation
 in Norma refuses materials that fail it.
 
 The novelty here is therefore \emph{not the mechanism}. Projecting the
@@ -347,18 +369,23 @@ Five of the seven satisfy it, four more than the implementation currently
 admits.
 
 \paragraph{A quadratic $W\supvol$.} This condition is a convenience and not a
-necessity. Stationarity in $\bar\theta$ gives
+necessity, and a smaller convenience than an earlier version of this note made
+it. Stationarity in $\bar p$ gives $\bar\theta = \Pi_h\theta$ regardless of
+the material, and stationarity in $\bar\theta$ then gives
 \begin{equation}
   \label{eq:pbar-general}
   \bar p = \Pi_h\!\left(\partial W\supvol/\partial\bar\theta\right)
 \end{equation}
-in general. When $W\supvol$ is quadratic its derivative is linear,
+in general --- the projection of a \emph{known} function of the already
+computed $\bar\theta$, one more mass-matrix solve with a nonlinear integrand
+and nothing implicit. When $W\supvol$ is quadratic its derivative is linear,
 $\kappa\bar\theta$ already lies in $Q_h$, the projection in
 \eqref{eq:pbar-general} is the identity, and $\bar p = \kappa\bar\theta$ holds
-\emph{pointwise}. That is what makes the elimination of \S\ref{sec:local} a
-single linear element-local solve rather than a local Newton iteration on
-$\bar\theta$. The reduction \eqref{eq:collapsed} is exact either way; only the
-cost of the elimination changes.
+\emph{pointwise}; otherwise $\bar p = \Pi_h W\supvol{}'(\Pi_h\theta)$ is a
+doubly projected pressure. The reduction \eqref{eq:collapsed} is exact either
+way, with $W\supvol(\Pi_h\theta)$ in place of the quadratic, and the
+elimination of \S\ref{sec:local} is linear either way; what the quadratic case
+buys is the pointwise relation and one projection fewer.
 
 \paragraph{The logarithmic measure itself.} This condition is required by
 nothing in
@@ -370,12 +397,15 @@ reused verbatim.
 \begin{table}[tbp]
   \centering
   \caption{What the materials implemented in Norma satisfy. Column~2 is the
-  spread of $W(\F) - W(\bar{\F})$ across isochoric parts at fixed $J$, relative
-  to its own magnitude; machine zero means the split \eqref{eq:matsplit} is
-  exact. Columns~3 and~4 are the relative residual of a least-squares fit of
-  the extracted $W\supvol$ to a quadratic in each candidate volumetric
-  variable. Two materials admit a quadratic $W\supvol$, and they disagree on
-  the variable.}
+  spread of $W(\F) - W(\bar{\F})$ across twenty random isochoric parts at each
+  of four fixed $J \in [0.85, 1.2]$, relative to its own magnitude; machine
+  zero means the split \eqref{eq:matsplit} is exact. Columns~3 and~4 are the
+  relative residual of a least-squares fit of the extracted $W\supvol(J) =
+  W(J^{1/3}\Id) - W(\Id)$ over $J \in [0.8, 1.25]$ to a quadratic in each
+  candidate volumetric variable; in both exact cases the fitted coefficient is
+  $\kappa/2$ to five digits. Two materials admit a quadratic $W\supvol$, and
+  they disagree on the variable. Script: \code{prototype/materials.jl}, which
+  needs Norma.}
   \label{tab:split}
   \begin{tabular}{lccc}
     \toprule
@@ -383,73 +413,73 @@ reused verbatim.
     \cmidrule(lr){3-4}
     material & spread at fixed $J$ & $J - 1$ & $\log J$ \\
     \midrule
-    Linear elastic              & $1.5\times10^{0}$   & ---                 & ---                 \\
-    Saint-Venant Kirchhoff      & $1.4\times10^{0}$   & ---                 & ---                 \\
-    Neo-Hookean                 & $4.6\times10^{-13}$ & $5.8\times10^{-2}$  & $1.1\times10^{-1}$  \\
-    Reciprocal neo-Hookean      & $4.6\times10^{-13}$ & $1.7\times10^{-1}$  & $6.6\times10^{-3}$  \\
-    Seth--Hill ($m = n = 1$)    & $7.2\times10^{-13}$ & $1.7\times10^{-1}$  & $6.6\times10^{-3}$  \\
-    Hencky                      & $3.9\times10^{-13}$ & $1.7\times10^{-1}$  & $\mathbf{4.4\times10^{-15}}$ \\
-    $J_2$, Simo--Hughes         & $6.8\times10^{-13}$ & $\mathbf{1.1\times10^{-14}}$ & $1.7\times10^{-1}$ \\
+    Linear elastic              & $2.0\times10^{0}$   & ---                 & ---                 \\
+    Saint-Venant Kirchhoff      & $3.0\times10^{1}$   & ---                 & ---                 \\
+    Neo-Hookean                 & $4.2\times10^{-13}$ & $5.9\times10^{-2}$  & $1.3\times10^{-1}$  \\
+    Reciprocal neo-Hookean      & $4.8\times10^{-13}$ & $1.8\times10^{-1}$  & $6.5\times10^{-3}$  \\
+    Seth--Hill ($m = n = 1$)    & $4.3\times10^{-13}$ & $1.8\times10^{-1}$  & $6.5\times10^{-3}$  \\
+    Hencky                      & $1.4\times10^{-13}$ & $1.8\times10^{-1}$  & $\mathbf{1.7\times10^{-15}}$ \\
+    $J_2$, Simo--Hughes         & $5.9\times10^{-13}$ & $\mathbf{5.3\times10^{-15}}$ & $1.8\times10^{-1}$  \\
     \bottomrule
   \end{tabular}
 \end{table}
 
-\paragraph{The restriction taken here.} The formulation is developed for
-materials satisfying \eqref{eq:matsplit} \emph{with} a quadratic $W\supvol$.
-Table~\ref{tab:split} admits exactly two, and they do not agree on the
-variable: Hencky is quadratic in $\log J$ to $4.4\times10^{-15}$, and the
-Simo--Hughes $J_2$ model that Norma and Carina both ship is quadratic in $J-1$
-to $1.1\times10^{-14}$. Each is exact in its own variable and wrong by $17\%$
-in the other, so material and volumetric variable are not independently
-selectable, and neither choice generalizes to the other material.
-\S\ref{sec:instances} develops both.
+\paragraph{The case developed here.} The formulation is developed in detail
+for materials satisfying \eqref{eq:matsplit} \emph{with} a quadratic
+$W\supvol$, because that is where the pointwise relation holds and where both
+shipped materials sit. Table~\ref{tab:split} admits exactly two, and they do
+not agree on the variable: Hencky is quadratic in $\log J$ to
+$1.7\times10^{-15}$, and the Simo--Hughes $J_2$ model that Norma and Carina
+both ship is quadratic in $J-1$ to $5.3\times10^{-15}$. Each is exact in its
+own variable and wrong by $18\%$ in the other, so material and volumetric
+variable are not independently selectable, and neither choice generalizes to
+the other material. \S\ref{sec:instances} develops both.
 
 The three remaining split materials --- neo-Hookean, its reciprocal, and
-Seth--Hill --- are excluded here. The formulation does not fail on them; the
-cost of admitting them exceeds the present benefit, and the requirements are
-set out in Remark~\ref{rem:nonquadratic}.
+Seth--Hill --- are admissible at the cost of one projection more
+(Remark~\ref{rem:nonquadratic}) and are not developed here. What the
+formulation requires of a material is the split, and five of the seven have
+it.
 
 \begin{remark}[Extending to a non-quadratic $W\supvol$]
 \label{rem:nonquadratic}
-Nothing in \S\ref{sec:hw} or \S\ref{sec:meandilatation} breaks. Three things
-change, all in the implementation.
+Nothing in \S\ref{sec:hw} or \S\ref{sec:meandilatation} breaks, and --- an
+earlier version of this remark had this wrong --- nothing becomes a local
+Newton iteration either. Two things change.
 
-First, \eqref{eq:projection} stops being a linear solve. $\bar\theta = \Pi_h
-\theta$ still comes from one mass-matrix solve, but $\bar p$ must then be
-obtained from \eqref{eq:pbar-general}, which for a nonlinear $W\supvol{}'$
-requires projecting a nonlinear function of $\bar\theta$ --- a local Newton
-iteration per element, on as many scalars as $Q_h$ has dimensions per element.
-The cost per iteration is small and the solve is element-local, so
-\S\ref{sec:local} survives,
-but it introduces a local solve that can fail to converge where the global one
-would not.
+First, \eqref{eq:projection} acquires a second projection: $\bar\theta =
+\Pi_h\theta$ from one mass-matrix solve as before, then $\bar p = \Pi_h
+W\supvol{}'(\bar\theta)$ from a second solve with the same factorization and a
+nonlinear integrand. The tangent contribution is
+$\int W\supvol{}''(\bar\theta)\,\Pi_h(D\theta[\delta\disp])\,
+\Pi_h(D\theta[\testd])\diff V$, a weighted integral against the same constant
+mass matrix, and the factorization is reused across Newton iterations exactly
+as in the quadratic case.
 
-Second, the tangent acquires a term in $W\supvol{}''(\bar\theta)$ that is no
-longer constant, so the factorization reused across every Newton iteration in
-\S\ref{sec:local} must be refreshed whenever $\bar\theta$ moves.
-
-Third, the choice of volumetric variable is no longer determined. For a quadratic $W\supvol$ the variable is whichever one makes it
-quadratic, and Table~\ref{tab:split} settles it. For a non-quadratic
-$W\supvol$ any monotone $\theta(J)$ is admissible, and by
-Remark~\ref{rem:thetachoice} the choice changes the element. It would have to
-be justified rather than read off.
+Second, the choice of volumetric variable is no longer read off the material.
+For a quadratic $W\supvol$ the variable is whichever one makes it quadratic,
+and Table~\ref{tab:split} settles it. For a non-quadratic $W\supvol$ any
+monotone $\theta(J)$ satisfying \eqref{eq:thetadef} is admissible, and by
+Remark~\ref{rem:thetachoice} the choice changes the element. That is the real
+cost, and it is a modeling cost rather than a computational one.
 \end{remark}
 
 \begin{remark}[The volumetric variable is a modeling choice]
 \label{rem:thetachoice}
-Projecting $\log J$ and projecting $J$ do not give the same element. Measured
-on one \code{TETRA10} under a non-affine displacement, with a Hencky material
-so that both variants use the same exact $W\supvol$, the element energies
-differ by
-$3.9\times10^{-4}$ at $0.5\%$ strain,
-$3.8\times10^{-3}$ at $5\%$,
-$1.3\times10^{-2}$ at $20\%$ and
-$2.8\times10^{-2}$ at $50\%$.
-The difference is $O(\text{strain})$ and vanishes with it, so both are
-consistent discretizations of the same continuum problem; they are simply
-different elements, and they differ by about $3\%$ in exactly the
-finite-deformation regime this formulation exists to address. Which variable is
-projected is therefore a modeling decision, not a change of notation.
+Projecting $\log J$ and projecting $J - 1$ do not give the same element.
+Measured on one tetrahedron under a displacement quadratic in $\bX$, with the
+element mean as the projection and a Hencky material so that both variants use
+the same exact $W\supvol$, the element energies differ by
+$9.4\times10^{-4}$ at $0.5\%$ nominal strain,
+$1.0\times10^{-2}$ at $5\%$,
+$5.6\times10^{-2}$ at $20\%$ and
+$2.7\times10^{-1}$ at $50\%$
+(\code{prototype/materials.jl}). The difference is $O(\text{strain})$ and
+vanishes with it, so both are consistent discretizations of the same continuum
+problem; they are simply different elements, and they differ by tens of percent
+in exactly the finite-deformation regime this formulation exists to address.
+Which variable is projected is therefore a modeling decision, not a change of
+notation.
 \end{remark}
 
 \subsection{The two admissible instances}
@@ -583,20 +613,38 @@ gives, in general,
 \begin{equation}
   \label{eq:P-general}
   \P = \theta'(J)\, J\, \bar p\, \F^{-\mathsf{T}}
-     + \F \left( \mathbb{L}\supdev(\C) : \sdev \right).
+     + \F \left( \mathbb{L}(\C) : \sdev \right).
 \end{equation}
-Because $\sdev$ here is computed \emph{pointwise} from $\edev(\disp)$ by an
-isotropic law, $\sdev$ is coaxial with $\C$ at every quadrature point. The
-off-diagonal contributions of $\mathbb{L}\supdev$ in the principal basis then
-vanish identically and \eqref{eq:P-general} collapses to the push-forward
+The deviatoric term is $\mathbb{L}$ and not $\mathbb{L}\supdev$ applied to
+$\sdev$. Moving $\mathbb{L}\supdev$ off the strain variation in
+\eqref{eq:kinematic} and onto $\sdev$ takes its transpose, which carries the
+$\tfrac13$ term onto $\trace\sdev = 0$, and $\mathbb{L}$ is self-adjoint
+because $\log\C$ is the gradient of $\trace(\C\log\C - \C)$. An earlier version
+of this equation wrote $\mathbb{L}\supdev : \sdev$, which read literally adds
+$-\tfrac13(\C^{-1}:\sdev)\F$; that term is not zero, since $\trace\sdev = 0$
+does not make $\C^{-1}:\sdev$ vanish, and it is invisible in elasticity only
+because \eqref{eq:P-general} then collapses to \eqref{eq:P-simple}, which is
+correct.
+
+When the deviatoric response is \emph{elastic}, $\sdev = 2\mu\,\edev$ is a
+function of the current $\C$ alone through an isotropic law, so $\sdev$ is
+coaxial with $\C$ at every quadrature point; the off-diagonal blocks of
+$\mathbb{L}$ in the principal basis then act on nothing and
+\eqref{eq:P-general} collapses to the push-forward
 \begin{equation}
   \label{eq:P-simple}
-  \P = \left( \varpi \Id + \sdev \right) \F^{-\mathsf{T}} = \btau \, \F^{-\mathsf{T}},
+  \P = \left( \varpi \Id + \sdevx \right) \F^{-\mathsf{T}} = \btau \, \F^{-\mathsf{T}},
   \qquad
-  \btau := \varpi \Id + \sdev = J\,~\sigma,
+  \btau := \varpi \Id + \sdevx = J\,~\sigma,
   \qquad
-  \varpi := \theta'(J)\, J\, \bar p .
+  \varpi := \theta'(J)\, J\, \bar p ,
 \end{equation}
+in which $\sdevx := ~R\,\sdev\,\transpose{~R}$ is the \emph{spatial} deviator,
+with $~R$ the rotation of the polar decomposition $\F = ~R\,~U$. The material
+$\sdev$ of \eqref{eq:split} and the spatial $\sdevx$ are different tensors, and
+an earlier version of this equation used one symbol for both; in material form
+the same statement reads $\P = \F^{-\mathsf T}\sdev$, which agrees with
+\eqref{eq:P-simple} because $\sdev$ and $~U$ commute when coaxial.
 
 The Kirchhoff pressure $\varpi$ carries the whole of the instance dependence.
 For the Hencky instance $\theta'(J)J = 1$ and $\varpi = \bar p$; for the
@@ -606,14 +654,25 @@ Kirchhoff stress of \citet[BOX 9.1]{SimoHughes:1998} and is what both codes
 compute. That the general form reproduces each implementation without
 adjustment is the check that \eqref{eq:thetadef} was normalized correctly.
 
-\begin{remark}
+\begin{remark}[Coaxiality is an elastic property]
 \label{rem:coaxial}
-Coaxiality is a consequence of the deviatoric response being pointwise. It
-would \emph{not} hold if $\sdev$ were carried as an independent discrete field,
-because such a field is only weakly tied to $\C$ and is not coaxial with it at
-an arbitrary iterate. In that case \eqref{eq:P-simple} is valid only at the
-converged solution and using it to assemble the residual gives an inconsistent
-method that appears to work. Equation~\eqref{eq:P-general} is the safe form.
+Equation~\eqref{eq:P-simple} rests on $\sdev$ being coaxial with $\C$, which
+holds only when $\sdev$ is a function of the current $\C$ alone. It fails in
+two settings, and the second is the one this formulation exists for. With an
+independent discrete stress field, $\sdev$ is tied to $\C$ only weakly and is
+not coaxial with it at an arbitrary iterate. With plasticity, the return map
+\eqref{eq:return} evaluates
+$\sdev = 2\mu(\edev - \edev^{\mathrm p}_{n+1})$ against a \emph{stored}
+plastic strain $\edev^{\mathrm p}_n$, which is coaxial with the current $\C$
+only under proportional loading; whenever the principal axes rotate ---
+the large-rotation regime of \S1 --- $\sdev$ is not coaxial with $\C$, the
+off-diagonal blocks of $\mathbb{L}$ do not vanish, and \eqref{eq:P-simple} is
+wrong. In both settings \eqref{eq:P-simple} holds at best at a converged
+proportional state, and assembling the residual from it gives an inconsistent
+method that appears to work. Equation~\eqref{eq:P-general} is the form to
+implement, and \citet{Miehe.Apel.Lambrecht:2002} carry the full projection
+tensor for exactly this reason. An earlier version of this remark named only
+the first setting.
 \end{remark}
 
 \begin{remark}
@@ -663,12 +722,19 @@ admissible pairs are therefore the inf-sup stable Stokes pairs, and stability
 must hold uniformly in $h$ and on the target range of $\kappa/\mu$
 \citep{BoffiBrezziFortin:2013}.
 
-The distinction that matters is dimensional and is easy to get wrong:
-$P_2/P_1^{\mathrm{disc}}$ is the Crouzeix--Raviart pair in two dimensions
-\citep{CrouzeixRaviart:1973} and is \emph{not} inf-sup stable on tetrahedra
-without enrichment. The stable three-dimensional choices with a
-\emph{discontinuous} pressure require bubble enrichment of the displacement
-space. Table~\ref{tab:pairs} lists the candidates.
+The distinction that matters is dimensional and is easy to get wrong. The
+conforming Crouzeix--Raviart pair \citep{CrouzeixRaviart:1973} is $P_2$
+enriched with a cubic interior bubble over $P_1^{\mathrm{disc}}$; unenriched
+$P_2/P_1^{\mathrm{disc}}$ is stable in two dimensions only on special meshes.
+In three dimensions \citet[\S8.7]{BoffiBrezziFortin:2013} state that even a
+\emph{constant} discontinuous pressure is not controlled by $P_2$: ``to control
+piecewise constant pressure, we need some degrees of freedom on the faces,''
+and the quadratic space has none. The stable three-dimensional choices with a
+discontinuous pressure therefore require bubble enrichment of the displacement
+space, and the enrichment has two parts with two jobs: face bubbles control the
+constant pressure, and an interior bubble lifts it to a linear one
+\citep[Example~8.7.2]{BoffiBrezziFortin:2013}. Table~\ref{tab:pairs} lists the
+candidates, and \S\ref{sec:beta} measures every one of them.
 
 \begin{table}[h]
 \centering
@@ -677,15 +743,20 @@ space. Table~\ref{tab:pairs} lists the candidates.
 Displacement & Pressure & 3D stable & Pressure elimination \\
 \midrule
 $P_1$                        & $P_0$                   & no  & local \\
-$P_2$                        & $P_0$                   & yes, suboptimal & local \\
+$P_2$                        & $P_0$                   & \textbf{no} & local \\
+$P_2 \oplus b_{\mathrm{face}}$ & $P_0$                 & yes & local \\
 $P_2$                        & $P_1^{\mathrm{disc}}$   & \textbf{no} & local \\
-$P_2 \oplus$ bubbles         & $P_1^{\mathrm{disc}}$   & yes & local \\
+$P_2 \oplus b_{\mathrm{int}}$ & $P_1^{\mathrm{disc}}$  & no  & local \\
+$P_2 \oplus b_{\mathrm{int}} \oplus b_{\mathrm{face}}$ & $P_1^{\mathrm{disc}}$ & yes & local \\
 $P_2$                        & $P_1$ continuous        & yes & global \\
 \bottomrule
 \end{tabular}
-\caption{Displacement--pressure pairs on tetrahedra. Local elimination
+\caption{Displacement--pressure pairs on tetrahedra, with three-dimensional
+stability as \citet[\S8.7, Example~8.7.2]{BoffiBrezziFortin:2013} give it. An
+earlier version of this table listed $P_2/P_0$ as stable. Local elimination
 requires a discontinuous pressure; three-dimensional stability with a
-discontinuous pressure requires bubble enrichment.}
+discontinuous pressure requires face bubbles, and a linear pressure requires
+an interior bubble as well.}
 \label{tab:pairs}
 \end{table}
 
@@ -702,16 +773,12 @@ statement: the \emph{pressure} elimination of \S\ref{sec:local} stays
 element-by-element, because that rests on $Q_h$ being discontinuous and not on
 the displacement space at all.
 
-The pair currently \emph{demonstrated} to work is Taylor--Hood $P_2/P_1$
-continuous, whose discrete inf-sup constant is measured settling on $0.2216$ in
-\S\ref{sec:beta}, at the cost of a globally coupled pressure that cannot be
-eliminated element by element.
-
-Those are not the same statement, and \S\ref{sec:beta} is the reason for
-keeping them apart. Both element-local pairs that can be assembled today ---
-$P_2/P_0$ and the unenriched $P_2/P_1^{\mathrm{disc}}$ --- were measured
-\emph{unstable}, and the enriched pair is unverified rather than verified,
-because no element exists to test it on.
+Both that pair and the Taylor--Hood control are measured in \S\ref{sec:beta}:
+the enriched pair settles on a discrete inf-sup constant of $0.2968$ and
+Taylor--Hood on $0.2216$, and every other element-local pair decays. The trade
+between them is not stability but where the coupling sits --- a global pressure
+that cannot be eliminated element by element against global face bubbles that
+cannot be condensed --- and \S\ref{sec:risks} puts numbers on it.
 
 \subsection{Local elimination}
 \label{sec:local}
@@ -730,9 +797,8 @@ is an element-local solve, with $\theta = \log J$ for a Hencky material and
 $\theta = J - 1$ for the Simo--Hughes one (\S\ref{sec:matreq}). The second
 relation in \eqref{eq:projection} holds \emph{pointwise}, rather than only
 after projection, precisely because $W\supvol$ is quadratic; for a material
-where it is not, this step becomes a local Newton iteration and the
-factorization can no longer be reused across iterations
-(Remark~\ref{rem:nonquadratic}). Substituting $\bar p(\disp)$ into
+where it is not, it is replaced by a second projection with the same
+factorization (Remark~\ref{rem:nonquadratic}). Substituting $\bar p(\disp)$ into
 \eqref{eq:variations}$_1$ leaves a displacement-sized nonlinear problem whose
 tangent retains the sparsity of the displacement mesh --- the auxiliary fields
 never couple two elements. This is the property that makes the composite
@@ -757,9 +823,19 @@ follows does not hold verbatim for the Simo--Hughes column, and
 Remark~\ref{rem:whichj2} records where that leaves the verification program.
 
 The deviatoric response is evaluated at quadrature points of the displacement
-element, on $\edev(\disp)$ computed there. Because the constitutive law is
-linear in logarithmic strain, the $J_2$ return map is the small-strain radial
-return of \citet{Simo:1992} verbatim:
+element, on $\edev(\disp)$ computed there. The plastic strain is carried as a
+logarithmic strain $\edev^{\mathrm p}$ and subtracted additively --- the
+construction of \citet{Miehe.Apel.Lambrecht:2002}, in which a material
+geometric pre-processing $\C \mapsto \eps$ and a post-processing through
+$\mathbb{L}(\C)$ bracket an unmodified small-strain algorithm. This is a
+different constitutive model from the multiplicative $\F = \F^{\mathrm e}
+\F^{\mathrm p}$ plasticity of \citet{Simo:1992}, which also preserves the
+small-strain return map but applies it to the elastic logarithmic strain of a
+trial elastic state with an exponential update; the two coincide under
+proportional loading with fixed principal axes and differ when the axes rotate.
+An earlier version of this section cited the latter for the former. Because
+the constitutive law is linear in logarithmic strain, the $J_2$ return map is
+the small-strain radial return verbatim:
 \begin{equation}
   \label{eq:return}
   \begin{split}
@@ -767,17 +843,27 @@ return of \citet{Simo:1992} verbatim:
     \qquad
     \sdev^{\mathrm{tr}} := 2\mu\,\edev^{\mathrm{tr}},
     \\
-    \Delta\gamma &:= \frac{\norm{\sdev^{\mathrm{tr}}} - \sqrt{2/3}\left[\sigma_y + \mathcal{H}'(\bar\epsilon^{\mathrm p}_n)\right]}{2\mu + \tfrac23 \mathcal{H}''(\bar\epsilon^{\mathrm p}_n)}
-      \quad\text{if } f^{\mathrm{tr}} > 0, \quad \text{else } 0,
+    \Delta\gamma &: \quad
+      \norm{\sdev^{\mathrm{tr}}} - 2\mu\,\Delta\gamma
+      - \sqrt{2/3}\left[\sigma_y + \mathcal{H}'\!\left(\bar\epsilon^{\mathrm p}_n + \sqrt{2/3}\,\Delta\gamma\right)\right] = 0
+      \quad\text{if } f^{\mathrm{tr}} > 0, \quad \text{else } \Delta\gamma := 0,
     \\
     \edev^{\mathrm p}_{n+1} &:= \edev^{\mathrm p}_n + \Delta\gamma\, ~n,
     \qquad ~n := \sdev^{\mathrm{tr}} / \norm{\sdev^{\mathrm{tr}}},
+    \qquad
+    \bar\epsilon^{\mathrm p}_{n+1} := \bar\epsilon^{\mathrm p}_n + \sqrt{2/3}\,\Delta\gamma,
     \\
     \sdev &:= 2\mu\left(\edev(\disp) - \edev^{\mathrm p}_{n+1}\right).
   \end{split}
 \end{equation}
-Internal variables live at quadrature points and are never projected, so no
-interpolation error enters the history. Frame-indifferent interpolation, when
+The consistency condition is a scalar equation in $\Delta\gamma$. For linear
+hardening it closes in one step,
+$\Delta\gamma = f^{\mathrm{tr}}/(2\mu + \tfrac23\mathcal{H}'')$, which is the
+form both codes implement; for nonlinear hardening it is a scalar Newton
+iteration \citep[BOX~3.2]{SimoHughes:1998}. An earlier version of this equation
+wrote the one-step form as if it were general, and omitted the update of
+$\bar\epsilon^{\mathrm p}$. Internal variables live at quadrature points and
+are never projected, so no interpolation error enters the history. Frame-indifferent interpolation, when
 tensorial internal variables must be transferred, follows
 \citet{Mota.etal:2013}.
 
@@ -820,10 +906,13 @@ $J-1$, so it is admissible here in the variable $J-1$.
 
 Two consequences follow. The first is that claim~4 of
 \S\ref{sec:verify} will be measured on Simo--Hughes unless a logarithmic $J_2$
-is written for the purpose; the smoothness of equivalent plastic strain is a
-question about whether strain and stress cross discretizations, which is
-independent of the elastic split carrying them, so this is a reasonable
-substitution --- but it is a substitution.
+is written for the purpose, and the substitution is larger than an elastic
+split: it exchanges the additive logarithmic model of \eqref{eq:return} for
+multiplicative plasticity with the return map on $\bar{~b}^{\mathrm e}$. The
+smoothness of equivalent plastic strain is a question about whether strain and
+stress cross discretizations, which is independent of the plasticity model
+carrying them, so this is a reasonable substitution --- but it is a
+substitution of the model, not only of the split.
 
 The second is that the portability argument above is weakened by it. The claim
 that any small-strain model ports without reformulation is a property of the
@@ -840,15 +929,22 @@ displacement block. Two implementation points deserve care.
 \emph{Lumping.} Row-sum lumping of the quadratic tetrahedron produces
 non-positive vertex masses and cannot be used. Diagonal-scaling (HRZ) lumping
 \citep{HintonRockZienkiewicz:1976}, which scales the diagonal of the consistent
-mass to preserve total mass, yields strictly positive entries for $P_2$ and its
-bubble enrichment, because the consistent-mass diagonal is positive by
-construction. Negative \emph{off-diagonal} entries in the consistent mass are
-immaterial; only the lumped result must be positive, and under HRZ it is.
+mass to preserve total mass, is positive for any basis, so positivity is not
+the issue; on quadratic simplices the known cost of HRZ is accuracy, with the
+vertex masses small. The issue the enrichment adds is consistency. The bubbles
+are hierarchical: a rigid translation has zero coefficient on every bubble
+degree of freedom, so their diagonal mass is inert for translations, yet HRZ's
+normalization counts it, and the nodal masses come out short of the total by
+the fraction the bubbles absorb --- a rigid translation then carries the wrong
+momentum. The normalization must run over the Lagrange degrees of freedom
+alone, with each bubble keeping its own consistent diagonal; the interior
+bubble should be condensed in any case. None of this has been measured yet.
 
 \emph{Critical time step.} Quadratic elements carry a higher maximum
 eigenvalue than linear elements on the same mesh, so the explicit stable step
 is smaller for a given $h$ --- roughly a factor of two, with the bubble
-enrichment reducing it further. Against this, a $P_2$ mesh resolves a given
+enrichment reducing it further through the bubbles' own high frequencies;
+neither figure has been measured here. Against this, a $P_2$ mesh resolves a given
 feature with far fewer elements. Whether the trade-off is favorable
 depends on the problem and should be measured.
 
@@ -859,22 +955,27 @@ Should an independent deviatoric strain field become necessary --- for
 non-local regularization, or for internal variables requiring their own
 discrete representation --- the systematic extension introduces
 $\bar\edev$ and $\bar\sdev$ \emph{in the same discontinuous space}, of the same
-degree as $Q_h$. Sharing the space is not merely convenient: it makes the
-constitutive relation hold pointwise rather than after a projection, keeps the
-return map at shared quadrature points, keeps every elimination element-local,
-and leaves the discrete system non-singular. Placing $\bar\edev$ and $\bar\sdev$
-in different spaces --- however natural the spaces are individually --- forfeits
-all four properties at once. Remark~\ref{rem:coaxial} also applies: with an
+degree as $Q_h$. Sharing the space is not merely convenient: it keeps the return map at shared
+quadrature points, keeps every elimination element-local, leaves the discrete
+system non-singular, and --- for a linear deviatoric law, and only then ---
+makes the constitutive relation hold pointwise rather than after a projection;
+with plasticity $\bar\sdev = \Pi_h\,\sdev(\bar\edev)$ is projected, and an
+earlier version of this section claimed the pointwise property without that
+qualification. Placing $\bar\edev$ and $\bar\sdev$ in different spaces ---
+however natural the spaces are individually --- forfeits all of these at
+once. Remark~\ref{rem:coaxial} also applies: with an
 independent $\bar\sdev$, the residual must be assembled from
 \eqref{eq:P-general} and not from the push-forward \eqref{eq:P-simple}.
 
 \section{Numerical results}
 \label{sec:results}
 
-Two experiments have been run. Both work on the linear condensed operator
-\eqref{eq:condensed}, so neither needs a solver, a material model, or a mesh
-reader; the scripts are in \code{prototype/}, and each reports its own
-result.
+Everything below works on linear operators at $\F = \Id$: the condensed
+operator \eqref{eq:condensed} for the census and the locking sweep, and the
+$H^1$ seminorm for the stability sweep. None needs a solver, a material model,
+or a mesh reader. The scripts are in \code{prototype/}, each reports its own
+result, and \code{checks.jl} verifies the quadrature, the bubbles, and the
+conformity of the enriched spaces against values known in advance.
 
 \subsection{Method}
 \label{sec:method}
@@ -897,8 +998,8 @@ three operators are assembled,
   \qquad
   M_{mn} = \int \mu_m \mu_n \diff V,
 \end{equation}
-with $K$ the $H^1$ seminorm --- the standard choice, and necessarily so, since
-$~K\supdev$ is singular on exactly the modes at issue. The discrete inf-sup
+with $K$ the $H^1$ seminorm, the norm in which the Stokes inf-sup condition is
+stated. The discrete inf-sup
 constant is $\beta_h = \sqrt{\lambda_{\min}}$ over the nonzero spectrum of
 \begin{equation}
   \label{eq:infsup-eig}
@@ -962,8 +1063,9 @@ which is why a penalty is unavoidable once that pressure space is chosen --- the
 remedy in \citet{Foulk.etal:2021} is forced by the space, not by the element.
 
 A $P_1$-discontinuous pressure removes them completely, with no penalty, and
-leaves exactly the six rigid-body modes. This is the claim of \S\ref{sec:hw}
-confirmed in the setting where it can be verified most directly.
+leaves exactly the six rigid-body modes. That is an element-level fact and no
+more: \S\ref{sec:assembled} and \S\ref{sec:beta} show that the same pair locks
+and is unstable once assembled.
 
 Enriching the pressure further changes nothing: the rank saturates at four,
 because four is all the displacement space can produce. Over-enrichment is
@@ -1031,9 +1133,23 @@ is held.
 \end{remark}
 
 \begin{proposition}
-$P_2/P_1^{\mathrm{disc}}$ on tetrahedra is not inf-sup stable, and no
-refinement rescues it.
+On a tetrahedral mesh family with at least six tetrahedra per vertex
+asymptotically --- the Freudenthal family among them --- and the boundary
+fixed, $P_2/P_1^{\mathrm{disc}}$ is not inf-sup stable, and no refinement
+rescues it.
 \end{proposition}
+
+The restriction to the mesh family is not decoration; an earlier version of
+this proposition omitted it and was false. On a general tetrahedral mesh with
+$V$ vertices and $T$ tetrahedra, Euler's relation gives $E \approx V + T$
+edges, so $n_u \approx 3(2V + T)$, $n_p = 4T$, and
+$n_p/n_u \to 4/(3(2V/T + 1))$, which exceeds one only when $T/V > 6$. Below
+that the count refutes nothing. And the general statement is false:
+\citet{Zhang:2011} shows $P_2/P_1^{\mathrm{disc}}$ stable on Powell--Sabin
+tetrahedral meshes once their known spurious pressure modes are filtered. The
+general three-dimensional result is \citet[Remark~8.6.2]{BoffiBrezziFortin:2013}:
+with a $P_k$ displacement, a discontinuous pressure is stable on general meshes
+only at degree $k - 3$, so for $k = 2$ nothing is admissible without enrichment.
 
 Adding one interior bubble per element supplies $3n_{\mathrm{el}}$ further
 displacement degrees of freedom and moves the ratio to $0.613$; adding the four
@@ -1041,9 +1157,24 @@ face bubbles as well --- the enrichment \S\ref{sec:fe-spaces} actually calls
 for --- supplies $3n_{\mathrm{f}}$ more, one vector unknown per interior face,
 and moves it to $0.326$. Both clear the bound. This is the quantitative content
 of the recommendation in \S\ref{sec:fe-spaces}: the enrichment is not a matter
-of preference; it is what makes the count admissible. It also fixes its price,
-since the face bubbles are global: the enriched space is $3.5$ times the
-displacement dimension of $P_2/P_0$ on the same mesh.
+of preference; it is what makes the count admissible. It also fixes its price. The interior bubble
+condenses; the face bubbles are shared and do not. The global displacement
+count of the full enrichment is therefore $36{,}501 + 59{,}616 = 96{,}117$,
+which is $2.6$ times the $36{,}501$ of $P_2/P_0$ --- also the nodal count of
+the composite tetrahedron on the same \code{TETRA10} mesh --- and $2.5$ times
+the $38{,}698$ global unknowns of Taylor--Hood, whose $2{,}197$ vertex pressures
+cannot be eliminated. The $127{,}221$ in Table~\ref{tab:dofcount} is the
+dimension of the space, not the cost.
+
+The count has a lineage that should be named. $n_p/n_u$ is the constraint
+count of \citet{NagtegaalParksRice:1974}, whose subject --- locking of
+simplicial elements in the fully plastic range --- is this note's, and its
+reciprocal $r = n_u/n_p$ is the constraint ratio of
+\citet[\S4.3.7]{Hughes:1987}, with $r = 3$ the optimum in three dimensions. At
+$N = 12$: $r = 3.52$ for $P_2/P_0$, $0.88$ for $P_2/P_1^{\mathrm{disc}}$,
+$1.63$ with the interior bubble, and $3.07$ for the full enrichment. The stable
+pair sits at the classical optimum, and the isochoric fraction $1 - n_p/n_u$
+of \S\ref{sec:assembled} is $1 - 1/r$, with $2/3$ the optimum.
 
 \noindent
 Whether that limiting degeneracy is the practically decisive objection is a
@@ -1076,9 +1207,10 @@ $\operatorname{rank}~G \le n_p$, it cannot fall below $1 - n_p/n_u$. A pair
 that \emph{attains} that bound spends every pressure unknown on a distinct
 displacement direction and wastes none; one well above it is leaving pressure
 modes unresisted; one that cannot reach it, because $n_p > n_u$, is
-over-determined. The column $n_p - \operatorname{rank}~G$ counts the pressure
-modes no displacement resists, which for an all-Dirichlet boundary should be
-exactly one, the hydrostatic mode.
+over-determined. The difference $n_p - \operatorname{rank}~G$ counts the
+pressure modes no displacement resists, which for an all-Dirichlet boundary
+should be exactly one, the hydrostatic mode; Table~\ref{tab:beta} carries it
+as a column.
 
 \begin{table}[h]
 \centering
@@ -1093,9 +1225,15 @@ all   & $P_2/P_0$                 & 3 & 375  & 162  & 158  & 0.579 & 0.568 \\
       & $\oplus\, b_{\mathrm{int}}$
                                   & 3 & 861  & 648  & 644  & 0.252 & 0.247 \\
       &                           & 4 & 2181 & 1536 & 1532 & 0.298 & 0.296 \\
+      & $\oplus\, b_{\mathrm{face}}$
+                                  & 3 & 1185 & 648  & 646  & 0.455 & 0.453 \\
+      &                           & 4 & 3045 & 1536 & 1534 & 0.496 & 0.496 \\
       & $\oplus\, b_{\mathrm{int}}, b_{\mathrm{face}}$
                                   & 3 & 1671 & 648  & 647  & \textbf{0.613} & 0.612 \\
       &                           & 4 & 4197 & 1536 & 1535 & \textbf{0.634} & 0.634 \\
+      & $P_2 \oplus b_{\mathrm{face}}/P_0$
+                                  & 3 & 1185 & 162  & 161  & 0.864 & 0.863 \\
+      &                           & 4 & 3045 & 384  & 383  & 0.874 & 0.874 \\
 \midrule
 $z=0$ & $P_2/P_0$                 & 3 & 882  & 162  & 162  & 0.816 & 0.816 \\
       &                           & 4 & 1944 & 384  & 384  & 0.802 & 0.802 \\
@@ -1104,9 +1242,15 @@ $z=0$ & $P_2/P_0$                 & 3 & 882  & 162  & 162  & 0.816 & 0.816 \\
       & $\oplus\, b_{\mathrm{int}}$
                                   & 3 & 1368 & 648  & 648  & 0.526 & 0.526 \\
       &                           & 4 & 3096 & 1536 & 1536 & 0.504 & 0.504 \\
+      & $\oplus\, b_{\mathrm{face}}$
+                                  & 3 & 1962 & 648  & 648  & 0.670 & 0.670 \\
+      &                           & 4 & 4440 & 1536 & 1536 & 0.654 & 0.654 \\
       & $\oplus\, b_{\mathrm{int}}, b_{\mathrm{face}}$
                                   & 3 & 2448 & 648  & 648  & 0.735 & 0.735 \\
       &                           & 4 & 5592 & 1536 & 1536 & 0.725 & 0.725 \\
+      & $P_2 \oplus b_{\mathrm{face}}/P_0$
+                                  & 3 & 1962 & 162  & 162  & 0.917 & 0.917 \\
+      &                           & 4 & 4440 & 384  & 384  & 0.914 & 0.914 \\
 \bottomrule
 \end{tabular}
 \caption{Assembled census at $\kappa/\mu = 10^4$. The bound is $1 - n_p/n_u$
@@ -1126,9 +1270,14 @@ reflecting the long-wavelength modes of a lightly constrained block. The three
 modes per element of \S\ref{sec:firstresult} are real but element-local, and
 their traces do not match across faces.
 
-So the soft-mode objection to a constant pressure, on \emph{these} elements, is
-not supported at the assembled level, and the earlier framing of it here
-overstated the case. The composite tetrahedron of \citet{Foulk.etal:2021} is
+So the \emph{exact-zero} soft modes of a constant pressure do not survive
+assembly on these elements, and the earlier framing here overstated that
+case. What this test cannot see is the mode \citet{Foulk.etal:2021} actually
+report, which is remedied there by a penalty and therefore has energy --- too
+little, not none. Those are the displacement modes in $\ker ~G_{P_0}$ whose
+divergence is nonzero pointwise, hundreds per mesh, which the element charges
+shear energy alone; whether they are spurious is the coercivity question of
+\S\ref{sec:verify}, claim~2, and not a count of zeros. The composite tetrahedron of \citet{Foulk.etal:2021} is
 built on a subdivided-linear displacement space rather than $P_2$, which is a
 different kernel and is not modeled here; that lineage's soft mode may well be
 specific to it. Nothing above contradicts their observation; it does not
@@ -1154,10 +1303,10 @@ extrapolation was out by a factor of two, and in the optimistic direction.
 
 The full enrichment does reach 0.61--0.63, in line with $P_0$ and without
 $P_0$'s element-level degeneracy --- so the discarded figure was numerically
-close to the right answer for a pair it was not describing. Both enriched pairs
-attain the bound $1 - n_p/n_u$ to three digits, meaning no pressure unknown is
-spent twice; and for the full pair
-$n_p - \operatorname{rank}~G = 1$ at every mesh, the hydrostatic mode alone.
+close to the right answer for a pair it was not describing. The full enrichment attains the bound $1 - n_p/n_u$ to three digits and the
+interior-only one to two, meaning no pressure unknown is spent twice; and for
+the full pair $n_p - \operatorname{rank}~G = 1$ at every mesh, the hydrostatic
+mode alone, where $P_2/P_0$ and the interior-only pair carry four.
 That, rather than the soft-mode argument, is what the enrichment is for.
 
 \subsection{Stability, measured against a validated control}
@@ -1183,23 +1332,29 @@ pair as unstable.
 
 \begin{table}[h]
 \centering
-\begin{tabular}{@{}lrrrrr@{}}
+\begin{tabular}{@{}lrrrrrr@{}}
 \toprule
-Pair & $h = 1/2$ & $1/4$ & $1/6$ & $1/8$ & fitted rate \\
+Pair & $h = 1/2$ & $1/4$ & $1/6$ & $1/8$ & null & local rate \\
 \midrule
-$P_2/P_1$ continuous (control) & 0.1734 & 0.2186 & 0.2214 & \textbf{0.2216} & $-0.009$ \\
-$P_2/P_0$                      & 0.1001 & 0.0755 & 0.0544 & 0.0418 & $0.88$ \\
-$P_2/P_1^{\mathrm{disc}}$      & 0.1132 & 0.0424 & 0.0277 & --- & $1.05$ \\
-$\oplus\, b_{\mathrm{int}}$    & 0.0782 & 0.0564 & 0.0406 & --- & $0.77$ \\
+$P_2/P_1$ continuous (control) & 0.1734 & 0.2186 & 0.2214 & \textbf{0.2216} & 1 & $-0.003$ \\
+\midrule
+$P_2/P_0$                      & 0.1001 & 0.0755 & 0.0544 & 0.0418 & 4 & $0.97$ \\
+$\oplus\, b_{\mathrm{int}}$    & 0.1015 & 0.0756 & 0.0544 & --- & 4 & $0.84$ \\
+$\oplus\, b_{\mathrm{face}}$   & 0.4671 & 0.4228 & 0.4060 & \textbf{0.3967} & 1 & $0.076$ \\
+\midrule
+$P_2/P_1^{\mathrm{disc}}$      & 0.1132 & 0.0424 & 0.0277 & --- & $n_p - n_u$ & $1.04$ \\
+$\oplus\, b_{\mathrm{int}}$    & 0.0782 & 0.0564 & 0.0406 & --- & 4 & $0.83$ \\
+$\oplus\, b_{\mathrm{face}}$   & 0.0938 & 0.0701 & 0.0497 & --- & 2 & $0.88$ \\
 $\oplus\, b_{\mathrm{int}}, b_{\mathrm{face}}$
-                               & 0.2875 & 0.2962 & \textbf{0.2968} & --- & $-0.011$ \\
-\midrule
-$P_2 \oplus b_{\mathrm{int}}/P_0$ & 0.1015 & 0.0756 & 0.0544 & --- & $0.77$ \\
+                               & 0.2875 & 0.2962 & \textbf{0.2968} & --- & 1 & $-0.003$ \\
 \bottomrule
 \end{tabular}
-\caption{$\beta_h$ over a Freudenthal mesh sequence, all-Dirichlet. Rate fitted
-over the last four points. The last row is a consistency check rather than a
-candidate pair. Script: \code{prototype/beta.jl}.}
+\caption{$\beta_h$ over a Freudenthal mesh sequence, all-Dirichlet, ordered as
+the construction of \citet[Example~8.7.2]{BoffiBrezziFortin:2013} runs. ``null''
+is $n_p - \operatorname{rank}~G$, the pressure modes no displacement resists,
+which must be one; ``local rate'' is $\ln(\beta_N/\beta_{N+1})/\ln((N+1)/N)$
+at the last refinement, constant for a genuine power law and shrinking toward
+zero for a sequence approaching a limit. Script: \code{prototype/beta.jl}.}
 \label{tab:beta}
 \end{table}
 
@@ -1208,25 +1363,48 @@ $0.2216$, flat to three digits over the last three refinements. Taylor--Hood is
 stable in three dimensions and the test reports it as such, which is what
 validates reading the remaining rows.
 
-\paragraph{Neither unenriched element-local pair is stable.} $P_2/P_0$ decays
-at a rate approaching one, despite passing the degree-of-freedom count at
-$0.284$; $P_2/P_1^{\mathrm{disc}}$ decays faster still.
+Every row of Table~\ref{tab:beta} is what \citet{BoffiBrezziFortin:2013}
+predict, and an earlier version of this section presented them as findings.
+What the sweep establishes is that the test bench is sound and that the theory
+applies to this mesh family; what it adds to the theory is the constants.
+Read down the table in the order the construction runs.
 
-\paragraph{The interior bubble alone does not rescue the pair.} It raises
-$\beta_h$ by about half at every mesh, and the decay rate falls from $1.05$ to
-$0.77$, but the sequence still decays. This is the row the count could not have
-predicted: it clears the count at $0.613$ (Table~\ref{tab:dofcount}) and fails
-the test.
+\paragraph{$P_2$ does not control a constant pressure in three dimensions.}
+$P_2/P_0$ decays at a local rate approaching one, despite clearing the
+degree-of-freedom count at $0.284$, and carries \emph{four} pressure null modes
+at every mesh where one is allowed: the hydrostatic mode and three exact
+spurious modes that no quadratic displacement resists. That is
+\citet[\S8.7]{BoffiBrezziFortin:2013} verbatim --- ``to control piecewise
+constant pressure, we need some degrees of freedom on the faces'' --- and the
+three modes are the missing face control made visible.
 
-\paragraph{The full Crouzeix--Raviart pair is stable, and this is the first
-affirmative result here.} With the face bubbles as well, $\beta_h$ rises
-monotonically to $0.2968$ and is flat to three digits over the last three
-refinements, at a fitted rate of $-0.011$ --- the control's own signature, and
-at a \emph{higher} constant than the control's $0.2216$. The pressure null
-space is exactly one dimensional at every mesh in the sequence, the hydrostatic
-mode and nothing else, so there are no spurious pressure modes to speak of
-either. \emph{The pair \S\ref{sec:fe-spaces} calls for works, and the reduced
-enrichment does not.}
+\paragraph{The interior bubble cannot supply it.} $P_2 \oplus
+b_{\mathrm{int}}/P_0$ reproduces $P_2/P_0$ to three digits with the same four
+null modes, for the reason in Remark~\ref{rem:whyface}. Over
+$P_1^{\mathrm{disc}}$ the interior bubble raises $\beta_h$ by about half at
+every mesh and the rate falls from $1.04$ to $0.83$, but the sequence decays
+and four null modes remain. This is the row the count could not have predicted:
+it clears the count at $0.613$ (Table~\ref{tab:dofcount}) and fails the test.
+
+\paragraph{Face bubbles do.} $P_2 \oplus b_{\mathrm{face}}/P_0$ drops the null
+dimension to one at every mesh and its $\beta_h$ approaches from above with a
+local rate that falls from $0.16$ to $0.08$ over the sequence --- not the
+constant rate of a power law, and not yet the plateau of the control either.
+Five to seven points cannot separate a limit near $0.35$ from a slow decay on
+their own, and the row is reported as \emph{consistent with stable}; its
+stability rests on \citet[Example~8.7.2]{BoffiBrezziFortin:2013}, whose
+Fortin construction is exactly what the face degrees of freedom make possible.
+Over $P_1^{\mathrm{disc}}$ the face bubbles alone leave one spurious linear
+pressure mode per mesh and $\beta_h$ decays: controlling the linear modes is
+the interior bubble's job.
+
+\paragraph{Both together are the three-dimensional Crouzeix--Raviart pair, and
+it is stable.} $\beta_h$ rises monotonically to $0.2968$, flat to three digits
+over the last three refinements, with a local rate of $-0.003$ --- the
+control's own signature, and at a \emph{higher} constant than the control's
+$0.2216$. The pressure null space is one dimensional at every mesh. \emph{The
+pair \S\ref{sec:fe-spaces} calls for works; each half of its enrichment does
+one job, and neither does the other's.}
 
 \begin{remark}[What separates the two enrichments]
 \label{rem:whyface}
@@ -1234,10 +1412,12 @@ The interior bubble cannot act on a constant pressure at all: it vanishes on
 the whole element boundary, so $\int_{B_e}\!\Div ~b_{\mathrm{int}} = 0$ and its
 columns of $~G$ against a $P_0$ mode are identically zero. It reaches only the
 \emph{linear} pressure modes, which is why it changes
-$P_2/P_1^{\mathrm{disc}}$ and leaves $P_2/P_0$ alone --- the last row of
-Table~\ref{tab:beta} reproduces $P_2/P_0$ to four digits, as it must, and is
-carried as a check that the enrichment is wired into $~G$ correctly rather than
-merely into $~K$. The face bubbles are what supply a displacement response to
+$P_2/P_1^{\mathrm{disc}}$ and leaves $P_2/P_0$ almost alone --- the
+$P_2 \oplus b_{\mathrm{int}}/P_0$ row of Table~\ref{tab:beta} sits just above
+$P_2/P_0$ with the same null dimension: above, because enlarging $U_h$ can only
+raise $\beta_h$, and only just, because the bubble's columns of $~G$ are zero.
+The wiring check itself is \code{checks.jl}, which reads those columns
+directly. The face bubbles are what supply a displacement response to
 the pressure jump across a face, which is the mode a discontinuous pressure
 actually needs resisted.
 \end{remark}
@@ -1258,10 +1438,12 @@ These results are for the Freudenthal subdivision, a highly structured family,
 and structured meshes are where pair counterexamples characteristically arise
 --- the $P_1/P_0$ checkerboard is at its worst on them. A pair can degenerate
 on a structured mesh and remain well behaved on a general one. The accurate
-statement is that $P_2/P_0$ and $P_2/P_1^{\mathrm{disc}}$ decay \emph{here};
-confirming that
-as a property of the pairs rather than of the mesh needs a sequence of
-unstructured meshes, which this study does not have.
+statement is that $P_2/P_0$, $P_2/P_1^{\mathrm{disc}}$ and
+$P_2 \oplus b_{\mathrm{int}}/P_1^{\mathrm{disc}}$ decay \emph{here}; confirming
+that as a property of the pairs rather than of the mesh needs a sequence of
+unstructured meshes, which this study does not have. The affirmative result
+needs no such confirmation, since \citet[Example~8.7.2]{BoffiBrezziFortin:2013}
+establish it on any shape-regular family; what the sweep adds is the constant.
 \end{remark}
 
 \subsection{The earlier eigenvalue sweep}
@@ -1299,32 +1481,18 @@ $P_2/P_1^{\mathrm{disc}}$ & 2 & 81   & 192  & 111  & 0.113 \\
 
 The control behaves as it must: $\beta_h$ falls steadily and the zero count
 grows with the mesh, which is the checkerboard instability $P_1/P_0$ is known
-for. The test detects the instability it should.
-
-Beyond that, these numbers carry much less weight than the count, and the note
-does not rely on them.
-
-The zero counts for $P_2/P_1^{\mathrm{disc}}$ --- 111, 285, 579, 1029 --- are
-not an independent finding: they are $n_p - n_u$ to within a few modes, which
-is the rank deficiency \S\ref{sec:infsup} already explains by counting. The
-same is true of the control at these mesh sizes, where $n_u$ is so small that
-$n_p > n_u$ regardless of the pair.
-
-The apparent decay of $\beta_h$ for $P_2/P_0$ is the one row that would be
-significant if it were reliable, since that pair passes the count. It is not
-supported by these data. A dense generalized eigensolver caps the
-sequence at $N = 5$, far short of an asymptotic regime, and $\beta_h \sim
-h^{1/2}$ over less than a decade of $h$ is equally consistent with a
-pre-asymptotic transient. Establishing it would need a sparse eigensolver and
-meshes several refinements finer.
-
-\begin{remark}
-The contrast between the two tests is the methodological point. The counting
-argument is exact, needs no solver, and scales to any mesh size; the spectral
-one is approximate, expensive, and here mostly re-derives what counting already
-gave. Where a necessary condition settles the question, it should be checked
-before the eigenvalue computation is attempted.
-\end{remark}
+for. The zero counts for $P_2/P_1^{\mathrm{disc}}$ --- 111, 285, 579, 1029 ---
+are $n_p - n_u$ to within a few modes, the rank deficiency \S\ref{sec:infsup}
+explains by counting. The dense eigensolver caps the sequence at $N = 5$, and
+an earlier version of this note read the $P_2/P_0$ decay over that range as
+possibly pre-asymptotic; \S\ref{sec:beta} extends it to $N = 8$ and it is not.
+The one thing in this table that the later sweep did not supersede is the zero
+count of \emph{four} for $P_2/P_0$ at every $N$: one is the hydrostatic mode,
+and the other three are exact spurious pressure modes that no $P_2$
+displacement resists, present at every refinement --- the missing face control
+of \citet[\S8.7]{BoffiBrezziFortin:2013} made visible. Table~\ref{tab:beta}
+carries that count for every pair; the face bubbles are what reduce it to
+one.
 
 \section{What must be verified}
 \label{sec:verify}
@@ -1345,15 +1513,30 @@ that the first round of numerical work is decisive.
         null space at every mesh. The face bubbles are the part that matters;
         the interior bubble alone is not enough
         (Remark~\ref{rem:whyface}). What remains is an unstructured mesh
-        sequence (Remark~\ref{rem:structured}) and confirmation at finite
-        $\kappa/\mu$, both operators here being the incompressible limit.
-  \item \textbf{No soft modes.} \emph{Settled, and not as expected.} Three
-        spurious zero-energy modes per element for a constant pressure
-        (\S\ref{sec:firstresult}), but none of them survive assembly under
-        either boundary condition tested (\S\ref{sec:assembled}). The
-        soft-mode argument against a constant pressure does not hold on
-        quadratic tetrahedra; the argument for the enriched pair rests on
-        locking instead.
+        sequence (Remark~\ref{rem:structured}). Uniformity in $\kappa/\mu$
+        needs no separate measurement: for the penalized saddle point,
+        stability of the incompressible limit gives error estimates
+        independent of the penalty \citep[\S5.5.2, \S8.12.1]{BoffiBrezziFortin:2013},
+        and every pair stable for Stokes may be used for nearly incompressible
+        elasticity \citep[Remark~8.12.1]{BoffiBrezziFortin:2013}.
+  \item \textbf{No soft modes.} \emph{Closed in elasticity, open in
+        plasticity, and not for the reason first given.} Three exact
+        zero-energy modes per element for a constant pressure
+        (\S\ref{sec:firstresult}), none of which survive assembly
+        (\S\ref{sec:assembled}) --- but an exact-zero count is the wrong test
+        for the mode \citet{Foulk.etal:2021} report, which has small energy
+        and not none. Soft modes and locking are the two hypotheses of
+        Brezzi's theorem rather than two faces of one condition: the inf-sup
+        condition governs locking and spurious pressure, and ellipticity of
+        the deviatoric form on the discretely isochoric subspace $\ker ~G_h$
+        governs soft modes \citep[\S3.4.5, Thm.~5.2.5]{BoffiBrezziFortin:2013}.
+        For the stable pair the second holds in elasticity by Korn's
+        inequality, and \citet[Prop.~5.1.3]{BoffiBrezziFortin:2013} then makes
+        $\ker ~G_h$ approximate the isochoric space at the rate of $U_h$. In
+        plasticity the deviatoric tangent loses coercivity along the flow
+        direction, the hypothesis fails exactly where the mode is reported,
+        and no linear operator here can decide it; claim~4's benchmark must
+        be instrumented to.
   \item \textbf{No volumetric locking.} \emph{Settled for every pair}
         (\S\ref{sec:assembled}), by measuring the isochoric subspace
         $\dim\ker ~G$ rather than by running benchmarks:
@@ -1379,6 +1562,7 @@ material. The comparison of record is against the composite tetrahedron on the
 same meshes.
 
 \section{Risks}
+\label{sec:risks}
 
 \emph{The pair is settled; its cost is now the risk.} The central risk of the
 previous version --- that no element-local pair had been shown to work --- is
@@ -1386,17 +1570,18 @@ retired: $P_2 \oplus b_{\mathrm{int}} \oplus b_{\mathrm{face}}$ over
 $P_1^{\mathrm{disc}}$ is stable, with a constant above Taylor--Hood's
 (\S\ref{sec:beta}). What that verification also established is the price. The
 face bubbles are shared between neighbors, so they are global unknowns and do
-not condense; at $N = 12$ the enriched space carries $127{,}221$ displacement
-degrees of freedom against $36{,}501$ for $P_2/P_0$ on the same mesh, a factor
-of $3.5$. Locality survives where the note claimed it --- the \emph{pressure}
+not condense; at $N = 12$ the enriched space carries $96{,}117$ global
+displacement degrees of freedom against $36{,}501$ for $P_2/P_0$ --- and for
+the composite tetrahedron --- on the same mesh, a factor of $2.6$, and $2.5$
+times Taylor--Hood's $38{,}698$. Locality survives where the note claimed it --- the \emph{pressure}
 elimination is still element-by-element, since that depends only on $Q_h$ being
 discontinuous --- but the claim that the enrichment adds no global unknowns was
 false, and \S\ref{sec:fe-spaces} has been corrected.
 
-Whether that factor of $3.5$ is repaid by the accuracy of a stable pair on
+Whether that factor of $2.6$ is repaid by the accuracy of a stable pair on
 coarser meshes is not established, and it is the comparison that now decides
 whether the formulation is worth preferring to Taylor--Hood, whose pressure is
-global but whose displacement space is a third the size. That is a benchmark
+global but whose displacement space is $2.5$ times smaller. That is a benchmark
 question, not an operator question, and it is answered on the benchmark set
 below rather than by any of the counts above.
 
@@ -1409,19 +1594,18 @@ positivity, but the reduced critical time step is real. If weak shocks can be
 run with the implicit dynamic integrator the objection disappears; if they must
 be explicit, this trade needs measuring before commitment.
 
-\emph{The formulation restricts the material, and the restriction is narrow.}
-\S\ref{sec:matreq} requires an exact volumetric--isochoric split with a
-quadratic volumetric energy, and of the seven materials Norma implements only
-two qualify. That is narrower than the earlier framing of this note implied,
-and it weakens the claim of material-agnosticism that motivated the choice of
-a Hu--Washizu structure. Two mitigations exist, and neither is without cost:
-admitting the three split-but-non-quadratic materials costs a local
-Newton per element (Remark~\ref{rem:nonquadratic}), and anisotropic or
-non-separable models are outside the split altogether and would need the
-five-field variant of \S\ref{sec:fivefield} or a different treatment
-entirely. The
-restriction should be stated whenever the formulation is compared against
-$\bar F$, which carries no such requirement.
+\emph{The formulation restricts the material.} \S\ref{sec:matreq} requires an
+exact volumetric--isochoric split, and of the seven materials Norma implements
+five qualify; the two that do not, linear elasticity and
+Saint-Venant--Kirchhoff, are not finite-deformation models in the sense that
+matters here. An earlier version of this paragraph stated the restriction as
+narrower --- a quadratic volumetric energy, admitting two --- on the belief
+that the other three cost a local Newton per element; they cost one projection
+(Remark~\ref{rem:nonquadratic}). What remains outside the split altogether is
+anisotropic or non-separable response, which would need the five-field variant
+of \S\ref{sec:fivefield} or a different treatment entirely. The restriction
+should be stated whenever the formulation is compared against $\bar F$, which
+carries no such requirement.
 
 \emph{Nothing here is novel in its parts.} Mixed volumetric treatment
 \citep{SimoTaylorPister:1985}, logarithmic-strain plasticity

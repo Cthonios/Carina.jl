@@ -1,0 +1,43 @@
+1. Quadrature.  int_T x^a y^b z^c = a! b! c! / (a+b+c+3)!.  A rule built
+   for degree d must be exact through d, and the degree-6 rule must
+   NOT be exact at degree 8, or the test is not testing anything.
+
+   degree 2: 8 points, sum w = 0.16666666666666669, worst relative error 5.0e-16
+   degree 3: 8 points, sum w = 0.16666666666666669, worst relative error 5.0e-16
+   degree 6: 64 points, sum w = 0.16666666666666663, worst relative error 3.3e-15
+   degree 7: 64 points, sum w = 0.16666666666666663, worst relative error 4.7e-15
+   degree-6 rule on x^8: relative error 0.001  (must be O(1e-3), not zero)
+
+2. Interior bubble.  It vanishes on the element boundary, so int div b = 0
+   and its columns of G against a CONSTANT pressure must be exactly zero,
+   while against the linear P1disc modes they must not be.
+
+   P0 x interior-bubble block: max |entry| = 1.1e-16
+   P1disc constant rows: max |entry| = 1.1e-16
+   P1disc linear rows:   max |entry| = 0.013
+
+3. Conformity.  For every free basis function, sum_m G[m,i] = int div N_i
+   = oint N_i . n = 0 when the space is H1-conforming and N_i has zero
+   trace on the fixed boundary.  A face bubble double counted, mismatched
+   between its two elements, or left free on a boundary face breaks this.
+
+   N=2 none      n_u=81     max |int div N_i| = 6.9e-17
+   N=2 interior  n_u=225    max |int div N_i| = 1.1e-16
+   N=2 face      n_u=297    max |int div N_i| = 1.0e-16
+   N=2 full      n_u=441    max |int div N_i| = 1.1e-16
+   N=3 none      n_u=375    max |int div N_i| = 2.8e-17
+   N=3 interior  n_u=861    max |int div N_i| = 4.7e-17
+   N=3 face      n_u=1185   max |int div N_i| = 5.2e-17
+   N=3 full      n_u=1671   max |int div N_i| = 5.2e-17
+
+4. Face bookkeeping on N=3: 162 tets, 648 element faces, (648+108)/2 = 378
+   distinct, 108 on the boundary; every interior face seen twice.
+
+   free faces, all-Dirichlet: 270  (expect 378 - 108 = 270)
+   free faces, z-face only:   360  (expect 378 - 18 = 360)
+   multiplicities present:    [1, 2]  (expect [1, 2])
+
+5. Refusals.  Under-integration and P1 geometry must error, not proceed.
+
+   refused: degree-3 rule with a bubble
+   refused: unknown enrichment

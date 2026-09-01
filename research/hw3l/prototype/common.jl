@@ -268,7 +268,7 @@ interior_bubble(xi) = _bubble_of((1, 2, 3, 4), 256.0, xi)
 "Cubic bubble on face `f`, unit height at that face's centroid."
 face_bubble(f, xi) = _bubble_of(_TET_FACES[f], 27.0, xi)
 
-const _ENRICH = (:none, :interior, :full)
+const _ENRICH = (:none, :interior, :face, :full)
 
 """
 Global face numbering for the tetrahedral mesh, with faces on the constrained
@@ -317,11 +317,11 @@ eliminated:
     G[m,i]    = int phi_m div(N_i)                    volumetric coupling
     M[m,n]    = int phi_m phi_n                       pressure mass
 
-`bubble` selects the displacement enrichment: `:none`, `:interior` for the
-element-local quartic bubble alone, or `:full` for the three-dimensional
-Crouzeix-Raviart space, interior plus one bubble per face.  Only `:interior`
-leaves the added degrees of freedom element-local; `:full` shares its face
-bubbles between neighbors.
+`bubble` selects the displacement enrichment: `:none`; `:interior` for the
+element-local quartic bubble alone; `:face` for the four cubic face bubbles
+alone; or `:full` for the three-dimensional Crouzeix-Raviart space, interior
+plus faces.  Only `:interior` leaves the added degrees of freedom
+element-local; the face bubbles are shared between neighbors.
 
 The returned `nu_nodal`, `n_int` and `n_face` give the three blocks of the
 displacement numbering, in that order.
@@ -351,12 +351,14 @@ function assemble_all(coords, conn, p::Int, m::Int; mu = 1.0,
     # numbered element by element.
     continuous = m == _P1C
     nu_nodal = length(free)
-    n_int  = bubble === :none ? 0 : NSD * nelem
-    nfaces, fmap = bubble === :full ? face_table(coords, conn, bc) : (0, zeros(Int, 4, nelem))
+    has_int  = bubble in (:interior, :full)
+    has_face = bubble in (:face, :full)
+    n_int  = has_int ? NSD * nelem : 0
+    nfaces, fmap = has_face ? face_table(coords, conn, bc) : (0, zeros(Int, 4, nelem))
     n_face = NSD * nfaces
     nu = nu_nodal + n_int + n_face
     np = continuous ? nvert : m * nelem
-    nen_a = nen + (bubble === :none ? 0 : 1) + (bubble === :full ? 4 : 0)
+    nen_a = nen + (has_int ? 1 : 0) + (has_face ? 4 : 0)
     int_off  = nu_nodal
     face_off = nu_nodal + n_int
 
@@ -372,10 +374,10 @@ function assemble_all(coords, conn, p::Int, m::Int; mu = 1.0,
         # The interior bubble is always free: it vanishes on the element
         # boundary, so no boundary condition can reach it.  A face bubble is
         # free only when its face is not on the constrained boundary.
-        if bubble !== :none
+        if has_int
             append!(rows, [int_off + NSD * (e - 1) + d for d in 1:NSD])
         end
-        if bubble === :full
+        if has_face
             for f in 1:4
                 fid = fmap[f, e]
                 append!(rows, [fid == 0 ? 0 : face_off + NSD * (fid - 1) + d
@@ -388,11 +390,11 @@ function assemble_all(coords, conn, p::Int, m::Int; mu = 1.0,
             dN_ref = RFE.shape_function_gradient(el, xi)
             J  = X * dN_ref
             dN = dN_ref / J
-            if bubble !== :none
+            if has_int
                 _, gb = interior_bubble(xi)
                 dN = vcat(dN, reshape(gb, 1, NSD) / J)
             end
-            if bubble === :full
+            if has_face
                 for f in 1:4
                     _, gf = face_bubble(f, xi)
                     dN = vcat(dN, reshape(gf, 1, NSD) / J)

@@ -77,29 +77,43 @@ function main()
     println("A uniformly stable pair has beta_h flattening as h -> 0 (rate ~ 0).")
     println("A rate near 0.5 over a widening range is a genuine decay.\n")
 
+    # Ordered as the Boffi-Brezzi-Fortin construction runs: first the P0
+    # column (what stabilizes a constant pressure), then the P1disc column
+    # (what lifts it to a linear one).  The `null` column is n_p - rank(G),
+    # the pressure modes no displacement resists; with the whole boundary
+    # fixed it must be exactly one, the hydrostatic mode, and every mode
+    # beyond that is spurious.  `local rate` is q_N = ln(beta_N/beta_{N+1}) /
+    # ln((N+1)/N) between consecutive meshes: constant for a genuine power
+    # law, shrinking toward zero for a sequence approaching a limit.
     for (label, p, m, Ns, bub) in (
-            ("P2 / P1 cont. (POSITIVE CONTROL: stable in 3D)", 2, _P1C, 2:8, :none),
-            ("P2 / P0",                                        2, 1,    2:8, :none),
-            ("P2 / P1 disc",                                   2, 4,    2:6, :none),
-            ("P2 + interior bubble / P1 disc",                 2, 4,    2:6, :interior),
+            ("P2 / P1 cont. (POSITIVE CONTROL: Taylor-Hood, stable in 3D)",
+                                                          2, _P1C, 2:8, :none),
+            ("P2 / P0",                                   2, 1,    2:8, :none),
+            ("P2 + interior bubble / P0",                 2, 1,    2:6, :interior),
+            ("P2 + face bubbles / P0",                    2, 1,    2:8, :face),
+            ("P2 / P1 disc",                              2, 4,    2:6, :none),
+            ("P2 + interior bubble / P1 disc",            2, 4,    2:6, :interior),
+            ("P2 + face bubbles / P1 disc",               2, 4,    2:6, :face),
             ("P2 + interior + face bubbles / P1 disc (Crouzeix-Raviart 3D)",
-                                                               2, 4,    2:6, :full),
-            ("P2 + interior bubble / P0 (must match P2/P0: see below)",
-                                                               2, 1,    2:6, :interior))
+                                                          2, 4,    2:6, :full))
         println(label)
         println("  ", rpad("N", 4), rpad("h", 8), rpad("n_u", 8), rpad("n_p", 8),
-                rpad("rank G", 8), rpad("beta_h", 12), rpad("next below", 13), "beta/h^0.5")
+                rpad("rank G", 8), rpad("null", 6), rpad("beta_h", 12),
+                rpad("next below", 13), "local rate")
         hs, bs = Float64[], Float64[]
+        prev = nothing
         for N in Ns
             r = beta_h(N, p, m; bubble = bub)
             r === nothing && continue
             push!(hs, r.h); push!(bs, r.beta)
+            q = prev === nothing ? "" :
+                string(round(log(prev[2] / r.beta) / log(N / prev[1]), sigdigits = 3))
+            prev = (N, r.beta)
             println("  ", rpad(string(N), 4), rpad(string(round(r.h, sigdigits=3)), 8),
                     rpad(string(r.nu), 8), rpad(string(r.np), 8),
-                    rpad(string(r.rank_G), 8),
+                    rpad(string(r.rank_G), 8), rpad(string(r.nnull), 6),
                     rpad(string(round(r.beta, sigdigits=5)), 12),
-                    rpad(string(round(r.sv_below, sigdigits=3)), 13),
-                    string(round(r.beta / sqrt(r.h), sigdigits=4)))
+                    rpad(string(round(r.sv_below, sigdigits=3)), 13), q)
         end
         if length(hs) >= 3
             q_all  = fitted_rate(hs, bs; tail = length(hs))
@@ -117,8 +131,9 @@ function main()
     println("The interior bubble cannot affect a P0 pressure.  Its divergence")
     println("integrates to zero against any constant, so its columns of G vanish")
     println("identically and it acts only through enlarging K -- which can raise")
-    println("beta_h but never lower it.  The last two blocks agreeing to four")
-    println("digits is that statement, measured.")
+    println("beta_h but never lower it.  P2+interior/P0 sitting just above P2/P0")
+    println("with the same null dimension is that statement, measured; the wiring")
+    println("check itself is checks.jl, which reads those columns of G directly.")
 end
 
 main()

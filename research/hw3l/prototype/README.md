@@ -66,7 +66,7 @@ never crosses. **The unenriched pair is not inf-sup stable, and refinement does
 not rescue it** — so the bubble enrichment is mandatory, not advisory.
 
 The count is *necessary and not sufficient*, and `beta.jl` shows two pairs that
-clear it and fail anyway. Read this script as a cheap refutation tool, never as
+clear it and fail anyway (P2/P0 at 0.284, P2 ⊕ interior/P1disc at 0.613). Read this script as a cheap refutation tool, never as
 a certificate.
 
 ## `beta.jl` — the discrete inf-sup constant over a mesh sequence
@@ -79,27 +79,32 @@ guessing a threshold. Taylor–Hood is carried as a **positive control**: a test
 that reports every pair unstable cannot be distinguished from a broken test by
 a negative control alone.
 
-**Result**, all-Dirichlet, fitted rate over the last four points:
+**Result**, all-Dirichlet, in the order the Boffi–Brezzi–Fortin construction
+runs (`null` = `n_p - rank G`, which must be 1; `local rate` at the last step):
 
-| pair | β at `h`=1/2 | 1/4 | 1/6 | rate | verdict |
-|---|---|---|---|---|---|
-| P2 / P1 continuous (control) | 0.1734 | 0.2186 | 0.2214 | −0.009 | stable |
-| P2 / P0 | 0.1001 | 0.0755 | 0.0544 | 0.88 | decays |
-| P2 / P1disc | 0.1132 | 0.0424 | 0.0277 | 1.05 | decays |
-| P2 ⊕ interior / P1disc | 0.0782 | 0.0564 | 0.0406 | 0.77 | decays |
-| **P2 ⊕ interior ⊕ face / P1disc** | 0.2875 | 0.2962 | **0.2968** | **−0.011** | **stable** |
+| pair | β at `h`=1/2 | 1/4 | 1/6 | 1/8 | null | local rate | verdict |
+|---|---|---|---|---|---|---|---|
+| P2 / P1 continuous (control) | 0.1734 | 0.2186 | 0.2214 | 0.2216 | 1 | −0.003 | stable |
+| P2 / P0 | 0.1001 | 0.0755 | 0.0544 | 0.0418 | **4** | 0.97 | decays |
+| P2 ⊕ interior / P0 | 0.1015 | 0.0756 | 0.0544 | — | 4 | 0.84 | decays |
+| P2 ⊕ face / P0 | 0.4671 | 0.4228 | 0.4060 | 0.3967 | 1 | 0.076 | consistent with stable |
+| P2 / P1disc | 0.1132 | 0.0424 | 0.0277 | — | n_p−n_u | 1.04 | decays |
+| P2 ⊕ interior / P1disc | 0.0782 | 0.0564 | 0.0406 | — | 4 | 0.83 | decays |
+| P2 ⊕ face / P1disc | 0.0938 | 0.0701 | 0.0497 | — | 2 | 0.88 | decays |
+| **P2 ⊕ interior ⊕ face / P1disc** | 0.2875 | 0.2962 | **0.2968** | — | 1 | **−0.003** | **stable** |
 
-**The three-dimensional Crouzeix–Raviart pair is stable**, at a constant above
-the control's, with a one-dimensional pressure null space (the hydrostatic mode
-and nothing else) at every mesh. Everything else decays.
-
-The interior bubble alone is **not** enough. It vanishes on the whole element
-boundary, so `∫ div b_int = 0` and its columns of `G` against a constant
-pressure are identically zero — it reaches only the *linear* pressure modes.
-The face bubbles are what supply a displacement response to the pressure jump
-across a face. The sweep carries `P2 ⊕ interior / P0` as a check on that
-reasoning: it reproduces plain `P2/P0` to four digits, as it must if the
-enrichment is wired into `G` and not merely into `K`.
+Every row is what Boffi–Brezzi–Fortin (2013, §8.7 and Example 8.7.2) predict;
+the sweep validates the bench and supplies the constants. P2 does not control
+a constant pressure in 3D — it has no face degrees of freedom — and carries
+three exact spurious pressure modes at every refinement. The interior bubble
+cannot help: it vanishes on the element boundary, so `∫ div b_int = 0` and its
+columns of `G` against a constant pressure are identically zero (checked in
+`checks.jl`). Face bubbles drop the null dimension to one and give a sequence
+approaching a limit near 0.35 from above — five to seven points cannot separate
+that from a slow decay, so the row is reported as consistent with stable and
+its stability rests on the theory. Over P1disc the face bubbles alone leave one
+spurious linear mode; the interior bubble removes it. Both together are the 3D
+Crouzeix–Raviart pair, flat at 0.2968 with a one-dimensional null space.
 
 ## `locking.jl` — assembled soft modes and locking
 
@@ -110,18 +115,43 @@ destroys the isochoric subspace (locking). The isochoric fraction
 fall below; a pair that *attains* the bound spends every pressure unknown on a
 distinct displacement direction.
 
-**Results.** The three spurious modes per element found by `softmode.jl` do
-**not** survive assembly — zero, under both boundary conditions, at every mesh.
-`P2/P1disc` retains 3–7% of its deformation modes with the boundary fixed
-against 58–63% for `P0`: it is the unenriched pair that locks, and that, rather
-than the soft-mode argument, is the case for enrichment. The full enrichment
-reaches 61–63% and attains the bound.
+**Results.** The three exact zero-energy modes per element found by
+`softmode.jl` do **not** survive assembly — zero, under both boundary
+conditions, at every mesh. That is a statement about *exact* zeros only; the
+energetically soft modes a constant pressure leaves are a coercivity question
+that no linear operator here decides. `P2/P1disc` retains 3–7% of its
+deformation modes with the boundary fixed against 58–63% for `P0`: it is the
+unenriched pair that locks, and that is the case for enrichment. The full
+enrichment reaches 61–63% and attains the bound.
 
 An earlier version of this script *extrapolated* the enriched pair by adding
 `3·nelem` to `n_u` and carrying `rank(G)` over unchanged. That is right for
 `P0` and wrong for `P1disc`, where the bubble raises `rank(G)` from 957 to 1532
 at `N = 4`; the extrapolation overstated the isochoric fraction by a factor of
-two. Both enriched pairs are now assembled.
+two. All enriched pairs are now assembled.
+
+## `materials.jl` — what the materials satisfy (needs Norma)
+
+```
+julia --project=/path/to/Norma.jl research/hw3l/prototype/materials.jl
+```
+
+Three measurements behind §2.5 of the note: the split test
+(`W(F) − W(F̄)` at fixed `J` across random isochoric parts — machine zero iff
+the split is exact), the quadratic fit of the extracted `W_vol(J)` to
+`c(J−1)²` and `c(log J)²`, and the difference between projecting `log J` and
+projecting `J − 1` on one element for the same Hencky material. Five of seven
+materials split; Hencky is quadratic in `log J` and Simo–Hughes in `J − 1`,
+each to machine precision and each 18% wrong in the other's variable. Output
+kept in `materials_out.txt`.
+
+## `checks.jl` — correctness checks with known targets
+
+Quadrature exact through degree 7 and demonstrably *not* at degree 8; interior
+bubble columns of `G` zero against a constant and nonzero against the linear
+modes; `∫ div N_i = 0` for every free basis function in all four spaces (the
+conformity test that catches a mis-shared or unconstrained face bubble); face
+counts and multiplicities; and the refusals. Output kept in `checks_out.txt`.
 
 ## Quadrature
 
@@ -137,3 +167,8 @@ Shape functions still come from `ReferenceFiniteElements`, evaluated at
 arbitrary points rather than at its own quadrature points, so there is no
 second implementation to disagree with the first. Swapping the quadrature
 reproduced every previously published number in this directory exactly.
+
+## Kept outputs
+
+`beta_out.txt`, `locking_out.txt`, `materials_out.txt`, `checks_out.txt` are
+the runs the note's tables were transcribed from.

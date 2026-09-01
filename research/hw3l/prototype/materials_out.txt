@@ -1,0 +1,20 @@
+1-2. Split test and quadratic fit (E = 1.0e9, nu = 0.3).
+
+material                  split spread  fit (J-1)^2   c/kappa   fit (log J)^2  c/kappa
+------------------------------------------------------------------------------------------
+Linear elastic            2.0           0.12          0.9415    0.064          1.0119
+Saint-Venant Kirchhoff    30.0          0.059         0.9683    0.13           1.0289
+Neo-Hookean               4.2e-13       0.059         0.9711    0.13           1.0319
+Reciprocal neo-Hookean    4.8e-13       0.18          0.9402    0.0065         1.0225
+Seth-Hill (m = n = 1)     4.3e-13       0.18          0.9402    0.0065         1.0225
+Hencky                    1.4e-13       0.18          0.9194    1.7e-15        1.0
+J2, Simo-Hughes           5.9e-13       5.3e-15       1.0       0.18           1.0511
+
+3. Hencky material, one tetrahedron, P0 projection: energy with theta = J - 1
+   projected relative to energy with theta = log J projected.
+
+strain    relative difference
+0.005     0.00094
+0.05      0.01
+0.2       0.056
+0.5       0.27

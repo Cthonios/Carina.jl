@@ -113,7 +113,9 @@ function main()
     println("-"^96)
     for bc in (_BC_ALL, _BC_ZFACE)
         for (label, m, enr) in (("P2+int/P0", 1, :interior),
+                                ("P2+face/P0", 1, :face),
                                 ("P2+int/P1disc", 4, :interior),
+                                ("P2+face/P1disc", 4, :face),
                                 ("P2+int+face/P1disc", 4, :full))
             for N in (3, 4)
                 r = census(N, 2, m; bc, bubble = enr)
