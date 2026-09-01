@@ -145,61 +145,80 @@ admissible window, and the remedy is to choose a pair inside it.
 
 \section{Continuum formulation}
 
-\subsection{Kinematics and the logarithmic split}
+\subsection{Kinematics and the volumetric--isochoric split}
+\label{sec:kinematics}
 
-A body $B \subset \Reals^3$ undergoes a motion
-$\bx = \disp(\bX, t)$ with deformation gradient $\F := \Grad \disp$ and
-Jacobian $J := \det \F$. With $\C := \transpose{\F}\F$, the material Hencky
-strain is
+A body $B \subset \Reals^3$ undergoes a motion $\bx = \disp(\bX, t)$ with
+deformation gradient $\F := \Grad\disp$ and Jacobian $J := \det\F > 0$. The
+multiplicative factorization
 \begin{equation}
-  \label{eq:hencky}
-  \eps := \tfrac{1}{2}\log \C \in \Syms,
+  \label{eq:isosplit}
+  \F = J^{1/3}\bar{\F},
+  \qquad
+  \bar{\F} := J^{-1/3}\F,
+  \qquad
+  \det\bar{\F} = 1,
 \end{equation}
-evaluated by inverse scaling-and-squaring with Pad\'e approximants. Its
-volumetric--deviatoric decomposition is orthogonal in the Frobenius inner
-product,
+separates the two kinematic contributions this formulation treats differently:
+$J$ carries everything the mixed treatment exists for, and $\bar{\F}$ carries
+everything the plasticity acts on.
+
+The mixed field is a scalar function of $J$ alone. Let
 \begin{equation}
-  \label{eq:split}
-  \eps = \tfrac{1}{3}\theta \Id + \edev,
-  \qquad
-  \theta := \trace \eps = \log J,
-  \qquad
-  \edev := \dev \eps .
+  \label{eq:thetadef}
+  \theta = \theta(J),
+  \qquad \theta'(J) > 0,
+  \qquad \theta(1) = 0,
+  \qquad \theta'(1) = 1,
 \end{equation}
-That $\theta$ is exactly $\log J$ is the property the whole formulation turns
-on: the volumetric measure that must be treated mixedly is a \emph{scalar}
-available in closed form, and it is orthogonal to the deviatoric measure
-carrying the plasticity.
+be a strictly increasing volumetric strain measure, normalized to vanish with
+unit slope in the undeformed state. The normalization is not cosmetic. It is
+what makes $\kappa$ in \eqref{eq:energy} the physical bulk modulus for every
+admissible $\theta$, so that two instances of the formulation are calibrated to
+the same material rather than to two different ones. And since
+$\partial J/\partial\F = J\F^{-\mathsf T}$,
+\begin{equation}
+  \label{eq:dtheta}
+  \frac{\partial\theta}{\partial\F} = \theta'(J)\, J\, \F^{-\mathsf T},
+\end{equation}
+so \eqref{eq:thetadef} also forces $\partial\theta/\partial\F = \Id$ at
+$\F = \Id$ --- which is what makes the mixed pairing reduce to the Stokes
+pairing independently of the choice of $\theta$ (\S\ref{sec:fe-spaces}).
+
+Two choices are used below and are developed in \S\ref{sec:instances}: the
+logarithmic measure $\theta = \log J$, and $\theta = J - 1$. Both satisfy
+\eqref{eq:thetadef}, and by Remark~\ref{rem:thetachoice} they nevertheless give
+different elements.
 
 \subsection{Stored energy}
+\label{sec:energy}
 
-For isotropic response the free energy separates additively,
+The formulation is developed for a stored energy that splits exactly along
+\eqref{eq:isosplit}, with a volumetric part quadratic in $\theta$:
 \begin{equation}
   \label{eq:energy}
-  A(\eps) = W\supvol(\theta) + W\supdev(\edev),
+  W(\F) = W\supvol(\theta) + W\supiso(\bar{\F}),
   \qquad
-  W\supvol(\theta) = \tfrac{\kappa}{2}\theta^2,
-  \qquad
-  W\supdev(\edev) = \mu \norm{\edev}^2 ,
+  W\supvol(\theta) = \tfrac{\kappa}{2}\theta^2 .
 \end{equation}
-so the constitutive law is algebraically linear in logarithmic strain:
+Both halves of \eqref{eq:energy} are requirements on the material rather than
+conventions, they are requirements of different strength, and
+\S\ref{sec:matreq} separates them and reports which materials meet them.
+
+Given \eqref{eq:energy}, the volumetric constitutive relation is linear,
 \begin{equation}
   \label{eq:constitutive}
-  p = \partial W\supvol / \partial\theta = \kappa\theta,
-  \qquad
-  \sdev = \partial W\supdev/\partial\edev = 2\mu\,\edev .
+  p = \partial W\supvol/\partial\theta = \kappa\theta ,
 \end{equation}
-Plasticity replaces \eqref{eq:constitutive}$_2$ with
-$\sdev = 2\mu(\edev - \edev^{\mathrm p})$, with $\edev^{\mathrm p}$ evolved by
-the return map of \S\ref{sec:plasticity}. Nothing else in the formulation
-changes.
+and it is this linearity --- not the choice of $\theta$, and not the
+logarithmic measure specifically --- that the element-local elimination of
+\S\ref{sec:local} rests on.
 
-Equation \eqref{eq:energy} is one admissible material, not the requirement.
-What the formulation actually needs is an exact volumetric--isochoric split
-with a quadratic volumetric term, which \eqref{eq:energy} satisfies in the
-variable $\theta = \log J$ and which the Simo--Hughes $J_2$ model satisfies in
-$J - 1$. \S\ref{sec:matreq} separates the requirements and reports which
-materials meet them.
+The isochoric response is whatever $W\supiso$ the material supplies. It is
+evaluated at the pointwise $\bar{\F}$ and is never projected, which is the
+property \S\ref{sec:plasticity} turns on. Plasticity acts entirely inside
+$W\supiso$, through an isochoric internal variable evolved by a return map;
+neither \eqref{eq:energy} nor \eqref{eq:constitutive} changes when it does.
 
 \subsection{Three-field functional}
 \label{sec:hw}
@@ -234,7 +253,7 @@ Put $\bar\theta$ and $\bar p$ in the same discrete space $Q_h$, which
 \S\ref{sec:fe-spaces} does for reasons of its own. Stationarity in $\bar\theta$
 then gives $\bar p = \kappa\bar\theta$ \emph{exactly} rather than after a
 projection, and stationarity in $\bar p$ gives $\bar\theta = \Pi_h\,\theta$,
-the $L^2$ projection of $\theta = \log J$ onto $Q_h$. The constraint term of
+the $L^2$ projection of $\theta$ onto $Q_h$. The constraint term of
 \eqref{eq:hw} then vanishes identically:
 \begin{equation}
   \label{eq:constraint-vanishes}
@@ -246,8 +265,8 @@ the definition of the projection. What is left is a functional in the motion
 alone,
 \begin{equation}
   \label{eq:collapsed}
-  \Pi[\disp] = \int_B W\supdev\!\left(\edev(\disp)\right) \diff V
-             + \int_B \tfrac{\kappa}{2}\left(\Pi_h \log J\right)^2 \diff V,
+  \Pi[\disp] = \int_B W\supiso\!\left(\bar{\F}(\disp)\right) \diff V
+             + \int_B \tfrac{\kappa}{2}\left(\Pi_h \theta\right)^2 \diff V,
 \end{equation}
 whose stationarity conditions are exactly the three-field equations of
 \S\ref{sec:variations}.
@@ -296,10 +315,11 @@ remains untested.
 
 Section~\ref{sec:meandilatation} shows the reduction is exact whenever $\bar p$
 and $\bar\theta$ share a space. That is a statement about the discretization
-and says nothing about the material. What the material must supply is a
-separate question, and the answer is weaker than \eqref{eq:energy} makes it
-look. Three conditions are involved, they are not equally necessary, and this
-note previously ran them together.
+and says nothing about the material. What the material must supply is
+\eqref{eq:energy}, and the two halves of it are requirements of quite different
+strength. Separating them matters, because an earlier version of this note ran
+them together with a third condition that is not a requirement of this section
+at all.
 
 \paragraph{An exact volumetric--isochoric split.} This one is structural. The
 element evaluates $W$ at the pointwise deformation, subtracts the pointwise
@@ -376,6 +396,7 @@ Simo--Hughes $J_2$ model that Norma and Carina both ship is quadratic in $J-1$
 to $1.1\times10^{-14}$. Each is exact in its own variable and wrong by $17\%$
 in the other, so the pair (material, volumetric variable) travels together and
 neither choice generalizes to the other material.
+\S\ref{sec:instances} develops both.
 
 The three remaining split materials --- neo-Hookean, its reciprocal, and
 Seth--Hill --- are excluded for now, not because the formulation fails on them
@@ -424,6 +445,90 @@ different elements, and they differ by about $3\%$ in exactly the
 finite-deformation regime this formulation exists to address. Which variable is
 projected is therefore a modeling decision, not a change of notation.
 \end{remark}
+
+\subsection{The two admissible instances}
+\label{sec:instances}
+
+Table~\ref{tab:split} leaves two materials. They agree on everything
+\S\ref{sec:kinematics}--\S\ref{sec:meandilatation} requires and differ in every
+instance-specific quantity the formulation touches; Table~\ref{tab:instances}
+collects both columns.
+
+\begin{table}[tbp]
+  \centering
+  \caption{The two instances of \eqref{eq:energy}. Everything above the rule is
+  fixed by the generic development; everything below it is where the instances
+  part company. $~b^{\mathrm e} := \F^{\mathrm e}\transpose{(\F^{\mathrm e})}$
+  is the elastic left Cauchy--Green tensor and
+  $\bar{~b}^{\mathrm e} := J^{-2/3}~b^{\mathrm e}$ its isochoric part.}
+  \label{tab:instances}
+  \begin{tabular}{lll}
+    \toprule
+                                & Hencky                       & Simo--Hughes \\
+    \midrule
+    volumetric variable $\theta$          & $\log J$           & $J - 1$ \\
+    $\theta'(J)$                          & $1/J$              & $1$ \\
+    $\partial\theta/\partial\F$           & $\F^{-\mathsf T}$  & $J\,\F^{-\mathsf T}$ \\
+    $W\supvol(\theta)$                    & $\tfrac{\kappa}{2}(\log J)^2$ & $\tfrac{\kappa}{2}(J-1)^2$ \\
+    \midrule
+    isochoric argument                    & $\edev = \dev\eps$, $\eps = \tfrac12\log\C$
+                                                               & $\bar{~b}^{\mathrm e}$ \\
+    $W\supiso$                            & $\mu\norm{\edev}^2$
+                                                               & $\tfrac{\mu}{2}(\trace\bar{~b}^{\mathrm e} - 3)$ \\
+    return map                            & radial return in $\eps$ & radial return on $\bar{~b}^{\mathrm e}$ \\
+    small-strain models port verbatim     & yes                & no \\
+    shipped in Norma and Carina           & elasticity only    & yes, with consistent tangent \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+The Hencky instance is the one \eqref{eq:hencky} defines: with
+\begin{equation}
+  \label{eq:hencky}
+  \eps := \tfrac{1}{2}\log\C \in \Syms,
+  \qquad \C := \transpose{\F}\F,
+\end{equation}
+evaluated by inverse scaling-and-squaring with Pad\'e approximants, the
+volumetric--deviatoric decomposition
+\begin{equation}
+  \label{eq:split}
+  \eps = \tfrac{1}{3}\theta\Id + \edev,
+  \qquad \theta = \trace\eps = \log J,
+  \qquad \edev = \dev\eps,
+\end{equation}
+is orthogonal in the Frobenius inner product, and the split of
+\eqref{eq:energy} is inherited from the strain measure rather than imposed on
+it. The Simo--Hughes instance imposes it instead, through the $J^{-2/3}$ factor
+in $\bar{~b}^{\mathrm e}$; $\det\bar{~b}^{\mathrm e} = 1$ then makes
+$W\supiso$ independent of $J$ by construction. Both are exact, and
+Table~\ref{tab:split} confirms it to machine precision in both cases. Three
+consequences are worth stating.
+
+\emph{The generic development covers both.} Nothing in
+\S\ref{sec:kinematics}--\S\ref{sec:meandilatation}, and nothing in the
+discretization of \S\ref{sec:fe-spaces}--\S\ref{sec:local}, refers to either
+column of Table~\ref{tab:instances}. The reduction \eqref{eq:collapsed}, the
+pointwise relation $\bar p = \kappa\bar\theta$, and the element-local
+elimination hold for any $\theta$ satisfying \eqref{eq:thetadef} and any
+$W\supiso$ satisfying \eqref{eq:energy}.
+
+\emph{The Stokes limit is instance-independent, and this matters for
+\S\ref{sec:results}.} By \eqref{eq:dtheta} and the normalization
+\eqref{eq:thetadef}, $\partial\theta/\partial\F = \Id$ at $\F = \Id$ in both
+columns, so the pairing that \S\ref{sec:fe-spaces} reduces to the Stokes
+pairing is the same for both. The inf-sup analysis, and with it the negative
+stability results of \S\ref{sec:beta}, therefore transfer between instances
+unchanged: those results are a property of the pair
+$(U_h, Q_h)$, not an artifact of having measured the logarithmic one.
+
+\emph{The instances are not interchangeable in plasticity, and this is the
+only place they are not.} The last two rows of Table~\ref{tab:instances} are
+the whole of the difference, and they follow from
+\eqref{eq:split}: only in the logarithmic instance is the constitutive law
+algebraically linear in the strain that the return map sees, which is what lets
+a small-strain algorithm be reused without reformulation. \S\ref{sec:plasticity}
+develops that instance. Remark~\ref{rem:whichj2} records that it is the other
+one both codes actually run.
 
 \subsection{Variations}
 \label{sec:variations}
@@ -606,6 +711,12 @@ and is the main reason the pressure is kept discontinuous.
 
 \section{Plasticity}
 \label{sec:plasticity}
+
+This section develops the \emph{logarithmic} instance of
+Table~\ref{tab:instances}. It is the only part of the formulation where the
+choice of instance changes anything, and the reason to prefer this one; what
+follows does not hold verbatim for the Simo--Hughes column, and
+Remark~\ref{rem:whichj2} records where that leaves the verification program.
 
 The deviatoric response is evaluated at quadrature points of the displacement
 element, on $\edev(\disp)$ computed there. Because the constitutive law is
