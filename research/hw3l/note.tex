@@ -68,8 +68,8 @@ arbitrary, and \S\ref{sec:matreq} says how far it is not: the stored energy
 must split exactly into volumetric and isochoric parts, with the volumetric
 part quadratic in the variable that gets projected. Five of the seven materials
 implemented in Norma admit the split and two admit it quadratically --- Hencky
-in $\log J$, and the Simo--Hughes $J_2$ model in $J-1$ --- so a material and
-its volumetric variable travel as a pair.
+in $\log J$, and the Simo--Hughes $J_2$ model in $J-1$ --- so the material and
+its volumetric variable are not chosen independently.
 
 The working hypothesis is that volumetric locking and spurious soft modes are
 two failure directions of a single inf-sup condition, so that an inf-sup stable
@@ -82,12 +82,12 @@ Numerical work on that question is reported here and is so far negative for the
 pairs that can be built. Both element-local candidates --- constant and linear
 discontinuous pressure over a quadratic tetrahedron --- were measured
 \emph{unstable} against a Taylor--Hood control that behaves correctly, and a
-degree-of-freedom count that clears a pair turns out to be necessary and not
-sufficient. The bubble-enriched pair the formulation wants is not excluded but
+degree-of-freedom count that clears a pair is necessary and not sufficient. The
+bubble-enriched pair the formulation requires is not excluded but
 is unverified, for want of an element to test it on. The soft-mode argument
 against a constant pressure did not survive assembly and has been withdrawn;
 the locking argument did, and is now the case for enrichment. The measurement
-that motivated the whole exercise --- whether plastic strain fields come out
+this formulation is intended to address --- whether plastic strain fields are
 smooth --- remains untested, and will be made on the Simo--Hughes model both
 codes ship rather than on the logarithmic return map specified here.
 \end{abstract}
@@ -105,7 +105,7 @@ quasi-static and dynamic regimes.
 Two established remedies fall short in ways that are instructive, and the
 diagnosis below is the reason for the choices that follow.
 
-\paragraph{Constant pressure buys locking relief and pays in soft modes.}
+\paragraph{Constant pressure relieves locking at the cost of soft modes.}
 The composite tetrahedron \citep{Thoutireddy.etal:2002, Ostien.etal:2016} and
 its five-field extension \citep{Foulk.etal:2021} mitigate volumetric locking
 with an element-constant pressure. \citet{Foulk.etal:2021} report that this
@@ -172,8 +172,8 @@ The mixed field is a scalar function of $J$ alone. Let
   \qquad \theta'(1) = 1,
 \end{equation}
 be a strictly increasing volumetric strain measure, normalized to vanish with
-unit slope in the undeformed state. The normalization is not cosmetic. It is
-what makes $\kappa$ in \eqref{eq:energy} the physical bulk modulus for every
+unit slope in the undeformed state. The normalization has two consequences. It
+makes $\kappa$ in \eqref{eq:energy} the physical bulk modulus for every
 admissible $\theta$, so that two instances of the formulation are calibrated to
 the same material rather than to two different ones. And since
 $\partial J/\partial\F = J\F^{-\mathsf T}$,
@@ -216,7 +216,7 @@ logarithmic measure specifically --- that the element-local elimination of
 
 The isochoric response is whatever $W\supiso$ the material supplies. It is
 evaluated at the pointwise $\bar{\F}$ and is never projected, which is the
-property \S\ref{sec:plasticity} turns on. Plasticity acts entirely inside
+property \S\ref{sec:plasticity} requires. Plasticity acts entirely inside
 $W\supiso$, through an isochoric internal variable evolved by a return map;
 neither \eqref{eq:energy} nor \eqref{eq:constitutive} changes when it does.
 
@@ -246,8 +246,8 @@ discussed in Remark~\ref{rem:whynodev}.
 \subsection{What the functional reduces to}
 \label{sec:meandilatation}
 
-It is worth being blunt about what \eqref{eq:hw} is, because the answer places
-this formulation in a lineage rather than outside one.
+Equation \eqref{eq:hw} belongs to an established lineage, and identifying that
+lineage is a precondition for assessing what in the formulation is new.
 
 Put $\bar\theta$ and $\bar p$ in the same discrete space $Q_h$, which
 \S\ref{sec:fe-spaces} does for reasons of its own. Stationarity in $\bar\theta$
@@ -276,8 +276,7 @@ whose stationarity conditions are exactly the three-field equations of
 Equation~\eqref{eq:collapsed} is a displacement formulation carrying a
 projected volumetric strain --- the mean-dilatation construction of
 \citet{SimoTaylorPister:1985}, and the mechanism of the $\bar{B}$ and
-$\bar{F}$ families. Three consequences follow, and none of them should be
-soft-pedalled.
+$\bar{F}$ families. Three consequences follow.
 
 The reduction is \emph{exact}, not an approximation, and the reason is
 \eqref{eq:constraint-vanishes} and nothing else: $\bar p$ lies in $Q_h$, and
@@ -290,8 +289,8 @@ two auxiliary fields share one space --- look like a property of the
 \emph{material}. What the material must actually supply is weaker, and is set
 out in \S\ref{sec:matreq}: an exact volumetric--isochoric split, without which
 the subtraction leaves volumetric content inside the ``deviatoric'' term and
-the formulation is quietly rather than visibly wrong. The implementation in
-Norma refuses materials that fail it.
+the formulation is incorrect with no accompanying symptom. The implementation
+in Norma refuses materials that fail it.
 
 The novelty here is therefore \emph{not the mechanism}. Projecting the
 volumetric strain is four decades old. What is open, and what
@@ -301,13 +300,13 @@ single constant per element, and which \S\ref{sec:beta} shows is not a free
 choice.
 
 And it means this formulation shares its mechanism with the $\bar{F}$ lineage
-it is meant to improve on. That is worth stating plainly rather than leaving a
-reader to discover it. The claim is not that the mechanism is new; it is that
+it is meant to improve on. The claim is not that the mechanism is new; it is
+that
 the mechanism was never the problem, and that the constant-pressure choice made
 alongside it was. Whether replacing that choice is enough is what the
 verification list of \S\ref{sec:verify} is for, and item~4 --- the smoothness
-of plastic strain fields, the failure that motivated the whole exercise ---
-remains untested.
+of plastic strain fields, the failure this formulation is intended to
+address --- remains untested.
 \end{remark}
 
 \subsection{What the formulation requires of the material}
@@ -321,7 +320,8 @@ strength. Separating them matters, because an earlier version of this note ran
 them together with a third condition that is not a requirement of this section
 at all.
 
-\paragraph{An exact volumetric--isochoric split.} This one is structural. The
+\paragraph{An exact volumetric--isochoric split.} This condition is
+structural. The
 element evaluates $W$ at the pointwise deformation, subtracts the pointwise
 volumetric energy and adds it back at the projected strain, so the subtraction
 must leave no volumetric remainder:
@@ -338,11 +338,11 @@ $W\supvol$: if the split exists then $W(\F) - W(\bar{\F}) = W\supvol(J) -
 W\supvol(1)$ depends on $J$ alone, so holding $J$ fixed while varying the
 isochoric part must leave the difference unmoved. Column~2 of
 Table~\ref{tab:split} is that test, run over every material Norma implements.
-Five of the seven pass, which is four more than the implementation currently
+Five of the seven satisfy it, four more than the implementation currently
 admits.
 
-\paragraph{A quadratic $W\supvol$.} This one is a convenience, and it is worth
-saying plainly that it is only that. Stationarity in $\bar\theta$ gives
+\paragraph{A quadratic $W\supvol$.} This condition is a convenience and not a
+necessity. Stationarity in $\bar\theta$ gives
 \begin{equation}
   \label{eq:pbar-general}
   \bar p = \Pi_h\!\left(\partial W\supvol/\partial\bar\theta\right)
@@ -355,8 +355,9 @@ single linear element-local solve rather than a local Newton iteration on
 $\bar\theta$. The reduction \eqref{eq:collapsed} is exact either way; only the
 cost of the elimination changes.
 
-\paragraph{The logarithmic measure itself.} This one is required by nothing in
-the present section. It is required by \S\ref{sec:plasticity}, and for an
+\paragraph{The logarithmic measure itself.} This condition is required by
+nothing in
+the present section. It is required by \S\ref{sec:plasticity}, for an
 unrelated reason: only in logarithmic strain is the constitutive law
 algebraically linear, which is what allows a small-strain return map to be
 reused verbatim.
@@ -394,14 +395,14 @@ Table~\ref{tab:split} admits exactly two, and they do not agree on the
 variable: Hencky is quadratic in $\log J$ to $4.4\times10^{-15}$, and the
 Simo--Hughes $J_2$ model that Norma and Carina both ship is quadratic in $J-1$
 to $1.1\times10^{-14}$. Each is exact in its own variable and wrong by $17\%$
-in the other, so the pair (material, volumetric variable) travels together and
-neither choice generalizes to the other material.
+in the other, so material and volumetric variable are not independently
+selectable, and neither choice generalizes to the other material.
 \S\ref{sec:instances} develops both.
 
 The three remaining split materials --- neo-Hookean, its reciprocal, and
-Seth--Hill --- are excluded for now, not because the formulation fails on them
-but because admitting them costs more than it currently buys. What they would
-need is set out in Remark~\ref{rem:nonquadratic}.
+Seth--Hill --- are excluded here. The formulation does not fail on them; the
+cost of admitting them exceeds the present benefit, and the requirements are
+set out in Remark~\ref{rem:nonquadratic}.
 
 \begin{remark}[Extending to a non-quadratic $W\supvol$]
 \label{rem:nonquadratic}
@@ -413,7 +414,8 @@ First, \eqref{eq:projection} stops being a linear solve. $\bar\theta = \Pi_h
 obtained from \eqref{eq:pbar-general}, which for a nonlinear $W\supvol{}'$
 requires projecting a nonlinear function of $\bar\theta$ --- a local Newton
 iteration per element, on as many scalars as $Q_h$ has dimensions per element.
-That is cheap per iteration and element-local, so \S\ref{sec:local} survives,
+The cost per iteration is small and the solve is element-local, so
+\S\ref{sec:local} survives,
 but it introduces a local solve that can fail to converge where the global one
 would not.
 
@@ -421,8 +423,7 @@ Second, the tangent acquires a term in $W\supvol{}''(\bar\theta)$ that is no
 longer constant, so the factorization reused across every Newton iteration in
 \S\ref{sec:local} must be refreshed whenever $\bar\theta$ moves.
 
-Third, and least obviously, the choice of volumetric variable stops being
-forced. For a quadratic $W\supvol$ the variable is whichever one makes it
+Third, the choice of volumetric variable is no longer determined. For a quadratic $W\supvol$ the variable is whichever one makes it
 quadratic, and Table~\ref{tab:split} settles it. For a non-quadratic
 $W\supvol$ any monotone $\theta(J)$ is admissible, and by
 Remark~\ref{rem:thetachoice} the choice changes the element. It would have to
@@ -458,7 +459,7 @@ collects both columns.
   \centering
   \caption{The two instances of \eqref{eq:energy}. Everything above the rule is
   fixed by the generic development; everything below it is where the instances
-  part company. $~b^{\mathrm e} := \F^{\mathrm e}\transpose{(\F^{\mathrm e})}$
+  differ. $~b^{\mathrm e} := \F^{\mathrm e}\transpose{(\F^{\mathrm e})}$
   is the elastic left Cauchy--Green tensor and
   $\bar{~b}^{\mathrm e} := J^{-2/3}~b^{\mathrm e}$ its isochoric part.}
   \label{tab:instances}
@@ -501,8 +502,8 @@ is orthogonal in the Frobenius inner product, and the split of
 it. The Simo--Hughes instance imposes it instead, through the $J^{-2/3}$ factor
 in $\bar{~b}^{\mathrm e}$; $\det\bar{~b}^{\mathrm e} = 1$ then makes
 $W\supiso$ independent of $J$ by construction. Both are exact, and
-Table~\ref{tab:split} confirms it to machine precision in both cases. Three
-consequences are worth stating.
+Table~\ref{tab:split} confirms both to machine precision. Three consequences
+follow.
 
 \emph{The generic development covers both.} Nothing in
 \S\ref{sec:kinematics}--\S\ref{sec:meandilatation}, and nothing in the
@@ -523,12 +524,12 @@ $(U_h, Q_h)$, not an artifact of having measured the logarithmic one.
 
 \emph{The instances are not interchangeable in plasticity, and this is the
 only place they are not.} The last two rows of Table~\ref{tab:instances} are
-the whole of the difference, and they follow from
+the entire difference, and they follow from
 \eqref{eq:split}: only in the logarithmic instance is the constitutive law
 algebraically linear in the strain that the return map sees, which is what lets
 a small-strain algorithm be reused without reformulation. \S\ref{sec:plasticity}
 develops that instance. Remark~\ref{rem:whichj2} records that it is the other
-one both codes actually run.
+one that both codes implement.
 
 \subsection{Variations}
 \label{sec:variations}
@@ -659,7 +660,7 @@ discontinuous pressure requires bubble enrichment.}
 \label{tab:pairs}
 \end{table}
 
-The pair this formulation \emph{wants} is $P_2$ enriched with face and interior
+The pair this formulation \emph{requires} is $P_2$ enriched with face and interior
 bubbles over $P_1^{\mathrm{disc}}$: the bubbles are element-interior and
 condense locally, so they add no global degrees of freedom and the elimination
 of \S\ref{sec:local} stays element-by-element.
@@ -743,8 +744,8 @@ interpolation error enters the history. Frame-indifferent interpolation, when
 tensorial internal variables must be transferred, follows
 \citet{Mota.etal:2013}.
 
-Three properties are worth stating because they are the reasons for the
-formulation rather than incidental to it.
+Three properties follow. They are the motivation for the formulation rather
+than incidental consequences of it.
 
 \emph{The constitutive law is untouched.} All finite-deformation content is
 absorbed into two material-\emph{independent} geometric transforms: the forward
@@ -768,7 +769,7 @@ strain in stabilized formulations has no mechanism here.
 penalty and no tuned coefficient anywhere in the formulation, so nothing of the
 form \eqref{eq:vms} can reach the return map.
 
-\begin{remark}[What the codes actually ship, and what claim~4 will be measured on]
+\begin{remark}[The model implemented in both codes, and its bearing on claim~4]
 \label{rem:whichj2}
 Equation \eqref{eq:return} is the return map this formulation specifies.
 Neither Norma nor Carina implements it. Both ship the Simo--Hughes $J_2$ model
@@ -780,7 +781,7 @@ $\det\bar{~b}^{\mathrm e} = 1$ makes the isochoric term independent of $J$ by
 construction rather than by an identity --- and its $W\supvol$ is quadratic in
 $J-1$, so it is admissible here in the variable $J-1$.
 
-Two consequences should not be glossed. The first is that claim~4 of
+Two consequences follow. The first is that claim~4 of
 \S\ref{sec:verify} will be measured on Simo--Hughes unless a logarithmic $J_2$
 is written for the purpose; the smoothness of equivalent plastic strain is a
 question about whether strain and stress cross discretizations, which is
@@ -835,7 +836,8 @@ independent $\bar\sdev$, the residual must be assembled from
 
 Two experiments have been run. Both work on the linear condensed operator
 \eqref{eq:condensed}, so neither needs a solver, a material model, or a mesh
-reader; the scripts are in \code{prototype/} and each prints its own verdict.
+reader; the scripts are in \code{prototype/}, and each reports its own
+result.
 
 \subsection{Method}
 \label{sec:method}
@@ -943,7 +945,7 @@ with it the question of whether bubble enrichment is needed in practice.
 
 Section~\ref{sec:firstresult} settled which modes exist on one element. Whether
 the constant in the stability estimate survives refinement is a property of a
-mesh sequence, and the answer turns out not to need an eigenvalue at all.
+mesh sequence, and determining it does not require an eigenvalue computation.
 
 Write $n_u$ for the number of free displacement degrees of freedom and $n_p$
 for the pressure degrees of freedom. The Schur complement of the mixed system
@@ -1011,8 +1013,8 @@ expected.
 The element census of \S\ref{sec:firstresult} is a local statement. An
 element-local mode survives assembly only if its trace is compatible with every
 neighbor across every shared face, so the global count can be far smaller than
-$3n_{\mathrm{el}}$ --- and it is worth knowing whether it is, because that count
-is what the argument against a constant pressure rests on.
+$3n_{\mathrm{el}}$, and whether it is bears directly on the argument against a
+constant pressure, which rests on that count.
 
 Table~\ref{tab:assembled} assembles $~K\supdev + \kappa \transpose{~G} ~M^{-1}
 ~G$ over meshes under two boundary conditions: the whole boundary fixed, and
@@ -1055,7 +1057,7 @@ Zero spurious modes, under both boundary conditions, at every mesh. Nor are
 they present as merely low-energy ones: the smallest eigenvalue relative to the
 deviatoric scale is $1.51\times10^{-3}$ for $P_0$ against $1.84\times10^{-3}$
 for $P_1^{\mathrm{disc}}$ on the same mesh --- indistinguishable, and both
-simply reflecting the long-wavelength modes of a lightly held block. The three
+both reflecting the long-wavelength modes of a lightly constrained block. The three
 modes per element of \S\ref{sec:firstresult} are real but element-local, and
 their traces do not match across faces.
 
@@ -1064,26 +1066,26 @@ not supported at the assembled level, and the earlier framing of it here
 overstated the case. The composite tetrahedron of \citet{Foulk.etal:2021} is
 built on a subdivided-linear displacement space rather than $P_2$, which is a
 different kernel and is not modeled here; that lineage's soft mode may well be
-specific to it. Nothing above contradicts their observation --- it simply fails
-to reproduce it on a quadratic tetrahedron.
+specific to it. Nothing above contradicts their observation; it does not
+reproduce it on a quadratic tetrahedron.
 
 \paragraph{The unenriched pair locks, and that is the real objection.}
 With the boundary fixed, $P_2/P_1^{\mathrm{disc}}$ retains 3--7\% of its
 deformation modes as $\kappa$ grows, against 58--63\% for $P_0$. Under lighter
 support it is 37--41\% against 80\%. Either way it is the pair that
 over-constrains, and locking is a far more damaging failure in practice than a
-spurious mode, because it is silent: the element simply returns a stiff answer.
+spurious mode, because it is silent: the element returns a stiff response.
 
 Adding one vector bubble per element raises the isochoric fraction to
 0.56--0.62, in line with $P_0$ and without $P_0$'s element-level degeneracy.
 That, rather than the soft-mode argument, is what the enrichment is for.
 
-\subsection{Stability, measured against a validated instrument}
+\subsection{Stability, measured against a validated control}
 \label{sec:beta}
 
 The counting argument of \S\ref{sec:infsup} is \emph{necessary}. Whether it is
-sufficient is a different question, and the answer is no --- which is worth
-establishing carefully, because this note leaned on the count.
+sufficient is a different question, and the answer is no. Establishing this
+carefully matters, because an earlier version of this note relied on the count.
 
 Two changes make a long mesh sequence reachable. With $~K = \transpose{~P} ~L
 \transpose{~L} ~P$ from a sparse Cholesky, $\transpose{q} ~G ~K^{-1}
@@ -1096,8 +1098,8 @@ the cut is taken by index rather than by guessing a threshold. In practice the
 gap is unambiguous: $O(10^{-15})$ below it against $O(10^{-2})$ above.
 
 Crucially the sweep now carries a \emph{positive} control. A negative control
-alone --- $P_1/P_0$, known unstable --- cannot catch an instrument that
-condemns everything.
+alone --- $P_1/P_0$, known unstable --- cannot detect a test that reports every
+pair as unstable.
 
 \begin{table}[h]
 \centering
@@ -1117,8 +1119,8 @@ over the last four points. Script: \code{prototype/beta.jl}.}
 
 The control behaves exactly as it must: $\beta_h$ rises and settles on
 $0.2216$, flat to three digits over the last three refinements. Taylor--Hood is
-stable in three dimensions and the instrument says so, which is what licenses
-reading the other two rows.
+stable in three dimensions and the test reports it as such, which is what
+validates reading the other two rows.
 
 And they say that \textbf{neither element-local pair is uniformly stable on
 this mesh family}. $P_2/P_0$ decays at a rate approaching one, despite passing
@@ -1139,8 +1141,8 @@ bubble element exists to test.
 These results are for the Freudenthal subdivision, a highly structured family,
 and structured meshes are where pair counterexamples characteristically live
 --- the $P_1/P_0$ checkerboard is at its worst on them. A pair can degenerate
-on a structured mesh and behave on a general one. So the honest statement is
-that $P_2/P_0$ and $P_2/P_1^{\mathrm{disc}}$ decay \emph{here}; confirming that
+on a structured mesh and remain well behaved on a general one. The accurate
+statement is that $P_2/P_0$ and $P_2/P_1^{\mathrm{disc}}$ decay \emph{here}; confirming that
 as a property of the pairs rather than of the mesh needs a sequence of
 unstructured meshes, which this study does not have.
 \end{remark}
@@ -1150,7 +1152,7 @@ unstructured meshes, which this study does not have.
 
 Table~\ref{tab:infsup} reports \eqref{eq:infsup-eig} over the same mesh family,
 with $P_1/P_0$ included as a control: it is known unstable, so a test that
-fails to condemn it is not measuring what it claims to.
+fails to identify it as such is not measuring what it purports to measure.
 
 \begin{table}[h]
 \centering
@@ -1203,15 +1205,15 @@ meshes several refinements finer.
 The contrast between the two tests is the methodological point. The counting
 argument is exact, needs no solver, and scales to any mesh size; the spectral
 one is approximate, expensive, and here mostly re-derives what counting already
-gave. Where a necessary condition settles the question, it is worth checking
-before reaching for the eigenvalues.
+gave. Where a necessary condition settles the question, it should be checked
+before the eigenvalue computation is attempted.
 \end{remark}
 
 \section{What must be verified}
 \label{sec:verify}
 
-The formulation rests on claims that are falsifiable, and the point of stating
-them plainly is to make the first round of numerical work decisive.
+The formulation rests on falsifiable claims. They are stated explicitly so
+that the first round of numerical work is decisive.
 
 \begin{enumerate}
   \item \textbf{The pair is inf-sup stable in three dimensions, uniformly on
@@ -1285,12 +1287,13 @@ be explicit, this trade needs measuring before commitment.
 \S\ref{sec:matreq} requires an exact volumetric--isochoric split with a
 quadratic volumetric energy, and of the seven materials Norma implements only
 two qualify. That is narrower than the earlier framing of this note implied,
-and it cuts against the claim of material-agnosticism that motivated a
-Hu--Washizu structure in the first place. Two mitigations exist and neither is
-free: admitting the three split-but-non-quadratic materials costs a local
+and it weakens the claim of material-agnosticism that motivated the choice of
+a Hu--Washizu structure. Two mitigations exist, and neither is without cost:
+admitting the three split-but-non-quadratic materials costs a local
 Newton per element (Remark~\ref{rem:nonquadratic}), and anisotropic or
 non-separable models are outside the split altogether and would need the
-five-field variant of \S\ref{sec:fivefield} or something else again. The
+five-field variant of \S\ref{sec:fivefield} or a different treatment
+entirely. The
 restriction should be stated whenever the formulation is compared against
 $\bar F$, which carries no such requirement.
 
@@ -1300,8 +1303,8 @@ $\bar F$, which carries no such requirement.
 \citep{BoffiBrezziFortin:2013} are all established. The contribution, if there
 is one, is the claim that combining them correctly removes the need for the
 stabilization that both the composite-tetrahedron and variational-multiscale
-lineages carry --- and that claim is worth exactly what the numerical evidence
-turns out to be worth. Face-hybridized methods
+lineages carry --- and that claim carries only the weight of the numerical
+evidence supporting it. Face-hybridized methods
 \citep{AbbasErnPignet:2019} remain the alternative to weigh if it fails.
 
 \bibliographystyle{plainnat}
