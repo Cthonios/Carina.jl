@@ -12,17 +12,26 @@
 # the wrong yardstick.  If the two are close, the cost is in the memory
 # movement and the bandwidth framing stands.
 #
-# Usage:  julia --project=bin benchmark/action_bench.jl [nreps]
+# Usage:  julia --project=bin benchmark/action_bench.jl [nreps] [state] [device]
+#
+#   nreps   repetitions of each timed action (default 50)
+#   state   `initial` (U = 0) or `deformed` (after one load step)
+#   device  `auto` (default), `rocm`, or `cuda`
+#
+# The benchmark is vendor-neutral like the rest of the suite: everything below
+# the backend resolution goes through KernelAbstractions.  It ran only on ROCm
+# originally, which is why the FP64 reading in benchmark_report.md section 6 is
+# a single-vendor result; the L4 gives it a second data point on a card whose
+# FP64 rate differs from its FP32 rate by a different factor.
 
 import AMDGPU
+import CUDA
 using Carina
 import Carina: FEC
 import KernelAbstractions as KA
 using Printf
 using Statistics
 using Random
-
-AMDGPU.functional() || error("no functional AMD GPU; this benchmark is GPU-only")
 
 const NREPS = length(ARGS) >= 1 ? parse(Int, ARGS[1]) : 50
 
@@ -35,6 +44,27 @@ const STATE = length(ARGS) >= 2 ? ARGS[2] : "initial"
 STATE in ("initial", "deformed") ||
     error("state must be \"initial\" or \"deformed\", got \"$STATE\"")
 
+# Backend resolution, matching bin/carina.jl.  An unknown name is an error
+# rather than a silent fall back to the CPU, which would report timings that
+# look like a very slow GPU.
+const DEVICE = length(ARGS) >= 3 ? lowercase(ARGS[3]) : "auto"
+function _resolve(dev)
+    if dev == "rocm"
+        AMDGPU.functional() || error("device rocm: no functional AMD GPU found.")
+        return AMDGPU.ROCBackend()
+    elseif dev == "cuda"
+        CUDA.functional() || error("device cuda: no functional NVIDIA GPU found.")
+        return CUDA.CUDABackend()
+    elseif dev == "auto"
+        AMDGPU.functional() && return AMDGPU.ROCBackend()
+        CUDA.functional() && return CUDA.CUDABackend()
+        error("no functional GPU found; this benchmark is GPU-only.")
+    end
+    return error("Unknown device \"$dev\". Expected auto, rocm, or cuda.")
+end
+const GPU_BACKEND = _resolve(DEVICE)
+@info "action_bench" nreps=NREPS state=STATE device=DEVICE backend=GPU_BACKEND
+
 const REPO  = normpath(joinpath(@__DIR__, ".."))
 const DECK  = joinpath(REPO, "benchmark", "inputs", "torsion-qs-gpu-cg-jacobi.yaml")
 
@@ -44,7 +74,7 @@ dict["output mesh file"] = tempname() * ".e"
 # One load step is enough to leave U = 0; the full 4-step ramp costs minutes.
 STATE == "deformed" && (dict["time integrator"]["final time"] = 0.25)
 
-sim = Carina.create_simulation(dict, mktempdir(); backend = AMDGPU.ROCBackend())
+sim = Carina.create_simulation(dict, mktempdir(); backend = GPU_BACKEND)
 STATE == "deformed" && Carina.evolve!(sim)
 
 ig, asm, p = sim.integrator, sim.integrator.asm, sim.params

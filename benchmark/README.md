@@ -11,7 +11,7 @@ generation, the measurement harness, sweep scripts, and the raw results.
 | `cases.jl` | Single source of truth for case/variant definitions (decks and harness both derive from it) |
 | `write_inputs.jl` | Regenerates `inputs/` from `cases.jl` |
 | `harness.jl` | Measurement harness: one (case, variant) per fresh process, appends a JSON-lines record to `results/<tag>.jsonl` |
-| `action_bench.jl` | Times the matrix-free stiffness action in isolation, on device — the microbenchmark behind the kernel analysis in the report |
+| `action_bench.jl` | Times the matrix-free stiffness action against the mass action in isolation, on device — the microbenchmark behind the kernel analysis in the report.  Takes `[nreps] [initial\|deformed] [auto\|rocm\|cuda]` |
 | `explicit_sweep.jl` | Explicit-dynamics CPU-vs-GPU harness: one (size, device) per fresh process, same JSON-lines contract |
 | `meshgen.jl` | Structured HEX8 cube mesh generator for the large cases |
 | `torsiongen.jl` | Structured HEX8 torsion-bar generator at arbitrary refinement (`N=20` reproduces `torsion.g`) |
@@ -46,7 +46,8 @@ bin/carina benchmark/inputs/torsion-qs-gpu-cg-amg.yaml --device cpu  # override 
 
 Outputs (`.e`, `.log`) land next to the deck and are gitignored.  The
 `cube-qs-*` decks are the 81-DOF smoke case — seconds, good for checking a
-setup.  Note `--device cuda` is untested (report §7).
+setup.  Both `--device rocm` and `--device cuda` are exercised: ROCm on the
+RX 7600, CUDA on the V100, A100 and L4.
 
 For measured runs (iteration counts, phase timings, VRAM) use the harness
 instead; it runs each combination in a fresh process and appends to
@@ -88,19 +89,23 @@ the RX 7600's 8 GB capacity cap; records in
 original sweep's CPU baseline (the 5.7 GHz desktop host, 24 threads — the
 fastest CPU measured per core) alongside:
 
-| N | DOF | desktop CPU | Rigel 48T | RX 7600 | V100 | A100 | A100 / CPU |
-|---:|---:|---:|---:|---:|---:|---:|---:|
-| 8 | 39k | 1.84 | 1.67 | 1.42 | 0.69 | 0.43 | 4.3x |
-| 12 | 122k | 5.62 | 2.97 | 1.86 | 1.29 | 0.90 | 6.2x |
-| 20 | 531k | 23.6 | 12.2 | 6.63 | 4.68 | 2.45 | 9.6x |
-| 28 | 1.42M | 63.0 | 34.4 | 17.7 | 12.0 | 5.93 | 10.6x |
-| 36 | 2.96M | 131.1 | 75.4 | 37.6 | 25.4 | 12.8 | 10.3x |
-| 44 | 5.35M | 231.4 | 128.0 | 68.8 | 46.8 | 23.8 | 9.7x |
-| 50 | 7.81M | 341.5 | 181.3 | 100.5 | 71.0 | 34.5 | **9.9x** |
-| 64 | 16.2M | — | 368.0 | — (OOM) | 148.7 | 73.7 | — |
-| 72 | 23.0M | — | — | — | 219.0 | — | — |
-| 80 | 31.5M | — | 708.7 | — | — | 158.7 | — |
-| 100 | 61.2M | — | 1806 | — | — | — | — |
+| N | DOF | desktop CPU | Rigel 48T | RX 7600 | L4 | V100 | A100 | A100 / CPU |
+|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| 8 | 39k | 1.84 | 1.67 | 1.42 | 0.58 | 0.69 | 0.43 | 4.3x |
+| 12 | 122k | 5.62 | 2.97 | 1.86 | 1.34 | 1.29 | 0.90 | 6.2x |
+| 20 | 531k | 23.6 | 12.2 | 6.63 | 4.68 | 4.68 | 2.45 | 9.6x |
+| 28 | 1.42M | 63.0 | 34.4 | 17.7 | 12.6 | 12.0 | 5.93 | 10.6x |
+| 36 | 2.96M | 131.1 | 75.4 | 37.6 | 27.9 | 25.4 | 12.8 | 10.3x |
+| 44 | 5.35M | 231.4 | 128.0 | 68.8 | 51.6 | 46.8 | 23.8 | 9.7x |
+| 50 | 7.81M | 341.5 | 181.3 | 100.5 | 78.3 | 71.0 | 34.5 | **9.9x** |
+| 64 | 16.2M | — | 368.0 | — (OOM) | 175.0 | 148.7 | 73.7 | — |
+| 72 | 23.0M | — | — | — | — | 219.0 | — | — |
+| 80 | 31.5M | — | 708.7 | — | — | — | 158.7 | — |
+| 100 | 61.2M | — | 1806 | — | — | — | — | — |
+
+The L4 column is a 72 W inference card added to Rigel on 2026-09-08; records in
+`results/explicit-rigel-l4.jsonl`.  It matches the V100 within 10% from N=20 to
+N=50 and runs N=64 where the 8 GB RX 7600 is out of memory.
 
 Rigel is a dual EPYC 9634 (168 cores / 336 threads, 1.5 TB); records in
 `results/explicit-rigel{,-threads}.jsonl`.  Its column is the machine's
@@ -115,10 +120,10 @@ GPUs where atomics were free) — worth porting to the CPU path only if
 big-CPU-node explicit becomes a real target.
 
 - **Per-element cost is flat everywhere** once past launch overhead:
-  ~13.5–15.5 ns/elem (A100), ~27–29 (V100), ~40 (RX 7600), ~70–80
-  (Rigel at 48T), ~135–145 (desktop CPU).  No scaling cliff up to 31.5M
+  ~13.5–15.5 ns/elem (A100), ~27–29 (V100), ~29–33 (L4), ~40 (RX 7600),
+  ~70–80 (Rigel at 48T), ~135–145 (desktop CPU).  No scaling cliff up to 31.5M
   DOF; memory capacity, not bandwidth, is the ceiling (~1.0–1.3 KB/DOF
-  on all three cards).
+  on every card measured).
 - **Against the fastest CPU measured, the saturated ratios are A100 ~10x,
   V100 ~5x, RX 7600 3.4x** — stable across the size range because the CPU
   is flat per element too.  The CPU ladder stops at N=50; the A100 runs
@@ -128,10 +133,17 @@ big-CPU-node explicit becomes a real target.
   the A100 at N=50).  Rigel's niche is capacity: it runs 61.2M DOF at
   1.8 s/step — 2x past the A100's 40 GB ceiling with room for far more —
   so CPU nodes are for problems that do not fit a GPU, not for speed.
-- **The explicit ordering is A100 > V100 > RX 7600** — unlike the implicit
-  gather kernel, where the RX 7600's Infinity Cache put it ahead of the
-  V100.  The explicit internal-force kernel follows FP64 throughput
-  (the 7600 runs FP64 at 1/32 rate), not cache capacity.
+- **The explicit ordering is A100 > V100 ≈ L4 > RX 7600.** An earlier version
+  of this file attributed that ordering to FP64 throughput, on the strength of
+  the RX 7600's 1/32 rate.  The L4 refutes it: its FP64 peak is *lower* than
+  the RX 7600's (0.489 vs 0.68 TFLOP/s) and it is 1.35x faster per element,
+  and it has 1/16 the V100's FP64 peak while tying it.  Bandwidth does not
+  explain the ordering either — it accounts for A100 over V100 (1.73x
+  bandwidth, 1.93x speed) and fails on the L4 (0.33x the V100's bandwidth at
+  parity).  What actually binds this kernel is open; the same question on the
+  implicit action is worked in `evidence/action_l4_cuda.txt`, which shows the
+  arithmetic/memory split is itself vendor-dependent (75% arithmetic on the
+  RX 7600, 49% on the L4).
 - **GPU-vs-same-host-CPU at N=20**: 7.4x on ascicgpu073 (2.45 vs 18.1 ms,
   24 threads), 7.2x on ascicgpu24 (4.68 vs 33.6) — against 3.6x for the
   RX 7600 over the desktop host.  "Fast CPU" means fast per core: at 24

@@ -343,11 +343,17 @@ At 530k DOF the action costs **9.50 ms**, of which:
 
 Three findings worth carrying forward:
 
-- **The kernel is FP64-compute-bound, not bandwidth-bound.** It moves ~15 GB/s
-  against the card's 288 GB/s, but that low fraction is arithmetic intensity,
-  not waste: a matrix-free method is meant to trade bytes for flops. A FLOP
-  budget puts it at **roughly 40–50% of this card's FP64 peak** (~0.68 TFLOP/s
-  at the 1/32 rate). FP64 throughput is the binding ceiling.
+- **The kernel is arithmetic-bound on this card, but not by FP64 peak.** It
+  moves ~15 GB/s against the card's 288 GB/s, and that low fraction is
+  arithmetic intensity rather than waste: a matrix-free method is meant to
+  trade bytes for flops. Arm C below isolates the arithmetic at ~75% of the
+  action *on this card*. An earlier version of this bullet went further and
+  put it at 40–50% of the card's 0.68 TFLOP/s FP64 peak, calling FP64
+  throughput the binding ceiling; a second vendor refutes that reading. The
+  L4 has 28% *less* FP64 peak and runs the same action 1.87x faster, its
+  arithmetic share is 49% rather than 75%, and the FLOP budget implied by
+  40–50% here would demand 179% of the L4's FP64 peak there — impossible.
+  See `evidence/action_l4_cuda.txt`; what does bind is open item 11 in §7.
 - **The FP64 atomic scatter costs nothing.** Replacing every atomic with a
   plain non-atomic add — wrong results, valid timing — changes the kernel time
   by 1.4%, inside the noise, at both the pre- and post-optimization operating
@@ -452,14 +458,23 @@ sparse-matrix bandwidth, and it is why the Float32 smoother in §2 works.
    machinery exists), ν/cycle-shape tuning, or ℓ1-Jacobi.
 7. **Map the Newmark large-Δt crossover.** AMG should win once Δt grows enough
    that `c_M` stops conditioning the system; that Δt is unknown.
-8. **CUDA validation.** The implementation is KernelAbstractions-portable and
-   contains no ROCm-specific paths, but only ROCm has been exercised.
+8. ~~**CUDA validation.**~~ *Done.* CUDA has been exercised on the V100, A100
+   and L4, and `evidence/action_l4_cuda.txt` shows the stiffness-action
+   checksum agreeing with ROCm to 13 significant digits. What remains open is
+   narrower and is now item 11.
 9. **Profile** for occupancy and register pressure, which ablation cannot reach.
    `rocprofv3` is not packaged by Fedora but ships in AMD's own ROCm
    repositories and is usable from a container.
 10. **Upstream candidates**: the `_slab_galerkin` memory fix
     (AlgebraicMultigrid.jl would benefit directly) and a KernelAbstractions.jl
     issue for the `KA.@index` qualified-macro CPU-backend miscompilation.
+11. **What actually bounds the action.** §6's FP64 reading was taken on one
+    card and does not survive a second (`evidence/action_l4_cuda.txt`): the L4
+    has 28% less FP64 peak than the RX 7600 and runs the stiffness action
+    1.87x faster, with the memory floor — `mass_action` — within 10% across
+    the two. The arithmetic share is 75% on the RX 7600 and 49% on the L4, so
+    the split is a property of the hardware and not of the kernel. Settling it
+    needs an actual FLOP count for `_pk1_jvp` and the profiling in item 9.
 
 ---
 
@@ -467,8 +482,10 @@ sparse-matrix bandwidth, and it is why the Float32 smoother in §2 works.
 
 Pure Julia throughout: AlgebraicMultigrid.jl for hierarchy setup,
 KernelAbstractions kernels for every device operation, Krylov.jl for CG. No
-hypre, Trilinos, AmgX, or rocSPARSE, and no vendor-specific code paths — ROCm is
-the test vehicle, CUDA follows from KA + Adapt with no code changes.
+hypre, Trilinos, AmgX, or rocSPARSE, and no vendor-specific code paths. ROCm was
+the original test vehicle and CUDA has since been exercised on three NVIDIA
+cards with no code changes, reproducing the ROCm stiffness-action checksum to
+13 significant digits (`evidence/action_l4_cuda.txt`).
 
 The GPU AMG preconditioner builds its hierarchy on the host with smoothed
 aggregation, near-nullspace = six rigid-body modes evaluated at the **current**

@@ -1,0 +1,91 @@
+Matrix-free stiffness action on NVIDIA L4 (CUDA): the cross-vendor control
+==========================================================================
+
+Problem: identical to benchmark/evidence/action_ablation.txt -- torsion-qs deck
+(benchmark/inputs/torsion-qs-gpu-cg-jacobi.yaml), 530,523 DOF / 527,877 free,
+160,000 HEX8.  Host: rigel (dual EPYC 9634), NVIDIA L4 (AD104, Ada, 58 SM,
+23 GB GDDR6, 300 GB/s peak, FP64 at 1/64 rate = 0.489 TFLOP/s), driver
+610.57.04 / CUDA 13.3, CUDA.jl artifact runtime 13.3.0, Julia 1.12.7.
+Date: 2026-09-08.  Carina 3b75810 + the action_bench backend generalization.
+
+Driver: benchmark/action_bench.jl 50 <state> cuda.  Same fixed direction
+vector (1e-6 * randn(MersenneTwister(20260806), n)), same 5 discarded warmup
+reps, same 50 timed reps, same median.  The only change to the driver is that
+the backend is resolved from an argument instead of hard-coded to ROCm.
+
+Why this run exists: benchmark_report.md section 6 concluded from the RX 7600
+alone that the action is "FP64-compute-bound", at "roughly 40-50% of this
+card's FP64 peak", and that "FP64 throughput is the binding ceiling".  That is
+a single-vendor reading.  The L4 is the natural control for it: its FP64 peak
+is LOWER than the RX 7600's (0.489 vs 0.68 TFLOP/s) while its memory bandwidth
+is nearly the same (300 vs 288 GB/s), so an FP64-bound kernel must run SLOWER
+on it, and a bandwidth-bound one must run at the same speed.
+
+
+RESULT -- state = initial (matches arms A/C/D/JVP)
+--------------------------------------------------
+    stiffness_action   med    5.095 ms   min    5.004 ms    31.84 ns/elem   26.88 GB/s   chk 1.906160379496682e+06
+    mass_action        med    2.604 ms   min    2.443 ms    16.28 ns/elem   52.59 GB/s   chk 2.124830956604735e-06
+
+    stiffness / mass  = 1.96x
+    arithmetic-attributable share of stiffness = 48.9%
+
+
+RESULT -- state = deformed (geometric term live)
+-------------------------------------------------
+    stiffness_action   med    5.157 ms   min    4.983 ms    32.23 ns/elem   26.56 GB/s   chk 1.906165947916275e+06
+    mass_action        med    2.594 ms   min    2.424 ms    16.21 ns/elem   52.80 GB/s   chk 2.124830956604735e-06
+
+    stiffness / mass  = 1.99x
+    arithmetic-attributable share of stiffness = 49.7%
+
+
+CROSS-VENDOR COMPARISON (both post-JVP, i.e. arm JVP vs the above)
+-------------------------------------------------------------------
+                          RX 7600 (ROCm)      L4 (CUDA)     L4 / RX 7600
+    FP64 peak             0.68 TFLOP/s        0.489          0.72x
+    memory bandwidth      288 GB/s            300            1.04x
+    stiffness_action      9.503 ms            5.095          0.54x  (1.87x FASTER)
+    mass_action           2.377 ms            2.604          1.10x  (10% slower)
+    arithmetic part       7.126 ms            2.491          0.35x  (2.86x FASTER)
+    stiffness / mass      4.00x               1.96x
+    arithmetic share      75%                 49%
+
+1. NUMERICAL AGREEMENT ACROSS VENDORS.  The stiffness checksum is
+   1.906160379497e+06 on ROCm (arm A, full precision) and
+   1.906160379496682e+06 on CUDA -- agreement to 13 significant digits on a
+   sum over 5.3e5 entries.  The mass checksum agrees to every digit printed.
+   The KernelAbstractions kernels are numerically equivalent across the two
+   vendors, which is the strongest available statement of the portability
+   claim in section 8.
+
+2. THE FP64-BOUND READING DOES NOT SURVIVE.  If FP64 throughput were the
+   binding ceiling, the L4 -- with 28% LESS FP64 peak -- would run the
+   stiffness action at 9.503 * 0.68/0.489 = 13.2 ms.  It runs it in 5.095 ms,
+   faster by 1.87x and off the prediction by 2.6x.
+
+3. THE MEMORY FLOOR IS THE CONTROL, AND IT HELD.  `mass_action` -- identical
+   gather, identical 24-DOF atomic scatter, identical launch geometry,
+   negligible arithmetic -- came out within 10% across the two cards
+   (2.377 vs 2.604 ms; 57.6 vs 52.6 GB/s achieved).  Their memory subsystems
+   are equivalent for this access pattern, so the entire stiffness difference
+   sits in the arithmetic part, where it is 2.86x.
+
+4. THE FLOP BUDGET IS JOINTLY INCONSISTENT.  Section 6 puts the RX 7600's
+   arithmetic at 40-50% of its 0.68 TFLOP/s FP64 peak.  Take the midpoint:
+   0.306 TFLOP/s over the 7.126 ms arithmetic part is 2.18e9 FLOP, i.e.
+   ~13.6 kFLOP/element.  The same FLOP count on the L4's 2.491 ms arithmetic
+   part demands 0.876 TFLOP/s -- 179% of that card's 0.489 TFLOP/s FP64 peak,
+   which is impossible.  The two cards cannot both be near their FP64 peaks on
+   a shared FLOP count, so the FLOP budget behind the 40-50% figure is too
+   high by at least ~2x and the "binding ceiling" reading is not supported by
+   it.  Whether the RX 7600 is FP64-limited and the L4 is limited by something
+   else, or neither is, cannot be settled without an actual FLOP count or the
+   occupancy/register profiling that section 7 item 9 already lists as open.
+
+5. THE VENDOR-DEPENDENT SPLIT IS ITSELF THE FINDING.  Arithmetic is 75% of the
+   action on the RX 7600 and 49% on the L4.  "The kernel is FP64-compute-bound"
+   is not a property of the kernel; it was a property of the one card it was
+   measured on.  Any optimization targeted at the arithmetic (section 7 item 5,
+   ablating the explicit kernel; item 6, smoother tuning) will pay back at very
+   different rates on different hardware.
