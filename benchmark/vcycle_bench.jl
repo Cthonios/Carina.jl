@@ -5,8 +5,8 @@
 # measured the whole solve phase at 70.5 s over 951 CG iterations (74 ms per
 # iteration).  What that leaves unresolved is the attribution of the other
 # ~64 ms: it could be the assembled coarse-level SpMVs (bandwidth-bound, so
-# FP32 buys ~2x on bytes) or more matrix-free actions (FP64-compute-bound, so
-# FP32 buys up to ~32x on arithmetic before hitting the memory floor).
+# FP32 gains ~2x on bytes) or more matrix-free actions (arithmetic-bound, so
+# FP32 gains up to ~32x on arithmetic before reaching the memory floor).
 #
 # The fine level of the V-cycle is matrix-free -- `_amg_vcycle!` passes
 # `fine_matvec!` into `_smooth!` for both the pre- and post-smooth and uses it

@@ -69,14 +69,14 @@ cross-code comparison originally measured.
   the per-step Exodus write out of the loop — a cost Norma's decks never
   paid — brought it to 1.37 against a best CPU of 9.85 measured the same
   way: 7.2×.)
-- **Carina's best CPU now beats LCM's best**, 10.79 against 14.40 s/step
+- **Carina's best CPU is now faster than LCM's best**, 10.79 against 14.40 s/step
   (1.33×), where it was 1.29× behind before §3.
 - **Core for core Carina leads by more**: 14.99 s/step against Norma's 39.78
   (2.65×) and LCM's 66.40 (4.43×).
 - **A single Carina CPU thread is now within 4% of LCM's twelve ranks**
   (14.99 vs 14.40), which is the sharpest way to state what the fixes did.
 - LCM at 24 ranks is *slower* than at 12: the box has 12 physical cores, so the
-  second hardware thread per core buys nothing here.
+  second hardware thread per core gains nothing here.
 - The direct solver moved most in relative terms, 114.43 → 23.08 s/step, and is
   now competitive with the iterative variants rather than five times worse.
 - Norma is untouched by any of this and is the honest control: it and Carina's
@@ -155,7 +155,7 @@ inflated the SpMV's share from ~48% to ~100%.
 
 The second is refuted by measurement. Matrix-free threads well — 10.8×, in line
 with the explicit kernel — but starts 25.7× behind and is still **2.32× slower
-than the SpMV at 24 threads**. Matrix-free wins on the GPU because FP64 SpMV
+than the SpMV at 24 threads**. Matrix-free prevails on the GPU because FP64 SpMV
 bandwidth is the scarce resource and arithmetic is nearly free; on a CPU with 24
 threads against a well-ordered 40M-nonzero matrix the trade runs the other way.
 
@@ -188,7 +188,7 @@ Run 2026-08-22 on ascicgpu073 (2x NVIDIA A100-PCIE-40GB, CUDA 13.0, 2x Xeon
 Gold 6348), same repos at the same commits, same decks with `device: cuda`
 (`run_crosscode.py --gpu-device cuda` rewrites the line).  The A100 offers
 5.4x the memory bandwidth (~1555 vs 288 GB/s) and roughly 40x the FP64
-throughput of the RX 7600.  What it bought:
+throughput of the RX 7600.  What it produced:
 
 | variant | RX 7600 | A100 | A100 advantage |
 |---|---:|---:|---:|
@@ -200,7 +200,7 @@ Correctness carried over exactly: the same 4,455 CG iterations over the
 8-step run, `|U|_max = 3.98e-02` in every variant, and the stiffness-action
 checksum agrees with the RX 7600 to all 16 printed digits.
 
-**Why the A100 barely wins.**  A CUPTI profile shows one monolithic kernel --
+**Why the A100's margin is so small.**  A CUPTI profile shows one monolithic kernel --
 the matrix-free stiffness action -- is over 76% of device time, and the
 isolated action timings are 9.36 ms (RX 7600) vs 7.17 ms (A100): 1.31x from
 hardware that should give several times that.  The SASS explains it: the
@@ -216,7 +216,7 @@ Two consequences.  First, the earlier estimate that the action runs at
 "40-50% of FP64 peak" on the RX 7600 (benchmark_report.md par.6) was an
 inference from an assumed flop count, and the cross-vendor result refutes it
 as the binding constraint: if FP64 rate bound the kernel, full-rate FP64
-would have made it dramatically faster, and it did not.  Second, reducing
+would have made it substantially faster, and it did not.  Second, reducing
 per-thread live state in that kernel -- splitting per quadrature point,
 capping registers at launch, or staging through shared memory -- is now the
 top GPU lever, it is worth potentially several x, and it pays on both vendors
@@ -242,8 +242,9 @@ live state itself had to shrink.  (2) A closed-form NeoHookean directional
 derivative replaced the ForwardDiff dual pass -- and the *form* mattered more
 than the fact of being analytic: staged tensor temporaries ran 2.3x slower
 than the dual pass on CUDA at near-identical static SASS, while the same
-derivative collected into `dP = c1 F^-T + c2 W + c3 dF + c4 F` beats the dual
-pass on both vendors.  (3) The real win: the discrete-gradient operator G --
+derivative collected into `dP = c1 F^-T + c2 W + c3 dF + c4 F` outperforms the
+dual pass on both vendors.  (3) The principal gain: the discrete-gradient
+operator G --
 a 3Nx9 matrix, 216 doubles for HEX8, built per quadrature point and used
 once -- was eliminated in favor of a direct contraction.  Even the mass
 kernel, whose only arithmetic is N'N*v, hit the 255-register cap: the
@@ -251,10 +252,20 @@ element machinery, not the constitutive math, was spending the registers.
 
 On the A100 the spill frame collapsed from ~4 KB to 248 bytes per thread and
 the action went **7.17 -> 2.88 ms** (within 2x of the mass-action memory
-floor).  On the RX 7600 the action barely moved (9.36 -> 8.66 ms): RDNA3 was
-never spill-bound -- its 1/32-rate FP64 arithmetic is its wall, and only
-reduced precision can move it further.  One change, two vendors, two
-different binding constraints revealed.  End to end, same 4,455 CG
+floor).  On the RX 7600 the action moved only slightly (9.36 -> 8.66 ms):
+RDNA3 was never spill-bound.  One change, two vendors, two different binding
+constraints revealed.
+
+> **Correction (2026-09-08).**  This paragraph originally continued "its
+> 1/32-rate FP64 arithmetic is its wall, and only reduced precision can move
+> it further".  That does not survive a third card.  An NVIDIA L4 runs FP64 at
+> 1/64 rate and has a *lower* absolute FP64 peak than the RX 7600 (0.489 vs
+> 0.68 TFLOP/s), and at one commit it runs the same stiffness action 1.71x
+> faster with the memory floor within 5%
+> (`../evidence/action_cross_vendor.txt`).  Whatever limits the RX 7600 here,
+> it is not FP64 peak in any form that transfers between vendors.  The
+> refutation of the *report's* 40-50%-of-peak reading, immediately above,
+> stands and is now propagated into `benchmark_report.md` par. 6.  End to end, same 4,455 CG
 iterations and `|U|_max` on every row:
 
 | variant (per-step) | RX 7600 | A100 |
@@ -302,7 +313,7 @@ End to end (same invariants: 4,455 CG iterations, `|U|_max = 3.98e-02`):
 | GPU L-BFGS | 8.21 s | **7.09 s** | 5.06 s |
 
 Two things worth keeping.  First, the variant ordering flips on the V100:
-CG+Jacobi, the winner on both other cards, is worst here, and L-BFGS wins.
+CG+Jacobi, the fastest on both other cards, is worst here, and L-BFGS is fastest.
 Jacobi leans hardest on the action kernel (4,455 CG iterations per 8
 steps), so a 2.1x kernel slowdown costs it most; the falsification test
 doubles as a reminder that the best solver variant is hardware-dependent.
@@ -416,7 +427,7 @@ contraction rate -- on the A100 the predictor lands on exactly Krylov's
 | GPU CG+Jacobi | 5.52 -> 5.57 s | 5.40 -> **4.71 s** | 2.96 -> **2.05 s** |
 | GPU CG+Chebyshev | 7.20 -> 7.19 s | 7.11 -> 6.82 s | 3.01 -> 3.10 s |
 
-The pattern is the diagnosis confirmed a third way: the win scales with the
+The pattern is the diagnosis confirmed a third way: the gain scales with the
 per-iteration host gap.  The A100 (2.7 ms gap per 2.6 ms of kernel) gains
 1.44x; the V100 (0.8 ms gap) gains 1.15x; the RX 7600, driven by a 5.7 GHz
 host with nothing to reclaim, is a wash on both variants -- as is Chebyshev
@@ -499,7 +510,7 @@ AMG on the 4,455-iteration count, which was the founding goal all along.
 
 With the matvec at its memory-system bound, the last lever is taking fewer
 of them.  The GPU AMG preconditioner (host-built smoothed-aggregation
-hierarchy, fully device-resident V(2,2)-cycle, matrix-free fine level) won
+hierarchy, fully device-resident V(2,2)-cycle, matrix-free fine level) led
 the earlier quasi-static campaign but had never been tried on the Newmark
 operator, and had never met the device-resident CG.  Both were measured at
 `0e7441d`; no code changed.
@@ -521,7 +532,7 @@ stop), but the one-time host-side hierarchy build costs 20-25 s, so the
 24.6 -> 20.3 s: the time is AMG.jl's serial setup (strength, aggregation,
 stdlib SpGEMM Galerkin products) plus a dense pinv, not the threaded FEC
 assembly.  On any production-length run the build amortizes away and the
-2x stands; making short runs win too means a threaded or device-side
+2x stands; extending the advantage to short runs means a threaded or device-side
 SpGEMM for the setup, which is its own project.
 
 **Update (commit `d0a6685`)**: it was a smaller project than that.  A

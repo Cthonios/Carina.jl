@@ -1191,7 +1191,7 @@ function _parse_forcing_term(ls_dict)
         # and the reason is structural: EW's own safeguard engages when
         # gamma*eta^alpha > 0.1, and 0.2^1.618 = 0.076 sits just under that
         # while 0.5^1.618 = 0.326 sits well over.  Above the threshold the
-        # safeguard pins eta high for several iterations, which buys the same
+        # safeguard pins eta high for several iterations, which obtains the same
         # total CG work with ~30% more Newton iterations.  See
         # benchmark/evidence/inexact_newton.txt.
         eta_max = Float64(get(f_dict, "maximum", 0.2))

@@ -49,7 +49,7 @@
     x_direct = A \ b
 
     # --- V-cycle actually solves: as a preconditioner it must cut CG
-    #     iterations by a lot relative to Jacobi.
+    #     iterations substantially relative to Jacobi.
     M_amg = LinearOperator(Float64, n, n, true, true,
         (y, v) -> (Carina._amg_vcycle!(y, v, h, fine_mv!, backend); y))
     M_jac = LinearOperator(Float64, n, n, true, true,

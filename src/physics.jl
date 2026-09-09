@@ -477,7 +477,7 @@ Does this model's `pk1_stress` actually evaluate in `Float32` when handed
 
 A constitutive model written with Float64 literals (`0.5`, `1. / 3.`) promotes
 on first contact and returns a Float64 stress.  The result is still correct, so
-nothing fails — the reduced-precision path just costs two conversions and buys
+nothing fails — the reduced-precision path merely costs two conversions and gains
 nothing.  This has to be probed rather than inferred: `_pk1_jvp` rebuilds its
 result as `Tensor{2, 3, T, 9}` from the seeded input type, so the type coming
 out of the JVP is Float32 whether or not the arithmetic inside it was.  Ask the

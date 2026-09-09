@@ -2,7 +2,7 @@
 
 **This is the design document written *before* the work, kept as the record of
 what was considered and why.  For what was actually built and measured, see
-`benchmark_report.md`; where the two disagree, the report wins.  An Outcome
+`benchmark_report.md`; where the two disagree, the report takes precedence.  An Outcome
 section at the end notes where this document's expectations were wrong.**
 
 Constraints: pure Julia, zero TPLs,
@@ -93,7 +93,7 @@ CG (Krylov.jl, device vectors)                        [exists]
   the preconditioner poisons the CG residual, which the existing isfinite
   machinery turns into a step failure — same contract as the eversion guard.
 
-## Cost model / win condition
+## Cost model and success criterion
 
 Per CG iteration, V(2,2) with matrix-free fine smoothing costs ≈ 5 fine
 operator actions (2+2 smoothing + 1 residual) + coarse-level work (~0.3–0.6
@@ -138,7 +138,7 @@ this document guessed wrong, kept here because the reasoning is instructive:
   and the FP64 atomic scatter — long suspected as the culprit — costs nothing
   measurable.  Replacing the tangent with a directional derivative gave 3.2x
   on the kernel.
-- **The win condition was met, but for a different reason than projected.**
+- **The success criterion was met, but for a different reason than projected.**
   The cost model predicted V(2,2) at ~6x a Jacobi iteration needing a >=6x
   iteration reduction; both held (measured 6.67x per application, ~16x fewer
   iterations).  The projected "2-5x wall-clock gain" was initially not

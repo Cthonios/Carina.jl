@@ -429,7 +429,7 @@ end
 #   - SPD by construction (optimal weights guarantee positive definiteness)
 #   - k matvecs per application (not 2k like the squared polynomial)
 #
-# λ_max estimated via power method on D⁻¹A (10 iterations, cheap).
+# λ_max estimated via power method on D⁻¹A (10 iterations, low cost).
 # --------------------------------------------------------------------------- #
 
 # Optimal weights for 4th-kind Chebyshev, degrees 1–16 (arxiv 2202.08830).
@@ -792,7 +792,7 @@ function _device_pcg!(ΔU, A_op, R, M_op, rtol, itmax)
     converged = false
     ρ_h       = ρ0
     # Block size adapts to the measured convergence rate.  A fixed block
-    # overruns by up to blk − 1 iterations past convergence, which is cheap
+    # overruns by up to blk − 1 iterations past convergence, which costs little
     # for Jacobi (many inexpensive iterations) but measurably wasteful for
     # Chebyshev, whose iterations each apply a five-matvec smoother and
     # converge in a few dozen.  From the contraction over the previous block,
@@ -1046,7 +1046,7 @@ function _build_precond_op(::ICPreconditioner, K_sparse, n, x_cur)
 end
 # AMG on the quasi-static assembled path.  K_sparse arrives as a Symmetric
 # wrapper; SA setup needs a plain CSC matrix.  The internal lazy guard in
-# the build (P === nothing || rebuild) makes the per-Newton calls cheap;
+# the build (P === nothing || rebuild) makes the per-Newton calls inexpensive;
 # c_M = 0 since there is no mass term in the quasi-static tangent.
 function _build_precond_op(precond::AMGPreconditioner, K_sparse, n, x_cur)
     _update_amg_precond_assembled!(precond, sparse(K_sparse), 0.0, x_cur)

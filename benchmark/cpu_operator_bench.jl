@@ -8,9 +8,9 @@
 # single-threaded (measured: 0.033 s at both 1 and 24 threads on 43M nonzeros),
 # while GPU and explicit runs use the matrix-free element loop.
 #
-# That says the present path cannot scale.  It does NOT say matrix-free wins:
+# That says the present path cannot scale.  It does NOT say matrix-free is faster:
 # a matrix-free application does far more arithmetic than an SpMV does, and on
-# CPU it has to beat a 33 ms memory-bound kernel from a standing start.  This
+# CPU it has to better a 33 ms memory-bound kernel from a standing start.  This
 # measures both operators at the same linearization point so the crossover is a
 # number rather than an assumption.
 #
@@ -92,7 +92,7 @@ rel = norm(y_mf - y_spmv) / norm(y_spmv)
         rel < 1e-10 ? "(same operator)" : "*** MISMATCH ***")
 
 @printf("\nmatrix-free / SpMV = %.2fx  (%s)\n", t_mf / t_spmv,
-        t_mf < t_spmv ? "matrix-free wins" : "SpMV wins")
+        t_mf < t_spmv ? "matrix-free faster" : "SpMV faster")
 # benchmark_report.md §3 records 2,558 CG iterations over 4 steps for this
 # variant: ~640 applications per step, which is what turns a per-application
 # difference into a per-step one.

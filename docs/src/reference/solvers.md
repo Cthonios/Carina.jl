@@ -186,10 +186,10 @@ Points worth knowing:
   — settable only through the legacy syntax's `tolerance` key.
 - **A `finite value` test is appended automatically** to every termination
   tree, in all three syntaxes. You do not need to add one.
-- **`maximum iterations` in the tree wins.** If the tree contains a
+- **`maximum iterations` in the tree takes precedence.** If the tree contains a
   `maximum iterations` test, its value replaces the flat `maximum iterations`
   key as the solver loop bound.
-- **In an OR group, Converged beats Failed.** If one sub-test converges while
+- **In an OR group, Converged takes precedence over Failed.** If one sub-test converges while
   another fails on the same iteration, the result is Converged. An AND group
   short-circuits on the first Failed.
 
@@ -313,7 +313,7 @@ The quasi-static AMG gain is on top of the ~2× AMG already has over Jacobi.
 !!! tip "Why `maximum` defaults to 0.2 and not the paper's 0.9"
     Total CG work turns out to be nearly *invariant* in `maximum` — 63.1k /
     62.9k / 63.6k iterations at 0.1 / 0.2 / 0.5 on the CPU sweep. What the knob
-    really controls is how many Newton iterations you spend buying that work,
+    really controls is how many Newton iterations are spent obtaining that work,
     and there the spread is large (413 vs 547).
 
     The reason is safeguard 1 above, which activates when `γ·η^α > 0.1`. At the
@@ -375,7 +375,7 @@ Configured under `solver.linear solver.preconditioner`.
 
 | `type` | Aliases | CPU | GPU | Cost per iteration | Description |
 |---|---|---|---|---|---|
-| `jacobi` | — | yes | yes | one vector scale | Diagonal scaling. Cheap, weak, always available. |
+| `jacobi` | — | yes | yes | one vector scale | Diagonal scaling. Low cost, weak, always available. |
 | `ic` | `incomplete cholesky`, `ildl`, `incomplete ldlt` | yes | **no** | one triangular solve | Incomplete LDLᵀ. Strong for ill-conditioned systems. |
 | `chebyshev` | `chebyshev polynomial` | yes | yes | k matvecs | Polynomial preconditioner; needs only matvecs, so it works on GPU. |
 | `amg` | `algebraic multigrid`, `multigrid` | yes | yes | one V-cycle | Smoothed-aggregation AMG with rigid-body-mode near-nullspace. On GPU the hierarchy is built on the host and the V-cycle applies on the device. |
@@ -464,7 +464,7 @@ Practical guidance:
 - **CPU, small to medium** — `direct`. No tuning, always converges.
 - **CPU, large** — `cg` + `amg`, or `cg` + `ic` as a simpler alternative.
 - **GPU, quasi-static** — `cg` + `amg`. It is the only GPU option that both
-  converges its linear systems and beats the CPU direct solver at scale, and
+  converges its linear systems and outperforms the CPU direct solver at scale, and
   at 1.57M DOF it is the fastest option on either device.
 - **GPU, implicit dynamics at small Δt** — `cg` + `jacobi`. The mass term
   conditions the system, so AMG's iteration reduction does not repay its
@@ -472,7 +472,7 @@ Practical guidance:
 - **Never run plain `cg` with no preconditioner** on a real mesh. It is valid
   and very slow.
 - **Add a forcing term to any Newton + CG combination**, on either device.
-  `forcing term: {type: eisenstat-walker}` is the cheapest speedup available
+  `forcing term: {type: eisenstat-walker}` is the least expensive speedup available
   here: it needs no extra memory, changes no kernel, and cannot make the
   converged answer less accurate than your `tolerance` already asked for. It
   helps most where CG dominates the step — the GPU matrix-free paths — and

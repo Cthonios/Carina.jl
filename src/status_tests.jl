@@ -232,8 +232,8 @@ end
 # guard in `_forcing_tolerance!`: driving a linear solve to more accuracy than
 # the *nonlinear* test will ever reward is pure waste.
 #
-# OR: converging on any child is enough, so the loosest child wins.
-# AND: every child must hold, so the tightest non-trivial child wins.
+# OR: converging on any child is enough, so the loosest child governs.
+# AND: every child must hold, so the tightest non-trivial child governs.
 # Tests that say nothing about the residual (iteration counts, update norms,
 # the finite-value and model flags) contribute nothing, and a tree with no
 # residual test at all returns 0.0 — which disables the guard rather than

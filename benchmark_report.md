@@ -10,13 +10,13 @@ Every number here traces to a raw record in `benchmark/results/`.
 
 ## Executive summary
 
-### What the GPU buys
+### Measured speedups
 
 | Problem class | Speedup over the best CPU option | Notes |
 |---|---|---|
 | **Quasi-static implicit** | **2.4× total, 3.7–5.8× in the solve phase** | Grows with problem size. At 1.57M DOF the GPU is the only device that runs at all — CPU AMG exhausts host memory. |
-| **Implicit dynamics** (small Δt) | **1.3–1.4×** | Modest by nature: the mass term already conditions the system, so there is less for a better solver to win. |
-| **Explicit dynamics** | **3.4×** | Saturates at ~3.4× from ~500k DOF upward; that is ~80% of the memory-bandwidth ratio between the two devices, which is the ceiling. |
+| **Implicit dynamics** (small Δt) | **1.3–1.4×** | Modest by nature: the mass term already conditions the system, so there is less for a better solver to recover. |
+| **Explicit dynamics** | **3.4×** on the original pairing, **7.2–9.9×** on server hardware | Saturates from ~500k DOF upward. The 3.4× is a property of the desktop pairing, not a ceiling — see the note below and `benchmark/README.md`. |
 
 The solve-phase figures are the honest measure of solver work; totals include
 ~40 s of Julia compilation charged identically to every run, which dilutes the
@@ -25,9 +25,26 @@ ratio on short problems.
 These are measured on a **consumer** GPU — a Radeon RX 7600 (288 GB/s, FP64 at
 1/32 rate) against a 12-core Ryzen 9 9900X. The peak-bandwidth ratio between
 the two is only ~3–4×, which caps any bandwidth-bound solver here regardless of
-software quality. A datacenter GPU (MI250X/MI300, A100/H100) has 6–18× more
-bandwidth and full-rate FP64; the algorithmic conclusions carry over, the
-absolute ratios do not.
+software quality.
+
+> **Note (2026-09-08), on two expectations in this summary that later
+> measurements changed.** Both concern the explicit ratio and the reason given
+> for it.
+>
+> *The 3.4× is a pairing, not a ceiling.* A cross-card ladder on four GPUs
+> (`benchmark/README.md`) puts the same kernel at 7.2–7.4× over the CPU in the
+> *same host* and 9.9× over this desktop CPU on an A100. Per-element cost is
+> flat on every device measured — 13.5–15.5 ns (A100), 27–29 (V100), 29–33
+> (L4), 40 (RX 7600), 69–90 (a 168-core EPYC at 48 threads) — so what varied
+> was which CPU the GPU was compared against, not a bandwidth ceiling in the
+> software.
+>
+> *"Full-rate FP64" is not the property that matters.* An L4 runs FP64 at
+> 1/64 rate with a lower absolute peak than the RX 7600 and is nonetheless
+> 1.35× faster per element on the explicit kernel and 1.71× faster on the
+> implicit action (`evidence/action_cross_vendor.txt`). The algorithmic
+> conclusions do carry over, as stated; the reason offered for the absolute
+> ratios does not.
 
 ### Recommended solver by problem
 
@@ -149,7 +166,7 @@ converge to rtol 1e-8 — reported as measured.
 - Chebyshev shows the cost/iteration trade clearly: 4.5× fewer iterations than
   Jacobi, yet slower overall.
 - The CPU's Gauss–Seidel smoother converges in fewer iterations than the
-  device's parallel-friendly damped Jacobi (787 vs 951) — the GPU wins on
+  device's parallel-friendly damped Jacobi (787 vs 951) — the GPU prevails on
   throughput per iteration, not on iteration count.
 - AMG's VRAM cost is the device hierarchy: 0.65 GB against 0.22 GB
   unpreconditioned, i.e. ~0.43 GB, inside the 0.3–0.6× of the never-formed
@@ -182,11 +199,11 @@ converge to rtol 1e-8 — reported as measured.
 - The GPU advantage here is **1.27×** (118 vs 150) for like-for-like Jacobi,
   1.38× comparing each device's best.
 - **AMG does not pay at small Δt.** At mass-dominated time steps the `c_M`
-  shift conditions the system and cheap preconditioners win: AMG's 10×
+  shift conditions the system and inexpensive preconditioners prevail: AMG's 10×
   iteration reduction (264 vs 2,558 on CPU) costs more than it saves. The
   design predicted this; the measurement confirms it.
 - L-BFGS leads by 8%, but it does no linear solve at all — it converges by many
-  cheap nonlinear iterations (284–312 per step). What makes it work here is the
+  inexpensive nonlinear iterations (284–312 per step). What makes it effective here is the
   mass shift `c_M = 1/(βΔt²) ≈ 1.6e9`, which leaves the effective operator
   strongly diagonally dominant and therefore easy to model at low rank. Remove
   it and the same solver stalls (§2).
@@ -217,7 +234,7 @@ Solve phase only, which removes the fixed compilation cost:
 The last column is the same code with the V-cycle smoother in Float64 (§2), so
 the two GPU columns isolate that change: 1.22× / 1.10× / 1.17×. CG iteration
 counts are unchanged at every size (952/118/136 against 951/118/136), which is
-the point — the reduced-precision smoother is cheaper per application without
+the point — the reduced-precision smoother costs less per application without
 being weaker.
 
 The gain is smallest on the cubes because they need far fewer iterations per
@@ -302,9 +319,13 @@ absorbs warm-up and kernel compilation, the second is measured.
 - **The ratio saturates at ~3.4×.** It rises to ~3.55× by 530k DOF, then flat.
   Small problems underuse the device (1.30× at 39k) — launch overhead and
   insufficient parallelism dominate.
-- **3.4× is close to the ceiling on this hardware**, not a software shortfall:
-  the memory-bandwidth ratio between these two devices is ~3–4×, so explicit is
-  running at roughly 80% of the achievable ratio.
+- **3.4× was read at the time as close to a bandwidth ceiling** — the ratio
+  between these two devices is ~3–4×, putting explicit at roughly 80% of it.
+  The cross-card ladder later showed this to be a statement about the pairing
+  rather than about the software: the same kernel reaches 7.2–7.4× against the
+  CPU in the same host and 9.9× on an A100, and per-element cost is flat on
+  every device measured (`benchmark/README.md`). The CPU here is simply fast
+  per core.
 - **7.81M DOF fits in 8 GB** — 2.5M elements, 100.5 ms/step.
 - CPU thread scaling at 530k DOF, which is why the `--threads` note matters:
 
@@ -319,7 +340,7 @@ absorbs warm-up and kernel compilation, the second is measured.
   A single-threaded CPU baseline would report the GPU at ~35× rather than
   3.55×. Note the 1-thread row is not simply "the same code, serialized":
   `fec_atomic_add!` skips the atomic entirely when `Threads.nthreads() == 1`,
-  so the serial path is cheaper per element and the 9.9× scaling is if anything
+  so the serial path costs less per element and the 9.9× scaling is if anything
   conservative.
 
 ---
@@ -346,19 +367,25 @@ Three findings worth carrying forward:
 - **The kernel is arithmetic-bound on this card, but not by FP64 peak.** It
   moves ~15 GB/s against the card's 288 GB/s, and that low fraction is
   arithmetic intensity rather than waste: a matrix-free method is meant to
-  trade bytes for flops. Arm C below isolates the arithmetic at ~75% of the
+  trade bytes for flops. Arm C below isolates the arithmetic at ~72% of the
   action *on this card*. An earlier version of this bullet went further and
   put it at 40–50% of the card's 0.68 TFLOP/s FP64 peak, calling FP64
-  throughput the binding ceiling; a second vendor refutes that reading. The
-  L4 has 28% *less* FP64 peak and runs the same action 1.87x faster, its
-  arithmetic share is 49% rather than 75%, and the FLOP budget implied by
-  40–50% here would demand 179% of the L4's FP64 peak there — impossible.
-  See `evidence/action_l4_cuda.txt`; what does bind is open item 11 in §7.
+  throughput the binding ceiling. Two later measurements refute that reading,
+  and the second is the reason it is corrected only now. A CUPTI profile on
+  the A100 counted ~1,100 FP64 arithmetic instructions against 253 registers
+  per thread and 12.5% occupancy, placing the kernel nowhere near flop-bound
+  (`crosscode/README.md` §4, 2026-08-22); that refutation was recorded there
+  and never propagated here. An L4, whose FP64 peak is 28% *lower* than this
+  card's, then ran the same action 1.71× faster at the same commit, with the
+  memory floor within 5% — and the FLOP count implied by 40–50% here would
+  require 139–174% of the L4's peak there, which is impossible
+  (`evidence/action_cross_vendor.txt`). What does bind the action is open
+  item 11 in §7.
 - **The FP64 atomic scatter costs nothing.** Replacing every atomic with a
   plain non-atomic add — wrong results, valid timing — changes the kernel time
   by 1.4%, inside the noise, at both the pre- and post-optimization operating
   points. Element coloring and conflict-free E-vector restriction, the standard
-  remedies for atomic contention, have nothing to buy here.
+  remedies for atomic contention, have nothing to gain here.
 - **Forming the material tangent was 73% of the original cost.** The action
   built all 81 components of ∂P/∂∇u and contracted them with a single vector.
   It now takes the directional derivative `dP = ∂P/∂∇u : ∇v` directly, via one
@@ -423,7 +450,7 @@ sparse-matrix bandwidth, and it is why the Float32 smoother in §2 works.
      ever becomes the binding constraint, which §4 says it is not.
    - **The rest of the action**: geometry and the contraction. Overlaps with
      item 3 below, which would remove the geometry cost outright rather than
-     make it cheaper — measure that first.
+     reduce its cost — measure that first.
    - **The host-side hierarchy build** is now the largest single line item on
      the cubes (20.0 s at 823k, 45.5 s at 1.57M against solve phases of 16.3 s
      and 29.4 s). It is *not* item 4's territory, despite both being host-side:
@@ -436,7 +463,7 @@ sparse-matrix bandwidth, and it is why the Float32 smoother in §2 works.
    `NeoHookean.pk1_stress` had to be fixed upstream first: Float64 literals
    promoted Float32 inputs back to Float64, silently, with correct results and
    no speedup. `_use_fp32_smoother` now probes for this and falls back with a
-   warning rather than paying for conversions that buy nothing.
+   warning rather than paying for conversions that gain nothing.
 2. **Analytic directional derivative** for NeoHookean, removing the dual-number
    overhead (~1.5–2 ms of the 9.5). Costs generality — it is per-model — so
    measure item 1 first.
@@ -456,12 +483,13 @@ sparse-matrix bandwidth, and it is why the Float32 smoother in §2 works.
 6. **Smoother tuning**: the device's damped Jacobi needs 951 iterations where
    CPU Gauss–Seidel needs 787 — ~20% via Chebyshev-polynomial smoothing (the
    machinery exists), ν/cycle-shape tuning, or ℓ1-Jacobi.
-7. **Map the Newmark large-Δt crossover.** AMG should win once Δt grows enough
+7. **Map the Newmark large-Δt crossover.** AMG should become preferable once Δt grows enough
    that `c_M` stops conditioning the system; that Δt is unknown.
-8. ~~**CUDA validation.**~~ *Done.* CUDA has been exercised on the V100, A100
-   and L4, and `evidence/action_l4_cuda.txt` shows the stiffness-action
-   checksum agreeing with ROCm to 13 significant digits. What remains open is
-   narrower and is now item 11.
+8. ~~**CUDA validation.**~~ *Resolved.* CUDA has been exercised on the V100,
+   A100 and L4. At a single commit the stiffness- and mass-action checksums
+   are identical on ROCm and CUDA to every digit printed
+   (`evidence/action_cross_vendor.txt`). What remains open is narrower and is
+   now item 11.
 9. **Profile** for occupancy and register pressure, which ablation cannot reach.
    `rocprofv3` is not packaged by Fedora but ships in AMD's own ROCm
    repositories and is usable from a container.
@@ -469,12 +497,17 @@ sparse-matrix bandwidth, and it is why the Float32 smoother in §2 works.
     (AlgebraicMultigrid.jl would benefit directly) and a KernelAbstractions.jl
     issue for the `KA.@index` qualified-macro CPU-backend miscompilation.
 11. **What actually bounds the action.** §6's FP64 reading was taken on one
-    card and does not survive a second (`evidence/action_l4_cuda.txt`): the L4
-    has 28% less FP64 peak than the RX 7600 and runs the stiffness action
-    1.87x faster, with the memory floor — `mass_action` — within 10% across
-    the two. The arithmetic share is 75% on the RX 7600 and 49% on the L4, so
-    the split is a property of the hardware and not of the kernel. Settling it
-    needs an actual FLOP count for `_pk1_jvp` and the profiling in item 9.
+    card and survives neither of the two later checks. On the A100 a CUPTI
+    profile found the kernel occupancy- and spill-bound rather than flop-bound
+    (`crosscode/README.md` §4); on the L4, a card with 28% *less* FP64 peak
+    than the RX 7600, the same action runs 1.71× faster at the same commit
+    with the memory floor within 5% (`evidence/action_cross_vendor.txt`). The
+    arithmetic share is 71.5% on the RX 7600 and 48.9% on the L4, so the split
+    is a property of the hardware and not of the kernel. What limits the
+    RX 7600 specifically is the remaining gap: the register fix that freed the
+    A100 barely moved it, and FP64 peak does not explain it either. Settling
+    it needs a measured FLOP count for `_pk1_jvp` and a ROCm-side profile of
+    the kind CUPTI supplied on the A100 — item 9.
 
 ---
 
@@ -484,8 +517,8 @@ Pure Julia throughout: AlgebraicMultigrid.jl for hierarchy setup,
 KernelAbstractions kernels for every device operation, Krylov.jl for CG. No
 hypre, Trilinos, AmgX, or rocSPARSE, and no vendor-specific code paths. ROCm was
 the original test vehicle and CUDA has since been exercised on three NVIDIA
-cards with no code changes, reproducing the ROCm stiffness-action checksum to
-13 significant digits (`evidence/action_l4_cuda.txt`).
+cards with no code changes, reproducing the ROCm stiffness- and mass-action
+checksums to every digit printed (`evidence/action_cross_vendor.txt`).
 
 The GPU AMG preconditioner builds its hierarchy on the host with smoothed
 aggregation, near-nullspace = six rigid-body modes evaluated at the **current**

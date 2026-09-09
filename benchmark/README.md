@@ -75,7 +75,7 @@ per step varies.  Each run is two equal control intervals — the first absorbs
 warm-up and device kernel compilation, the second is the measured one — and
 output is stripped to nodal displacement with no recovery so the single Exodus
 write inside the measured interval is negligible.  The CPU baseline uses 24
-threads, which beats 12 at N=20 (23.7 vs 27.5 ms/step).
+threads, which is faster than 12 at N=20 (23.7 vs 27.5 ms/step).
 
 On a machine whose home directory is NFS/GPFS (the ascicgpu hosts), set
 `CARINA_BENCH_SCRATCH=/scratch/...` so meshes, decks, outputs, and result
@@ -128,10 +128,13 @@ big-CPU-node explicit becomes a real target.
   V100 ~5x, RX 7600 3.4x** — stable across the size range because the CPU
   is flat per element too.  The CPU ladder stops at N=50; the A100 runs
   4x that problem.
-- **Placement**: every GPU beats every CPU node measured (even the
+- **Placement**: every GPU is faster than every CPU node measured (even the
   168-core Rigel runs 1.8x slower than the RX 7600 and 5.3x slower than
-  the A100 at N=50).  Rigel's niche is capacity: it runs 61.2M DOF at
-  1.8 s/step — 2x past the A100's 40 GB ceiling with room for far more —
+  the A100 at N=50).  The margin depends on the pairing: the L4 is only
+  2.1–2.7x faster than the Rigel CPU beside it, against 7.4x for the A100
+  over its host, because Rigel pairs a 72 W inference card with the fastest
+  CPU node measured.  Rigel's niche is capacity: it runs 61.2M DOF at
+  1.8 s/step — 2x past the A100's 40 GB ceiling and 3.8x past the L4's —
   so CPU nodes are for problems that do not fit a GPU, not for speed.
 - **The explicit ordering is A100 > V100 ≈ L4 > RX 7600.** An earlier version
   of this file attributed that ordering to FP64 throughput, on the strength of
@@ -141,13 +144,13 @@ big-CPU-node explicit becomes a real target.
   explain the ordering either — it accounts for A100 over V100 (1.73x
   bandwidth, 1.93x speed) and fails on the L4 (0.33x the V100's bandwidth at
   parity).  What actually binds this kernel is open; the same question on the
-  implicit action is worked in `evidence/action_l4_cuda.txt`, which shows the
-  arithmetic/memory split is itself vendor-dependent (75% arithmetic on the
-  RX 7600, 49% on the L4).
+  implicit action is worked in `evidence/action_cross_vendor.txt`, which shows
+  the arithmetic/memory split is itself vendor-dependent (71.5% arithmetic on
+  the RX 7600, 48.9% on the L4, measured at one commit).
 - **GPU-vs-same-host-CPU at N=20**: 7.4x on ascicgpu073 (2.45 vs 18.1 ms,
   24 threads), 7.2x on ascicgpu24 (4.68 vs 33.6) — against 3.6x for the
   RX 7600 over the desktop host.  "Fast CPU" means fast per core: at 24
-  threads the ascicgpu073 server host beats the desktop (18.1 vs 23.6 ms),
+  threads the ascicgpu073 server host is faster than the desktop (18.1 vs 23.6 ms),
   so the original sweep's saturated 3.4x was a host-pairing statement,
   not a property of Carina's explicit kernels.
 

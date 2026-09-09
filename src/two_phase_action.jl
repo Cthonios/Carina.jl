@@ -18,7 +18,7 @@
 # The action functor API is untouched: `func_action` was per-qp all along;
 # only the summation and scatter strategy changes.  Staging for the torsion
 # mesh is 24 x 8 x nelem doubles (~250 MB, ~0.3 ms of extra traffic on an
-# A100) - the bet was that occupancy buys more than the traffic costs.
+# A100) - the hypothesis was that occupancy gains more than the traffic costs.
 #
 # VERDICT (2026-08-24, torsion 530k DOF, NewmarkAction, deformed state):
 # the bet loses on every card - A100 3.04 -> 3.80 ms (0.80x), RX 7600

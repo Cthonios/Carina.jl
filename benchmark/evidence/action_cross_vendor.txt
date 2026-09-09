@@ -1,0 +1,112 @@
+Matrix-free stiffness action across three vendors: the FP64 reading retired
+===========================================================================
+
+Problem: torsion-qs deck (benchmark/inputs/torsion-qs-gpu-cg-jacobi.yaml),
+530,523 DOF / 527,877 free, 160,000 HEX8 -- the same problem as
+benchmark/evidence/action_ablation.txt.  Driver: benchmark/action_bench.jl,
+which times `stiffness_action` against `mass_action` in one process.
+
+BOTH ROWS BELOW WERE MEASURED AT THE SAME COMMIT (c85390d, 2026-09-08).  That
+matters: an earlier version of this file compared the L4 against the RX 7600
+arm in action_ablation.txt, which was taken 2026-08-06 at commit 553b46a --
+sixteen days and two kernel commits earlier.  The register/spill work of
+053b490 and 85928c5 (2026-08-22) changed the kernel substantially and
+unequally across vendors, so that comparison was not commit-matched and its
+figures (1.87x, 2.86x) were overstated.  The corrected figures are 1.71x and
+2.50x, and the conclusion is unchanged.
+
+  RX 7600  AMD Navi 33, RDNA3, 32 CU, 8 GB, 288 GB/s, FP64 at 1/32 = 0.68 TFLOP/s
+           ROCm via AMDGPU.jl, host sirius, Julia 1.12.7
+  L4       NVIDIA AD104, Ada, 58 SM, 23 GB, 300 GB/s, FP64 at 1/64 = 0.489 TFLOP/s
+           CUDA 13.3 via CUDA.jl artifacts, driver 610.57.04, host rigel, Julia 1.12.7
+
+The L4 is close to a controlled experiment on the FP64 question: LOWER FP64
+peak than the RX 7600 (0.489 vs 0.68) at nearly equal memory bandwidth
+(300 vs 288 GB/s).  An FP64-throughput-bound kernel must therefore run SLOWER
+on it; a bandwidth-bound one must tie.
+
+
+RESULTS, state = initial
+-------------------------
+RX 7600 (ROCm):
+    stiffness_action   med    8.721 ms   min    8.164 ms    54.51 ns/elem   15.70 GB/s   chk 1.906160379496682e+06
+    mass_action        med    2.488 ms   min    2.231 ms    15.55 ns/elem   55.06 GB/s   chk 2.124830956604735e-06
+    stiffness / mass = 3.51x, arithmetic-attributable share 71.5%
+
+L4 (CUDA):
+    stiffness_action   med    5.095 ms   min    5.004 ms    31.84 ns/elem   26.88 GB/s   chk 1.906160379496682e+06
+    mass_action        med    2.604 ms   min    2.443 ms    16.28 ns/elem   52.59 GB/s   chk 2.124830956604735e-06
+    stiffness / mass = 1.96x, arithmetic-attributable share 48.9%
+
+
+RESULTS, state = deformed (geometric term of dP/d(grad u) live)
+----------------------------------------------------------------
+RX 7600 (ROCm):
+    stiffness_action   med    8.937 ms   min    8.051 ms    55.86 ns/elem   15.33 GB/s   chk 1.906165947916275e+06
+    mass_action        med    2.496 ms   min    2.253 ms    15.60 ns/elem   54.87 GB/s   chk 2.124830956604735e-06
+    stiffness / mass = 3.58x, arithmetic-attributable share 72.1%
+
+L4 (CUDA):
+    stiffness_action   med    5.157 ms   min    4.983 ms    32.23 ns/elem   26.56 GB/s   chk 1.906165947916275e+06
+    mass_action        med    2.594 ms   min    2.424 ms    16.21 ns/elem   52.80 GB/s   chk 2.124830956604735e-06
+    stiffness / mass = 1.99x, arithmetic-attributable share 49.7%
+
+The deformed state reproduces the initial-state reading: 1.73x on the
+stiffness action, 2.50x on the arithmetic part, memory floor within 4%.
+
+
+1. NUMERICAL AGREEMENT IS EXACT ACROSS VENDORS.  In both states and for both
+   kernels, the two cards return identical checksums to every digit printed:
+   1.906160379496682e+06 and 1.906165947916275e+06 for the stiffness action
+   at U = 0 and at finite strain, and 2.124830956604735e-06 for the mass
+   action, each a sum of |.| over 5.3e5 entries.  The KernelAbstractions
+   kernels are numerically identical on ROCm and CUDA.  This is the strongest
+   available support for the portability claim in benchmark_report.md
+   section 8.
+
+2. FP64 PEAK DOES NOT BOUND THIS KERNEL.  Were it the binding ceiling, the L4
+   -- with 28% less FP64 peak -- would run the stiffness action at
+   8.721 * 0.68/0.489 = 12.13 ms.  It runs it in 5.095 ms: 1.71x faster, and
+   2.38x off the prediction.
+
+3. THE MEMORY FLOOR IS THE CONTROL, AND IT HELD.  `mass_action` has the
+   identical connectivity gather, the identical 24-DOF atomic scatter, the
+   identical element count and launch geometry, and negligible arithmetic.
+   It came out within 5% across the two cards (2.488 vs 2.604 ms; 55.1 vs
+   52.6 GB/s achieved), as their near-equal bandwidths predict.  The entire
+   stiffness difference therefore sits in the arithmetic part, where the L4
+   is 2.50x faster (6.233 vs 2.491 ms).
+
+4. THE FLOP BUDGET IS SELF-CONTRADICTORY.  benchmark_report.md section 6 put
+   the RX 7600's arithmetic at 40-50% of its 0.68 TFLOP/s FP64 peak.  Any
+   figure in that range implies a FLOP count that the L4 would have to
+   execute at 139-174% of its own 0.489 TFLOP/s peak, which is impossible.
+   The FLOP count behind the 40-50% estimate is too high by at least ~1.4x,
+   and it was an assumed count rather than a measured one.
+
+5. THIS CORROBORATES A PROFILE-BASED REFUTATION THAT CAME FIRST.  The A100
+   cross-vendor check of 2026-08-22 (benchmark/crosscode/README.md section 4)
+   had already refuted the same reading, and by a more direct route: a CUPTI
+   profile counted only ~1,100 FP64 arithmetic instructions in the kernel
+   against 253 registers per thread, 12.5% occupancy and a ~4 KB spill frame,
+   and concluded the kernel was "nowhere near flop-bound".  That refutation
+   was never propagated into section 6, which is how the FP64 reading
+   survived in the report until now.  The L4 reaches the same conclusion from
+   the opposite direction -- hardware rather than instruction counts -- on a
+   card whose FP64 peak is lower than the reference.
+
+6. WHAT BINDS THE RX 7600 IS STILL OPEN.  The crosscode section 4 follow-up
+   concluded, after the register fix moved the A100 from 7.17 to 2.88 ms and
+   the RX 7600 only from 9.36 to 8.66, that "RDNA3 was never spill-bound --
+   its 1/32-rate FP64 arithmetic is its wall".  The L4 does not support that
+   either: a card with a 1/64 rate and a lower absolute FP64 peak runs the
+   same kernel 1.71x faster.  Whatever limits the RX 7600 here, it is not
+   FP64 peak in any form that transfers across vendors.  Settling it needs a
+   ROCm-side profile of the kind CUPTI provided on the A100, which is open
+   item 9 in section 7.
+
+7. THE ARITHMETIC SHARE IS A PROPERTY OF THE CARD, NOT OF THE KERNEL.
+   71.5% on the RX 7600, 48.9% on the L4, from the same source at the same
+   commit.  Optimizations aimed at the arithmetic will repay at very
+   different rates on different hardware, which is the practical consequence
+   for section 7 items 5 and 6.
