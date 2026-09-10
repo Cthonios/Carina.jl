@@ -6,6 +6,21 @@ using Statistics
 try; @eval import CUDA;   catch; end
 try; @eval import AMDGPU; catch; end
 
+# `CUDA.@allocated` is a MACRO, so a use of it anywhere in a test file is
+# resolved when that file is lowered -- before any runtime guard can skip it.
+# On a machine where CUDA is not importable at all (CI runs `julia --project=.
+# test/runtests.jl`, where these test-only extras are absent) that fails the
+# whole file with `UndefVarError: CUDA not defined in Main`, which is a hard
+# load error rather than the soft skip every other GPU check degrades to.
+# Wrapping it here, inside the branch where the import has just succeeded,
+# leaves test files making an ordinary runtime-resolved function call -- the
+# same shape as the `AMDGPU.memory_stats()` calls they already make.
+#
+# Returns bytes requested from the CUDA.jl device allocator during `f()`.
+if isdefined(@__MODULE__, :CUDA)
+    @eval cuda_allocated_bytes(f) = CUDA.@allocated f()
+end
+
 const _TEST_CUDA   = isdefined(@__MODULE__, :CUDA)   && CUDA.functional()
 const _TEST_AMDGPU = isdefined(@__MODULE__, :AMDGPU) && AMDGPU.functional()
 

@@ -335,8 +335,11 @@ $solver
                     @test Main.AMDGPU.memory_stats().live == live0
                 else
                     Main.CUDA.synchronize()
-                    # `CUDA.@allocated` counts bytes requested from the CUDA.jl
-                    # allocator inside the expression.  That is a stricter
+                    # `cuda_allocated_bytes` (helpers.jl) counts bytes requested
+                    # from the CUDA.jl allocator inside the closure.  It wraps
+                    # `CUDA.@allocated` there rather than using the macro here,
+                    # because a macro is resolved at lowering time and would
+                    # fail this whole file to load on a machine without CUDA.  That is a stricter
                     # statement than the ROCm live-bytes comparison above: a
                     # live-bytes difference returns to its baseline if a buffer
                     # is allocated and freed within the window, whereas this
@@ -344,7 +347,7 @@ $solver
                     # needed for the same reason — nothing outside the window
                     # can contribute to the count.  Zero, not "unchanged", is
                     # the claim.
-                    nbytes = Main.CUDA.@allocated begin
+                    nbytes = cuda_allocated_bytes() do
                         for _ in 1:20
                             Carina._amg_vcycle!(z, r, h, mv!, backend)
                         end
