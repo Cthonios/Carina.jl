@@ -6,11 +6,16 @@
 # appended as JSON lines to benchmark/results/<tag>.jsonl.
 #
 # Usage:
-#   julia --project=. benchmark/harness.jl <case> <variant> [tag]
+#   julia --project=. benchmark/harness.jl <case> <variant> [tag] [device]
 #
 #   case:    torsion-newmark | torsion-qs | cube-newmark | cube-qs
-#   variant: gpu-cg-jacobi | gpu-cg-chebyshev | gpu-lbfgs |
+#   variant: gpu-cg-jacobi | gpu-cg-chebyshev | gpu-cg-amg | gpu-lbfgs |
 #            cpu-direct | cpu-cg-jacobi | cpu-cg-ic | cpu-cg-amg | cpu-lbfgs
+#   device:  auto (default) | rocm | cuda -- only consulted for a gpu-* variant
+#
+# The harness ran ROCm-only until 2026-09-11, which is why every gpu-* record
+# in results/ before then is a Radeon RX 7600.  Carina itself is vendor-free;
+# the lock was here.
 #
 # Iteration counts are parsed from the Carina log file (the [SOLVE] lines),
 # which keeps the harness decoupled from solver internals.
@@ -79,13 +84,64 @@ const case, variant = ARGS[1], ARGS[2]
 const tag = length(ARGS) >= 3 ? ARGS[3] : "baseline"
 
 const use_gpu = startswith(variant, "gpu-")
-if use_gpu
-    using AMDGPU
-    AMDGPU.functional() || error("GPU variant requested but ROCm not functional.")
+const device  = length(ARGS) >= 4 ? lowercase(ARGS[4]) : "auto"
+device in ("auto", "rocm", "cuda") ||
+    error("Unknown device \"$device\". Expected auto, rocm, or cuda.")
+
+# Load only the vendor package that was asked for.  Each `using` is its own
+# top-level statement: loading a package and then calling into it inside a
+# single expression puts the call in the world age that preceded the load, and
+# the resulting failure is indistinguishable from the package being absent.
+# The load errors are reported rather than swallowed for the same reason -- a
+# broken install must not present itself as "no GPU found".
+if use_gpu && device in ("auto", "rocm")
+    try
+        @eval using AMDGPU
+    catch err
+        @warn "AMDGPU failed to load" exception = err
+    end
+end
+if use_gpu && device in ("auto", "cuda")
+    try
+        @eval using CUDA
+    catch err
+        @warn "CUDA failed to load" exception = err
+    end
+end
+
+# Which vendor actually resolved.  This is the single decision point for the
+# backend and the VRAM query below.  An unusable request is an error rather
+# than a silent fallback to the CPU, which would report a GPU variant's
+# timings as if the device had run them.
+const gpu_vendor = let v = :none
+    if use_gpu
+        if isdefined(Main, :AMDGPU) && AMDGPU.functional()
+            v = :rocm
+        elseif isdefined(Main, :CUDA) && CUDA.functional()
+            v = :cuda
+        else
+            error("GPU variant requested but no functional " *
+                  (device == "auto" ? "GPU" : device) * " was found.")
+        end
+    end
+    v
 end
 
 include(joinpath(REPO, "src", "Carina.jl"))
 const C = Carina
+
+# Vendor-specific calls live in these two functions and nowhere else.  Both are
+# ordinary function calls, resolved at run time, so the branch not taken need
+# not have its package loaded -- a vendor *macro* here would be resolved when
+# this file is lowered and would fail on any machine missing that package.
+gpu_backend() = gpu_vendor === :rocm ? AMDGPU.ROCBackend() :
+                gpu_vendor === :cuda ? CUDA.CUDABackend() : C.KA.CPU()
+
+# Bytes currently held by the vendor allocator.  `AMDGPU.memory_stats().live`
+# and `CUDA.used_memory()` are the same quantity: pool memory in use by this
+# process, not total device occupancy.
+gpu_live_bytes() = gpu_vendor === :rocm ? Int(AMDGPU.memory_stats().live) :
+                   gpu_vendor === :cuda ? Int(CUDA.used_memory()) : 0
 
 function main()
     meshname, meshpath, case_body = case_yaml(case)
@@ -105,7 +161,7 @@ function main()
         path = joinpath(dir, "bench.yaml")
         write(path, yaml)
 
-        backend = use_gpu ? AMDGPU.ROCBackend() : C.KA.CPU()
+        backend = gpu_backend()
 
         C.CARINA_WRITE_LOG_FILE[] = true
         gc_before = Base.gc_num()
@@ -115,7 +171,7 @@ function main()
         newton_iters, cg_iters, step_walls, t_solve_sum, t_eval_sum,
             amg_build_s, nbuilds = parse_log(joinpath(dir, "bench.log"))
 
-        vram_live = use_gpu ? Int(AMDGPU.memory_stats().live) : 0
+        vram_live = gpu_live_bytes()
         n_dofs = length(sim.asm_cpu.dof.unknown_dofs)
         alloc_bytes = Base.GC_Diff(gc_after, gc_before).allocd
 
@@ -133,6 +189,10 @@ function main()
            vram_live_bytes = vram_live,
            cpu_alloc_bytes = alloc_bytes,
            failed = sim.integrator.failed[],
+           # Which vendor and machine produced the row.  Records written before
+           # 2026-09-11 have neither and are all RX 7600 / ROCm.
+           device = String(gpu_vendor),
+           host = gethostname(),
            julia = string(VERSION),
            timestamp = string(round(Int, time())))
     end

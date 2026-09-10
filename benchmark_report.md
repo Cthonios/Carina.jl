@@ -446,7 +446,7 @@ sparse-matrix bandwidth, and it is why the Float32 smoother in §2 works.
      SpMVs are launch-latency-bound, not bandwidth-bound. The skeleton's 17 ms
      is mostly *fine-sized* traffic — R₁/P₁ and the smoother's broadcasts —
      whose cost is set by the Float64 fine vectors, which have to stay Float64.
-     Record: `benchmark/results/fp32-csr.jsonl`. Worth revisiting only if VRAM
+     Record: `benchmark/results/archive/fp32-csr.jsonl`. Worth revisiting only if VRAM
      ever becomes the binding constraint, which §4 says it is not.
    - **The rest of the action**: geometry and the contraction. Overlaps with
      item 3 below, which would remove the geometry cost outright rather than
@@ -556,9 +556,13 @@ by measurement, noted here because they circulated:
   per cycle, and 74% of a preconditioned CG iteration is that action. This is
   what redirected the FP32 work from the CSR levels to the constitutive kernel.
 
-Raw records: `benchmark/results/current.jsonl` holds the implicit numbers quoted
-here, `explicit-scaling.jsonl` the explicit sweep, `threadcheck.jsonl` the thread
-scaling, and `fp32-smoother.jsonl` / `fp64-baseline.jsonl` the back-to-back pair
-behind §2's top two rows. Earlier tags (`baseline`, `proposed`, `scaling2`,
-`variance`, `detail`, `bisect`, `nbuilds-check`, `jvp`) are kept so the history
-stays auditable.
+Raw records live in `benchmark/results/archive/`, which holds the evidence
+trail of the optimization rounds: `current.jsonl` has the implicit numbers
+quoted here, `explicit-scaling.jsonl` the explicit sweep, `threadcheck.jsonl`
+the thread scaling, and `fp32-smoother.jsonl` / `fp64-baseline.jsonl` the
+back-to-back pair behind §2's top two rows. Earlier tags (`baseline`,
+`proposed`, `scaling2`, `variance`, `detail`, `bisect`, `nbuilds-check`,
+`jvp`) are kept so the history stays auditable. Those files record one
+decision each and are not a performance record; the current device-by-regime
+measurements are in `benchmark/results/matrix/` and are described in
+`benchmark/README.md`.

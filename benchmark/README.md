@@ -18,7 +18,8 @@ generation, the measurement harness, sweep scripts, and the raw results.
 | `torsiongen.jl` | Structured HEX8 torsion-bar generator at arbitrary refinement (`N=20` reproduces `torsion.g`) |
 | `run_baselines.sh`, `run_round2.sh`, `run_scaling.sh`, `run_scaling2.sh` | The sweep scripts the implicit study ran |
 | `run_explicit_scaling.sh` | The explicit CPU-vs-GPU size sweep (report §8) |
-| `results/*.jsonl` | Raw records of the study — every number in the report traces to these |
+| `results/matrix/` | The current performance record: one schema, mandatory provenance, one file per (host, device) — see below |
+| `results/archive/` | Raw records of the optimization rounds — every number in the report traces to these |
 | `evidence/` | Log excerpts and ablation arms backing specific report claims (OOMs, L-BFGS failure, ROCm test output, the action ablation, the FEC block-size sweep, the inexact-Newton A/B) |
 | `design.md` | Proposed solution, design rationale, rejected alternatives |
 
@@ -86,7 +87,7 @@ records land on a local disk.
 
 The same ladder on the Sandia V100 (32 GB) and A100 (40 GB), extended past
 the RX 7600's 8 GB capacity cap; records in
-`results/explicit-ascicgpu{24,073}.jsonl`.  Per-step milliseconds, with the
+`results/archive/explicit-ascicgpu{24,073}.jsonl`.  Per-step milliseconds, with the
 original sweep's CPU baseline (the 5.7 GHz desktop host, 24 threads — the
 fastest CPU measured per core) alongside:
 
@@ -105,11 +106,11 @@ fastest CPU measured per core) alongside:
 | 100 | 61.2M | — | 1806 | — | — | — | — | — |
 
 The L4 column is a 72 W inference card added to Rigel on 2026-09-08; records in
-`results/explicit-rigel-l4.jsonl`.  It matches the V100 within 10% from N=20 to
+`results/archive/explicit-rigel-l4.jsonl`.  It matches the V100 within 10% from N=20 to
 N=50 and runs N=64 where the 8 GB RX 7600 is out of memory.
 
 Rigel is a dual EPYC 9634 (168 cores / 336 threads, 1.5 TB); records in
-`results/explicit-rigel{,-threads}.jsonl`.  Its column is the machine's
+`results/archive/explicit-rigel{,-threads}.jsonl`.  Its column is the machine's
 measured optimum, which is **48 threads** — thread scaling INVERTS above
 that (N=20: 17.6 ms at 24T, 12.0 at 48T, 24.7 at 84T, 138.8 at 168T,
 545.6 at 336T).  The threaded CPU scatter uses atomic adds, and past ~48
