@@ -39,7 +39,16 @@ const REPO      = dirname(@__DIR__)
 # unset, everything lands in the repo as before.
 const SCRATCH   = get(ENV, "CARINA_BENCH_SCRATCH", @__DIR__)
 const MESH_DIR  = joinpath(SCRATCH, "meshes")
-const INPUT_DIR = joinpath(SCRATCH, "inputs")
+# `inputs/generated/`, not `inputs/`.  The decks written here encode `nsteps`
+# in the header, the output interval and the final time, so a sweep run with a
+# different step count rewrites them -- and `inputs/` is tracked, holding the
+# curated per-(case, variant) decks that `write_inputs.jl` produces from
+# `cases.jl`.  Writing scratch output into a curated, tracked directory left
+# every benchmark machine with a permanently dirty working tree and would
+# block a pull the moment a commit touched one of those files.  The
+# subdirectory is gitignored; the sweep's reproducible record is the JSONL in
+# `results/`, which is tracked and appended to rather than overwritten.
+const INPUT_DIR = joinpath(SCRATCH, "inputs", "generated")
 const RESULTS   = joinpath(SCRATCH, "results")
 
 # CFL-invariant step: N=20 (h = 2.5e-3) is stable at 5e-7 with the material

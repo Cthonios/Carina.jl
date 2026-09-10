@@ -7,7 +7,8 @@ generation, the measurement harness, sweep scripts, and the raw results.
 
 | Path | What it is |
 | --- | --- |
-| `inputs/` | Standalone YAML decks, one per (case, variant) pair of the study — directly runnable, see below |
+| `inputs/` | Standalone YAML decks, one per (case, variant) pair of the implicit study — tracked and directly runnable, see below |
+| `inputs/generated/` | Decks written by `explicit_sweep.jl`, whose content depends on the step count passed to it — gitignored scratch, regenerated on demand |
 | `cases.jl` | Single source of truth for case/variant definitions (decks and harness both derive from it) |
 | `write_inputs.jl` | Regenerates `inputs/` from `cases.jl` |
 | `harness.jl` | Measurement harness: one (case, variant) per fresh process, appends a JSON-lines record to `results/<tag>.jsonl` |
@@ -177,4 +178,10 @@ Change `cases.jl`, then regenerate the checked-in decks:
 julia benchmark/write_inputs.jl
 ```
 
-Decks in `inputs/` are generated files — never edit them by hand.
+Decks in `inputs/` are generated files — never edit them by hand. They come
+from `write_inputs.jl` and are tracked, so they are a stable record of what the
+implicit study ran. The explicit sweep's decks are different: their content
+encodes the step count passed on the command line, so a run at a different
+`nsteps` rewrites them. They go to the gitignored `inputs/generated/` for that
+reason, and the sweep's reproducible record is the JSONL in `results/`, which
+is tracked and appended to rather than overwritten.
