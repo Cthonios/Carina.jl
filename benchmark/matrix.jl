@@ -100,6 +100,45 @@ end
 
 slug(s) = lowercase(replace(strip(s), r"[^A-Za-z0-9]+" => "-"))
 
+"""
+Bytes of device memory in use, from the vendor's own tool, or `nothing`.
+
+This is recorded before every point so that "the device was clean when this
+started" is a measured fact rather than an assumption.  It matters because
+Julia's garbage collector triggers on host pressure and never sees VRAM, so a
+finished simulation's device memory stays live until something fails to
+allocate.  In a single process the remedy is explicit -- `sim = nothing;
+GC.gc(true); AMDGPU.reclaim()` -- and this driver instead runs every point in
+its own process and waits for it to exit, which returns the device to the
+driver.  That is also why harness.jl mandates a fresh process per point.
+
+The failure mode this guards against is subtle: leaked VRAM surfaces at
+whichever later point needs the most memory, and the memory-hungry cases run
+last here.  A `cube80` failure with a dirty device is a leak; the same failure
+with a clean one is the hardware's limit.  Without this field the two are
+indistinguishable after the fact.
+"""
+function device_vram_used(dev::String)
+    dev == "cpu" && return nothing
+    try
+        if dev == "cuda"
+            out = read(`nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits`, String)
+            return round(Int, parse(Float64, strip(first(split(strip(out), '\n')))) * 2^20)
+        else
+            # rocm-smi lists every card including the integrated one; card0 is
+            # the discrete device the runs use.
+            for l in split(read(`rocm-smi --showmeminfo vram --csv`, String), '\n')
+                startswith(l, "card0,") || continue
+                f = split(strip(l), ',')
+                length(f) >= 3 && return parse(Int, strip(f[3]))
+            end
+        end
+    catch err
+        @warn "could not read device memory use" dev exception = err
+    end
+    return nothing
+end
+
 # --------------------------------------------------------------------------
 # Minimal JSON, matching the emitters in harness.jl and explicit_sweep.jl so
 # the three families stay readable by the same tooling without a dependency.
@@ -178,6 +217,7 @@ function run_point(regime, case, variant, device, gpu, threads, dry)
         return nothing
     end
     flush(stdout)
+    vram_before = device_vram_used(device)
 
     t0 = time()
     ok = try
@@ -200,6 +240,7 @@ function run_point(regime, case, variant, device, gpu, threads, dry)
                   t_total_s = nothing, steady_step_s = nothing, per_step_ms = nothing,
                   step_walls = Float64[], newton_iters = nothing, cg_total = nothing,
                   amg_build_s = nothing, vram_live_bytes = nothing,
+                  vram_used_before_bytes = vram_before,
                   ok = false, timestamp = round(Int, time()))
     end
 
@@ -231,6 +272,7 @@ function run_point(regime, case, variant, device, gpu, threads, dry)
              cg_total      = field(line, "cg_total"),
              amg_build_s   = field(line, "amg_build_s"),
              vram_live_bytes = field(line, "vram_live_bytes"),
+             vram_used_before_bytes = vram_before,
              ok = true, timestamp = round(Int, time()))
 
     if regime == "explicit"
