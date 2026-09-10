@@ -20,6 +20,11 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  # The single Julia version whose single-threaded leg reports coverage.
+  # Must be one of the versions in the matrix below.
+  COVERAGE_JULIA: '1.13'
+
 jobs:
   test:
     name: Julia ${{ matrix.julia-version }} - ${{ matrix.os }} - ${{ matrix.threads }}t
@@ -27,7 +32,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        julia-version: ['1.12']
+        # Both currently supported releases. 1.13 is what every development
+        # and benchmark machine runs; 1.12 is kept so a regression that only
+        # shows on the older release is still caught here rather than by a
+        # user. `COVERAGE_JULIA` below must name one of these.
+        julia-version: ['1.12', '1.13']
         os: [ubuntu-latest]
         # A second, multithreaded leg. FEC's element loop accumulates into
         # shared nodes through atomics, so anything that assumes a fixed
@@ -70,13 +79,19 @@ jobs:
       # cloned above, slowing the run and littering their trees with .cov files
       # that nothing consumes.
       #
-      # Coverage is measured on the single-threaded leg only. Codecov takes one
-      # report per commit as the baseline, so a second upload from the threaded
-      # leg would race the first rather than add anything -- the two legs run
-      # identical test files and differ only in thread count.
+      # Coverage is measured on exactly one leg: single-threaded, on
+      # COVERAGE_JULIA. Codecov takes one report per commit as the baseline, so
+      # any second upload races the first rather than adding anything. The
+      # thread legs run identical test files and differ only in thread count,
+      # and the Julia legs differ only in compiler version, so neither
+      # additional leg would change what is covered.
       - name: Run tests (with coverage)
-        if: matrix.threads == 1
+        if: matrix.threads == 1 && matrix.julia-version == env.COVERAGE_JULIA
         run: julia --color=no --project=. --code-coverage=@src test/runtests.jl
+
+      - name: Run tests (single-threaded, no coverage)
+        if: matrix.threads == 1 && matrix.julia-version != env.COVERAGE_JULIA
+        run: julia --color=no --project=. test/runtests.jl
 
       - name: Run tests (multithreaded)
         if: matrix.threads != 1
@@ -85,11 +100,11 @@ jobs:
                 test/runtests.jl
 
       - name: Process coverage
-        if: matrix.threads == 1
+        if: matrix.threads == 1 && matrix.julia-version == env.COVERAGE_JULIA
         uses: julia-actions/julia-processcoverage@v1
 
       - name: Upload coverage to Codecov
-        if: matrix.threads == 1
+        if: matrix.threads == 1 && matrix.julia-version == env.COVERAGE_JULIA
         uses: codecov/codecov-action@v5
         with:
           files: lcov.info
