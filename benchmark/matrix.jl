@@ -224,17 +224,30 @@ function run_point(regime, case, variant, device, gpu, threads, dry)
     flush(stdout)
     vram_before = device_vram_used(device)
 
+    # The child's stderr is captured rather than discarded.  A bare ok = false
+    # is not interpretable: a missing mesh file, a device out of memory and a
+    # solver that diverged are three different findings, and the whole purpose
+    # of recording failures instead of skipping them is to tell them apart
+    # afterwards.  The first run of this matrix reported the L4 as unable to
+    # run cube64 when the mesh had simply never been generated on that machine.
     t0 = time()
+    err = IOBuffer()
     ok = try
-        success(pipeline(cmd; stdout = devnull, stderr = devnull))
+        success(pipeline(cmd; stdout = devnull, stderr = err))
     catch
         false
     end
     line = last_record(tmp)
     rm(tmp; force = true)
+    errtail = let e = strip(String(take!(err)))
+        isempty(e) ? "" : (length(e) > 400 ? "..." * e[max(1, end - 399):end] : e)
+    end
 
     if !ok || line === nothing
-        @printf("FAILED after %.0fs\n", time() - t0)
+        why = occursin("missing", errtail) ? "input missing" :
+              occursin(r"(?i)out of memory|OutOfGPUMemory|alloc"a, errtail) ? "out of memory" :
+              isempty(errtail) ? "no diagnostic" : "see error"
+        @printf("FAILED (%s) after %.0fs\n", why, time() - t0)
         return (; schema = SCHEMA, regime,
                   case = regime == "explicit" ? "explicit-torsion" : String(case),
                   variant = regime == "explicit" ? "central-difference" : String(variant),
@@ -246,7 +259,8 @@ function run_point(regime, case, variant, device, gpu, threads, dry)
                   step_walls = Float64[], newton_iters = nothing, cg_total = nothing,
                   amg_build_s = nothing, vram_live_bytes = nothing,
                   vram_used_before_bytes = vram_before,
-                  ok = false, timestamp = round(Int, time()))
+                  ok = false, failure = why, error_tail = errtail,
+                  timestamp = round(Int, time()))
     end
 
     walls = regime == "explicit" ? field(line, "interval_walls") : field(line, "step_wall_s")
@@ -278,7 +292,8 @@ function run_point(regime, case, variant, device, gpu, threads, dry)
              amg_build_s   = field(line, "amg_build_s"),
              vram_live_bytes = field(line, "vram_live_bytes"),
              vram_used_before_bytes = vram_before,
-             ok = true, timestamp = round(Int, time()))
+             ok = true, failure = "", error_tail = "",
+             timestamp = round(Int, time()))
 
     if regime == "explicit"
         @printf("%8.2f ms/step\n", something(rec.per_step_ms, NaN))
