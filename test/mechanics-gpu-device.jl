@@ -283,18 +283,22 @@ $solver
         @test length(ls.precond.hierarchy.levels) >= 1
         @test ls.precond.nbuilds >= 1
 
-        # The V-cycle apply path must not allocate device memory: repeated
-        # applications leave live VRAM exactly unchanged (ROCm only — the
-        # portable KA layer has no allocation counter).
+        # The V-cycle apply path must not allocate device memory.  Both
+        # vendors are checked, by different instruments, because the portable
+        # KA layer exposes no allocation counter of its own: ROCm has a
+        # live-bytes gauge, CUDA an allocation counter.  The branch follows
+        # `backend`, since `test_best_device()` prefers ROCm where both are
+        # present and `_TEST_AMDGPU` is exactly that condition.
+        #
         # `isdefined(Main, :AMDGPU)` is not enough.  AMDGPU is a test-only
         # extra, so `Pkg.test()` makes it importable on every machine —
         # including NVIDIA-only ones, where the HIP runtime is absent and the
         # first call into it dies with `undefined symbol: hipDeviceGet`.  That
         # throw lands outside any `@test`, so it aborts the whole file instead
-        # of failing softly.  `_TEST_AMDGPU` (helpers.jl) adds the
-        # `AMDGPU.functional()` check, and is what `test_best_device()` used to
-        # pick `backend` above, so this now tracks the backend actually in use.
-        if _TEST_AMDGPU
+        # of failing softly.  `_TEST_AMDGPU` and `_TEST_CUDA` (helpers.jl) add
+        # the `functional()` check, and are what `test_best_device()` used to
+        # pick `backend` above, so this tracks the backend actually in use.
+        if _TEST_AMDGPU || _TEST_CUDA
             h = ls.precond.hierarchy
             ig = sim_amg.integrator
             n = length(ls.precond.inv_diag)
@@ -312,21 +316,42 @@ $solver
                                                             sim_amg.params)
             for mv! in (mv64!, mv32!)
                 Carina._amg_vcycle!(z, r, h, mv!, backend)   # warm-up/compile
-                Main.AMDGPU.synchronize()
-                # Quiesce before sampling.  Without this the baseline picks up
-                # device buffers from the solve above whose finalizers have not
-                # run yet; collecting one inside the measurement window makes
-                # `live` *drop*, which fails an equality test that is there to
-                # catch growth.  A GC here makes the comparison mean what it
-                # says, and the equality (not `<=`) is deliberate — the apply
-                # path is allocation-free, so anything else is a regression.
-                GC.gc(true); Main.AMDGPU.synchronize()
-                live0 = Main.AMDGPU.memory_stats().live
-                for _ in 1:20
-                    Carina._amg_vcycle!(z, r, h, mv!, backend)
+                if _TEST_AMDGPU
+                    Main.AMDGPU.synchronize()
+                    # Quiesce before sampling.  Without this the baseline picks
+                    # up device buffers from the solve above whose finalizers
+                    # have not run yet; collecting one inside the measurement
+                    # window makes `live` *drop*, which fails an equality test
+                    # that is there to catch growth.  A GC here makes the
+                    # comparison mean what it says, and the equality (not
+                    # `<=`) is deliberate — the apply path is allocation-free,
+                    # so anything else is a regression.
+                    GC.gc(true); Main.AMDGPU.synchronize()
+                    live0 = Main.AMDGPU.memory_stats().live
+                    for _ in 1:20
+                        Carina._amg_vcycle!(z, r, h, mv!, backend)
+                    end
+                    Main.AMDGPU.synchronize()
+                    @test Main.AMDGPU.memory_stats().live == live0
+                else
+                    Main.CUDA.synchronize()
+                    # `CUDA.@allocated` counts bytes requested from the CUDA.jl
+                    # allocator inside the expression.  That is a stricter
+                    # statement than the ROCm live-bytes comparison above: a
+                    # live-bytes difference returns to its baseline if a buffer
+                    # is allocated and freed within the window, whereas this
+                    # counts the allocation either way.  No GC quiesce is
+                    # needed for the same reason — nothing outside the window
+                    # can contribute to the count.  Zero, not "unchanged", is
+                    # the claim.
+                    nbytes = Main.CUDA.@allocated begin
+                        for _ in 1:20
+                            Carina._amg_vcycle!(z, r, h, mv!, backend)
+                        end
+                        Main.CUDA.synchronize()
+                    end
+                    @test nbytes == 0
                 end
-                Main.AMDGPU.synchronize()
-                @test Main.AMDGPU.memory_stats().live == live0
             end
         end
     end
