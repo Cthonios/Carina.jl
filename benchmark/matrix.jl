@@ -48,9 +48,16 @@ const SPINE_CPU = [("qs", "torsion-qs", "cpu-cg-amg"),
 const LADDER = [(8, 8000), (12, 3000), (20, 800), (28, 300),
                 (36, 160), (44, 100), (50, 80), (64, 40)]
 
-# SIZE SCALING: the implicit analogue of the ladder.  The 8 GB RX 7600 cannot
-# hold these; that is a property of the hardware and the row is recorded as a
-# failure rather than skipped, so the table shows why it is blank.
+# SIZE SCALING: the implicit analogue of the ladder.  A failing point is
+# recorded as a row with ok = false rather than skipped, so a blank in the
+# table is a measured limit and not a run nobody attempted.
+#
+# cube80 is the memory ceiling, and it is the HOST that runs out first, not the
+# device: benchmark_report.md section 4 records AlgebraicMultigrid's setup
+# being OOM-killed at 1.57M DOF because it preallocates for the worst case.  On
+# a 60 GB desktop the kernel can pick this driver as the victim rather than the
+# child, which is why records are appended per point above -- otherwise the
+# whole sweep is lost at the last step.
 const SIZE_GPU = [("qs", "cube64-qs", "gpu-cg-amg"),
                   ("qs", "cube80-qs", "gpu-cg-amg")]
 
@@ -278,21 +285,30 @@ function main()
     println("  out    : ", relpath(out, REPO))
     println()
 
+    # Each record is appended the moment its point finishes.  Buffering the
+    # run and writing at the end loses everything if the process dies, and
+    # these runs are long, unattended, and end in a case that is expected to
+    # exhaust host memory on some machines -- a full sweep was lost exactly
+    # that way before this was changed.  Appending also makes a run in flight
+    # inspectable from another shell.
+    mkpath(dirname(out))
+    emit(r) = (r === nothing || open(io -> println(io, _json(r)), out, "a"); r)
+
     records = Any[]
     if part in ("spine", "all")
         println("SPINE  torsion.g, 530k DOF, three regimes")
         for (regime, case, variant) in (device == "cpu" ? SPINE_CPU : SPINE_GPU)
-            r = run_point(regime, case, variant, device, gpu, threads, dry)
+            r = emit(run_point(regime, case, variant, device, gpu, threads, dry))
             r === nothing || push!(records, r)
         end
-        r = run_point("explicit", 20, 800, device, gpu, threads, dry)
+        r = emit(run_point("explicit", 20, 800, device, gpu, threads, dry))
         r === nothing || push!(records, r)
         println()
     end
     if part in ("ladder", "all")
         println("LADDER  explicit, fixed CFL, 39k to 16.2M DOF")
         for (N, nsteps) in LADDER
-            r = run_point("explicit", N, nsteps, device, gpu, threads, dry)
+            r = emit(run_point("explicit", N, nsteps, device, gpu, threads, dry))
             r === nothing || push!(records, r)
         end
         println()
@@ -300,18 +316,13 @@ function main()
     if part in ("size", "all") && device != "cpu"
         println("SIZE  implicit at 823k and 1.57M DOF")
         for (regime, case, variant) in SIZE_GPU
-            r = run_point(regime, case, variant, device, gpu, threads, dry)
+            r = emit(run_point(regime, case, variant, device, gpu, threads, dry))
             r === nothing || push!(records, r)
         end
         println()
     end
 
     dry && return
-    open(out, "a") do io
-        for r in records
-            println(io, _json(r))
-        end
-    end
     nfail = count(r -> !r.ok, records)
     @printf("%d records appended to %s%s\n", length(records), relpath(out, REPO),
             nfail == 0 ? "" : "  ($nfail failed -- recorded, not skipped)")
