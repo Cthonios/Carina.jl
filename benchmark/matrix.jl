@@ -122,12 +122,17 @@ function device_vram_used(dev::String)
     dev == "cpu" && return nothing
     try
         if dev == "cuda"
-            out = read(`nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits`, String)
+            # stderr is discarded on both paths: rocm-smi warns about the
+            # device being in a low-power state, and an inherited stderr lands
+            # in the middle of this driver's own formatted output line.
+            out = read(pipeline(`nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits`,
+                                stderr = devnull), String)
             return round(Int, parse(Float64, strip(first(split(strip(out), '\n')))) * 2^20)
         else
             # rocm-smi lists every card including the integrated one; card0 is
             # the discrete device the runs use.
-            for l in split(read(`rocm-smi --showmeminfo vram --csv`, String), '\n')
+            for l in split(read(pipeline(`rocm-smi --showmeminfo vram --csv`,
+                                         stderr = devnull), String), '\n')
                 startswith(l, "card0,") || continue
                 f = split(strip(l), ',')
                 length(f) >= 3 && return parse(Int, strip(f[3]))
@@ -320,8 +325,12 @@ function main()
     println("Carina performance matrix")
     println("  host   : ", gethostname())
     println("  device : ", device, isempty(gpu) ? "" : "  ($gpu)")
+    # Tracked modifications only.  An untracked stray -- a results file from an
+    # ad-hoc run, an editor backup -- cannot change what the code does, and
+    # flagging it would teach the reader to ignore the warning.
     println("  commit : ", _git("rev-parse", "--short", "HEAD"),
-            isempty(_git("status", "--porcelain")) ? "" : "  (DIRTY -- results not reproducible)")
+            isempty(_git("status", "--porcelain", "--untracked-files=no")) ? "" :
+            "  (DIRTY -- tracked files modified, results not reproducible)")
     println("  julia  : ", VERSION, "   threads: ", threads)
     println("  part   : ", part)
     println("  out    : ", relpath(out, REPO))
