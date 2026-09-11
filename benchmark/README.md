@@ -18,10 +18,34 @@ generation, the measurement harness, sweep scripts, and the raw results.
 | `torsiongen.jl` | Structured HEX8 torsion-bar generator at arbitrary refinement (`N=20` reproduces `torsion.g`) |
 | `run_baselines.sh`, `run_round2.sh`, `run_scaling.sh`, `run_scaling2.sh` | The sweep scripts the implicit study ran |
 | `run_explicit_scaling.sh` | The explicit CPU-vs-GPU size sweep (report §8) |
-| `results/matrix/` | The current performance record: one schema, mandatory provenance, one file per (host, device) — see below |
+| `MATRIX.md` | The rendered performance matrix — every device across the three regimes, commit-matched. Consult this first |
+| `matrix.jl` | Drives the harnesses below over the full matrix on one machine and normalizes their records into `results/matrix/` |
+| `matrix_report.jl` | Renders `results/matrix/` into `MATRIX.md` |
+| `results/matrix/` | The current performance record: one schema, mandatory provenance, one file per (host, device) |
 | `results/archive/` | Raw records of the optimization rounds — every number in the report traces to these |
 | `evidence/` | Log excerpts and ablation arms backing specific report claims (OOMs, L-BFGS failure, ROCm test output, the action ablation, the FEC block-size sweep, the inexact-Newton A/B) |
 | `design.md` | Proposed solution, design rationale, rejected alternatives |
+
+## Performance matrix
+
+The current, commit-matched record of every device across the three regimes
+is `MATRIX.md`, rendered by `matrix_report.jl` from `results/matrix/`.  It is
+the answer to "how do these GPUs compare for explicit dynamics, implicit
+dynamics and quasi-statics", and it is the table to consult first; everything
+below it in this file describes the individual harnesses the matrix drives.
+
+```sh
+julia --project=. benchmark/matrix.jl --part all       # measure this machine
+julia benchmark/matrix_report.jl --write               # re-render MATRIX.md
+```
+
+The matrix has three parts.  The *spine* runs one mesh (`torsion.g`, 530k DOF)
+through all three time integrators, so a device's three numbers differ only by
+the integrator.  The *ladder* is the explicit refinement sequence, N = 8 to 64.
+The *size* cases are the implicit analog, cube64 and cube80.  Every record
+carries host, vendor, GPU model, commit, Julia version and thread count, and
+the device memory in use before the point started; a failed point is recorded
+with its reason rather than skipped.
 
 ## Meshes
 
@@ -100,14 +124,24 @@ fastest CPU measured per core) alongside:
 | 36 | 2.96M | 131.1 | 75.4 | 37.6 | 27.9 | 25.4 | 12.8 | 10.3x |
 | 44 | 5.35M | 231.4 | 128.0 | 68.8 | 51.6 | 46.8 | 23.8 | 9.7x |
 | 50 | 7.81M | 341.5 | 181.3 | 100.5 | 78.3 | 71.0 | 34.5 | **9.9x** |
-| 64 | 16.2M | — | 368.0 | — (OOM) | 175.0 | 148.7 | 73.7 | — |
+| 64 | 16.2M | — | 368.0 | 220.0† | 175.0 | 148.7 | 73.7 | — |
 | 72 | 23.0M | — | — | — | — | 219.0 | — | — |
 | 80 | 31.5M | — | 708.7 | — | — | — | 158.7 | — |
 | 100 | 61.2M | — | 1806 | — | — | — | — | — |
 
 The L4 column is a 72 W inference card added to Rigel on 2026-09-08; records in
 `results/archive/explicit-rigel-l4.jsonl`.  It matches the V100 within 10% from N=20 to
-N=50 and runs N=64 where the 8 GB RX 7600 is out of memory.
+N=50.
+
+† This table is the August record at commit `2b827db` and is superseded by
+`MATRIX.md`, which re-measured every device at one commit in September.  One
+entry changed in kind: the RX 7600 was out of memory at N=64 in August and
+completes it in September at 220 ms/step, 16.2M DOF in 8 GB.  The July
+`as_matrix_free` change cut a run's device footprint from 5.83 to 0.245 GB,
+and the August sweep predates its reaching this path.  The same card also runs
+both large implicit cases (cube64 at 1.06 GB, cube80 at 2.19 GB); the memory
+that limits cube80 is the host's, during the AMG hierarchy build, not the
+device's.
 
 Rigel is a dual EPYC 9634 (168 cores / 336 threads, 1.5 TB); records in
 `results/archive/explicit-rigel{,-threads}.jsonl`.  Its column is the machine's

@@ -48,7 +48,7 @@ const SPINE_CPU = [("qs", "torsion-qs", "cpu-cg-amg"),
 const LADDER = [(8, 8000), (12, 3000), (20, 800), (28, 300),
                 (36, 160), (44, 100), (50, 80), (64, 40)]
 
-# SIZE SCALING: the implicit analogue of the ladder.  A failing point is
+# SIZE SCALING: the implicit analog of the ladder.  A failing point is
 # recorded as a row with ok = false rather than skipped, so a blank in the
 # table is a measured limit and not a run nobody attempted.
 #
@@ -273,7 +273,7 @@ function run_point(regime, case, variant, device, gpu, threads, dry)
              # free-free explicit torsion bar the two coincide; on torsion-qs
              # they are 530,523 and 527,877.  Merging them under one name would
              # reproduce inside the matrix exactly the drift it exists to
-             # remove, so the count is labelled rather than silently unified.
+             # remove, so the count is labeled rather than silently unified.
              n_dofs  = something(field(line, "n_dofs"), field(line, "n_dof"), 0),
              n_dofs_kind = regime == "explicit" ? "total" : "free",
              device, gpu,
