@@ -207,8 +207,10 @@ function _precond_known_keys(pc_dict::AbstractDict)
     t = lowercase(strip(string(get(pc_dict, "type", "none"))))
     t in ("chebyshev", "chebyshev polynomial") &&
         return union(_PRECOND_COMMON_KEYS, Set(["degree"]))
+    t in ("amg", "algebraic multigrid", "multigrid") &&
+        return union(_PRECOND_COMMON_KEYS, Set(["smoother"]))
     t in ("jacobi", "none", "ic", "incomplete cholesky", "ildl",
-          "incomplete ldlt", "amg", "algebraic multigrid", "multigrid") &&
+          "incomplete ldlt") &&
         return _PRECOND_COMMON_KEYS
     # Unknown type: the linear solver parser aborts on it; validate against
     # the union so only genuinely foreign keys warn.
@@ -610,9 +612,9 @@ function _parse_integrator(dict, asm, asm_cpu, p_cpu, controller, backend=KA.CPU
         init_eq = Bool(get(ti_dict, "initial equilibrium", false))
 
         make_precond = () -> _compute_stiffness_jacobi_precond(asm_cpu, p_cpu, template)
-        make_amg     = () -> (backend isa KA.CPU ?
-            _compute_amg_precond(asm_cpu, p_cpu) :
-            _compute_gpu_amg_precond(asm_cpu, fec_ls.ΔUu))
+        make_amg     = smoother -> (backend isa KA.CPU ?
+            _compute_amg_precond(asm_cpu, p_cpu, smoother) :
+            _compute_gpu_amg_precond(asm_cpu, fec_ls.ΔUu, smoother))
         ls = _parse_linear_solver(ls_dict, template, backend, make_precond, make_amg)
         ns = _parse_nonlinear_solver(sol_dict, ls; template=template, make_precond=make_precond)
         _parse_and_store_termination!(sol_dict)
@@ -634,9 +636,9 @@ function _parse_integrator(dict, asm, asm_cpu, p_cpu, controller, backend=KA.CPU
         min_dt, max_dt, dec, inc = _parse_adaptive_stepping(ti_dict, dt)
 
         make_precond = () -> _compute_jacobi_precond(β, dt, asm_cpu, p_cpu, template)
-        make_amg     = () -> (backend isa KA.CPU ?
-            _compute_amg_precond(asm_cpu, p_cpu) :
-            _compute_gpu_amg_precond(asm_cpu, fec_ls.ΔUu))
+        make_amg     = smoother -> (backend isa KA.CPU ?
+            _compute_amg_precond(asm_cpu, p_cpu, smoother) :
+            _compute_gpu_amg_precond(asm_cpu, fec_ls.ΔUu, smoother))
         ls = @carina_timed "  Linear solver (builds precond #1)" _parse_linear_solver(
                  ls_dict, template, backend, make_precond, make_amg)
         ns = @carina_timed "  Nonlinear solver (builds precond #2)" _parse_nonlinear_solver(
@@ -715,7 +717,10 @@ end
 # solve from the CURRENT configuration (see _rigid_body_modes /
 # _update_amg_precond_assembled!), so nothing coordinate-dependent is frozen
 # here.
-function _compute_amg_precond(asm_cpu, p_cpu)
+function _compute_amg_precond(asm_cpu, p_cpu, smoother::Symbol = :jacobi)
+    smoother === :jacobi || error(
+        "AMG smoother \"block jacobi\" is implemented for the GPU V-cycle only; " *
+        "the CPU AMG uses AlgebraicMultigrid.jl's own smoothers.")
     return AMGPreconditioner(collect(asm_cpu.dof.unknown_dofs))
 end
 
@@ -1224,7 +1229,7 @@ function _parse_forcing_term(ls_dict)
 end
 
 function _parse_linear_solver(ls_dict, template, backend, make_precond::Function,
-                               make_amg_precond::Function = () -> error(
+                               make_amg_precond::Function = (_) -> error(
                                    "amg preconditioner not available for this integrator."))
     ls_type = lowercase(ls_dict["type"])
     T  = eltype(template)
@@ -1261,7 +1266,12 @@ function _parse_linear_solver(ls_dict, template, backend, make_precond::Function
             mk_s() = (v = similar(template); fill!(v, zero(T)); v)
             ChebyshevPreconditioner(degree, Ref(0.0), Ref(0.0), mk_s(), mk_s(), mk_s())
         elseif precond_type in ("amg", "algebraic multigrid", "multigrid")
-            make_amg_precond()
+            sm = lowercase(strip(string(get(precond_dict, "smoother", "jacobi"))))
+            smoother = sm in ("jacobi", "point jacobi") ? :jacobi :
+                       sm in ("block jacobi", "block-jacobi", "blockjacobi") ? :block_jacobi :
+                       error("Unknown AMG smoother \"$sm\". " *
+                             "Expected \"jacobi\" or \"block jacobi\".")
+            make_amg_precond(smoother)
         elseif precond_type == "none"
             NoPreconditioner()
         else

@@ -134,6 +134,15 @@ mutable struct GPUAMGPreconditioner{V} <: Preconditioner
     base_iters ::Int
     rebuild    ::Bool
     nbuilds    ::Int
+    # Fine-level smoother.  :jacobi is the pointwise damped Jacobi the V-cycle
+    # has always used; :block_jacobi inverts each node's 3x3 tangent block
+    # instead of its three diagonal entries, so the coupling between a node's
+    # components -- Poisson coupling, in elasticity -- is smoothed rather than
+    # ignored.  The block fields are `nothing` under :jacobi.
+    smoother   ::Symbol
+    blk_dof    ::Any              # 3 x nnodes Int32 device: free index per component, <= 0 if constrained
+    blk_inv    ::Any              # 3 x 3 x nnodes Float64 device: inverted nodal blocks
+    blk_cols   ::Any              # NTuple{3} of free-DOF device vectors: assembled block columns
 end
 
 # --------------------------------------------------------------------------- #

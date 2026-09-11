@@ -835,6 +835,25 @@ end
     end)
 end
 
+# Column K of every node's 3x3 diagonal block of the element matrix, in the
+# same 3N vector layout as `_diag_qp`:
+#   col[3(n-1)+i] = JxW · Σ_{j,l} ∇N_X[n,j] · A_v[i+3(j-1), K+3(l-1)] · ∇N_X[n,l]
+# `_diag_qp` is the K = i case.  Scattering the three columns through the
+# scalar diagonal assembler yields three global vectors B_K with
+# B_K[dof(n,i)] = block_n[i,K], which is the nodal block in column-major order
+# and needs no block-aware assembler.
+@inline function _block_col_qp(∇N_X::SMatrix{N, 3}, A_v, JxW, ::Val{K}) where {N, K}
+    return SVector{3 * N, typeof(JxW)}(ntuple(Val(3 * N)) do k
+        n = (k - 1) ÷ 3 + 1
+        i = k - 3 * (n - 1)
+        acc = zero(JxW)
+        for j in 1:3, l in 1:3
+            acc = acc + ∇N_X[n, j] * A_v[i + 3 * (j - 1), K + 3 * (l - 1)] * ∇N_X[n, l]
+        end
+        JxW * acc
+    end)
+end
+
 # The linearization point must match the assembled `FEC.stiffness` kernels
 # entry for entry: finite-deformation models take the tangent at ∇u, the
 # small-strain LinearElastic overload at ∇u = 0.
@@ -876,6 +895,15 @@ struct NewmarkDiagonal{T <: Number} <: Function
     c_M::T
 end
 
+"""
+    StiffnessBlockColumn{K}()
+
+Column `K` (1, 2 or 3) of each node's 3x3 diagonal block of the tangent, in
+the layout of a diagonal-only assembly.  Three passes, one per column, give
+the nodal blocks a block-Jacobi smoother inverts; see `_block_col_qp`.
+"""
+struct StiffnessBlockColumn{K} <: Function end
+
 @inline function (::StiffnessDiagonal)(
     physics::SolidMechanics,
     interps, x_el,
@@ -891,6 +919,23 @@ end
     A_q = _stiffness_tangent(physics, props_el, state_old_q, state_new_q, dt, ∇u_q)
     A_v = FEC.extract_stiffness(FEC.ThreeDimensional(), A_q)
     return _diag_qp(∇N_X, A_v, JxW)
+end
+
+@inline function (::StiffnessBlockColumn{K})(
+    physics::SolidMechanics,
+    interps, x_el,
+    t, dt,
+    u_el, u_el_old,
+    state_old_q, state_new_q,
+    props_el,
+) where {K}
+    cell = FEC.map_interpolants(interps, x_el)
+    (; ∇N_X, JxW) = cell
+    ∇u_q = FEC.interpolate_field_gradients(physics, cell, u_el)
+    ∇u_q = FEC.modify_field_gradients(FEC.ThreeDimensional(), ∇u_q)
+    A_q = _stiffness_tangent(physics, props_el, state_old_q, state_new_q, dt, ∇u_q)
+    A_v = FEC.extract_stiffness(FEC.ThreeDimensional(), A_q)
+    return _block_col_qp(∇N_X, A_v, JxW, Val(K))
 end
 
 @inline function (dg::NewmarkDiagonal)(

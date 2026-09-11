@@ -6,8 +6,10 @@
 # rebuilds).  This file converts the resulting hierarchy to device-resident
 # CSR and applies a V(ν,ν)-cycle entirely on the GPU:
 #
-#   level 1 (fine):   smoothing via the MATRIX-FREE K_eff action + diag(K_eff)
-#                     — the fine matrix is never formed on the device.
+#   level 1 (fine):   smoothing via the MATRIX-FREE K_eff action + diag(K_eff),
+#                     or, with `smoother: block jacobi`, + the inverted 3x3
+#                     nodal blocks of K_eff — the fine matrix is never formed
+#                     on the device either way.
 #   levels 2..L:      assembled device CSR with Chebyshev-Jacobi smoothing.
 #   coarsest:         dense pinv, applied as a device matvec.
 #
@@ -75,6 +77,79 @@ end
 end
 
 # --------------------------------------------------------------------------- #
+# Block Jacobi: one 3x3 tangent block per node, pre-inverted.
+#
+# This is the smoother-scale form of the idea that makes a sparse direct solve
+# viable on a GPU (Tacho's "inverted diagonals"): pay to invert the diagonal
+# blocks once, so that applying the preconditioner is a GEMV with no triangular
+# solve and no data dependence between blocks.  Here the blocks are 3x3, the
+# inversion is closed-form, and the apply is nine multiply-adds per node.
+#
+# Constrained components make the blocks ragged.  The fine-level vectors are
+# indexed by FREE degree of freedom; a node with a Dirichlet component has a
+# 2x2 or 1x1 block over its free components.  `blk_dof[i, n]` is the free
+# index of component i of node n, or a non-positive sentinel when constrained
+# (DofManager uses -1 for Dirichlet and -2 for the periodic slave side).  Both
+# kernels skip those slots.  The inversion pads a constrained slot with the
+# identity so the same 3x3 storage serves every node; the padded rows and
+# columns are never read by the apply, because it skips them too.
+# --------------------------------------------------------------------------- #
+
+# Gather node n's free sub-block from the three assembled column vectors,
+# B_k[dof(n,i)] = block_n[i,k], invert it, store the 3x3 with identity padding.
+@kernel function _block_invert_kernel!(blk_inv, @Const(blk_dof), @Const(B1), @Const(B2), @Const(B3))
+    n = @index(Global, Linear)
+    @inbounds begin
+        d1 = blk_dof[1, n]; d2 = blk_dof[2, n]; d3 = blk_dof[3, n]
+        f1 = d1 > 0; f2 = d2 > 0; f3 = d3 > 0
+        # Padded matrix M: free rows/cols hold the block, constrained diagonal
+        # slots hold 1, everything else 0.  Column k is B_k over free rows.
+        a11 = f1 ? B1[d1] : 1.0;  a12 = (f1 && f2) ? B2[d1] : 0.0;  a13 = (f1 && f3) ? B3[d1] : 0.0
+        a21 = (f2 && f1) ? B1[d2] : 0.0;  a22 = f2 ? B2[d2] : 1.0;  a23 = (f2 && f3) ? B3[d2] : 0.0
+        a31 = (f3 && f1) ? B1[d3] : 0.0;  a32 = (f3 && f2) ? B2[d3] : 0.0;  a33 = f3 ? B3[d3] : 1.0
+        # Cofactor inverse.
+        c11 = a22 * a33 - a23 * a32
+        c12 = a13 * a32 - a12 * a33
+        c13 = a12 * a23 - a13 * a22
+        c21 = a23 * a31 - a21 * a33
+        c22 = a11 * a33 - a13 * a31
+        c23 = a13 * a21 - a11 * a23
+        c31 = a21 * a32 - a22 * a31
+        c32 = a12 * a31 - a11 * a32
+        c33 = a11 * a22 - a12 * a21
+        det = a11 * c11 + a12 * c21 + a13 * c31
+        # A singular block means a node with no stiffness in some free
+        # direction; the scalar smoother guards its diagonal with eps and this
+        # does the same for the determinant rather than emitting Inf/NaN.
+        idet = 1.0 / (abs(det) < eps(Float64) ? copysign(eps(Float64), det) : det)
+        blk_inv[1, 1, n] = c11 * idet; blk_inv[1, 2, n] = c12 * idet; blk_inv[1, 3, n] = c13 * idet
+        blk_inv[2, 1, n] = c21 * idet; blk_inv[2, 2, n] = c22 * idet; blk_inv[2, 3, n] = c23 * idet
+        blk_inv[3, 1, n] = c31 * idet; blk_inv[3, 2, n] = c32 * idet; blk_inv[3, 3, n] = c33 * idet
+    end
+end
+
+# x[free(n,:)] += ω · blk_inv[n] · r[free(n,:)], skipping constrained slots.
+# Each free DOF belongs to exactly one node, so no atomics are needed.
+@kernel function _block_jacobi_kernel!(x, @Const(r), @Const(blk_inv), @Const(blk_dof), ω)
+    n = @index(Global, Linear)
+    @inbounds begin
+        d1 = blk_dof[1, n]; d2 = blk_dof[2, n]; d3 = blk_dof[3, n]
+        r1 = d1 > 0 ? r[d1] : 0.0
+        r2 = d2 > 0 ? r[d2] : 0.0
+        r3 = d3 > 0 ? r[d3] : 0.0
+        if d1 > 0
+            x[d1] += ω * (blk_inv[1, 1, n] * r1 + blk_inv[1, 2, n] * r2 + blk_inv[1, 3, n] * r3)
+        end
+        if d2 > 0
+            x[d2] += ω * (blk_inv[2, 1, n] * r1 + blk_inv[2, 2, n] * r2 + blk_inv[2, 3, n] * r3)
+        end
+        if d3 > 0
+            x[d3] += ω * (blk_inv[3, 1, n] * r1 + blk_inv[3, 2, n] * r2 + blk_inv[3, 3, n] * r3)
+        end
+    end
+end
+
+# --------------------------------------------------------------------------- #
 # Hierarchy
 # --------------------------------------------------------------------------- #
 
@@ -95,6 +170,8 @@ struct DeviceAMGHierarchy{L <: DeviceAMGLevel, VF, MF}
     P1      ::DeviceCSR
     R1      ::DeviceCSR
     inv_d1  ::VF        # 1 ./ diag(K_eff) on device (owned by caller)
+    blk_inv1::Any       # 3x3xnnodes inverted nodal blocks (owned by caller), or nothing
+    blk_dof1::Any       # 3xnnodes free-index map (owned by caller), or nothing
     lmax1   ::Float64
     r1      ::VF        # fine residual workspace
     z1      ::VF        # fine smoothing workspace
@@ -224,13 +301,63 @@ function _host_lambda_max(A::SparseArrays.SparseMatrixCSC, dinv::Vector{Float64}
     return 1.1 * λ    # safety boost, same convention as the fine estimator
 end
 
+# Host-side block structure and block-preconditioned λ_max, both from the
+# assembled fine operator at hierarchy-build time.  `udofs` lists the global
+# DOF of each free index; global DOF 3(n-1)+i is component i of node n.
+#
+# Returns (blk_dof, blk_inv_host, lmax): the 3 x nnodes free-index map, the
+# 3 x 3 x nnodes inverted blocks at the build point (a first value for the
+# device array, refreshed every Newton iteration), and the power-method bound
+# on ρ(D_blk⁻¹ A), which the scalar bound does not transfer to.
+function _host_block_structure(A::SparseArrays.SparseMatrixCSC, udofs::Vector{Int})
+    nfree  = length(udofs)
+    nnodes = maximum(udofs) == 0 ? 0 : (maximum(udofs) - 1) ÷ 3 + 1
+    blk_dof = zeros(Int32, 3, nnodes)
+    for (k, g) in enumerate(udofs)
+        n = (g - 1) ÷ 3 + 1
+        i = g - 3 * (n - 1)
+        blk_dof[i, n] = k
+    end
+    blk_inv = zeros(Float64, 3, 3, nnodes)
+    for n in 1:nnodes
+        M = Matrix{Float64}(LinearAlgebra.I, 3, 3)
+        for i in 1:3, k in 1:3
+            di = blk_dof[i, n]; dk = blk_dof[k, n]
+            (di > 0 && dk > 0) && (M[i, k] = A[di, dk])
+        end
+        blk_inv[:, :, n] = inv(M)
+    end
+    # Power method on D_blk⁻¹ A.
+    v = ones(nfree) ./ sqrt(nfree)
+    w = similar(v)
+    λ = 1.0
+    for _ in 1:10
+        Av = A * v
+        fill!(w, 0.0)
+        for n in 1:nnodes, i in 1:3
+            di = blk_dof[i, n]; di > 0 || continue
+            acc = 0.0
+            for k in 1:3
+                dk = blk_dof[k, n]; dk > 0 || continue
+                acc += blk_inv[i, k, n] * Av[dk]
+            end
+            w[di] = acc
+        end
+        λ = LinearAlgebra.norm(w)
+        λ == 0.0 && return blk_dof, blk_inv, 1.0
+        v = w ./ λ
+    end
+    return blk_dof, blk_inv, 1.1 * λ
+end
+
 """
 Convert the CPU hierarchy inside an `AlgebraicMultigrid.MultiLevel` into a
 fully device-resident V-cycle structure.  `inv_d1` is the device vector
 holding 1/diag(K_eff) for the matrix-free fine level (already maintained by
 the Jacobi-preconditioner machinery); `lmax1` its eigenvalue bound.
 """
-function DeviceAMGHierarchy(backend, ml, inv_d1, lmax1::Float64; nu::Int = 2)
+function DeviceAMGHierarchy(backend, ml, inv_d1, lmax1::Float64; nu::Int = 2,
+                            blk_inv1 = nothing, blk_dof1 = nothing)
     isempty(ml.levels) && error(
         "AMG hierarchy has no levels — mesh too small for GPU AMG; use jacobi.")
 
@@ -270,7 +397,7 @@ function DeviceAMGHierarchy(backend, ml, inv_d1, lmax1::Float64; nu::Int = 2)
     # NB: `[levels...]` on an empty typed vector yields Vector{Any} (zero-arg
     # vect), which broke single-coarsening hierarchies (small meshes).  Pass
     # the typed vector itself.
-    return DeviceAMGHierarchy(P1, R1, inv_d1, lmax1, r1, z1,
+    return DeviceAMGHierarchy(P1, R1, inv_d1, blk_inv1, blk_dof1, lmax1, r1, z1,
                               levels, coarse_pinv, coarse_x, coarse_b, nu)
 end
 
@@ -287,6 +414,18 @@ function _smooth!(x, b, r, matvec!, inv_d, lmax, nu, backend, n)
         matvec!(r, x)                      # r = A x
         @. r = b - r                       # r = b − A x   (device broadcast)
         _jacobi_omega_kernel!(backend)(x, r, inv_d, ω; ndrange = n)
+    end
+    return x
+end
+
+# Block-Jacobi smoothing on the fine level: same sweep, block apply.
+function _smooth_block!(x, b, r, matvec!, blk_inv, blk_dof, lmax, nu, backend)
+    ω = 4.0 / (3.0 * lmax)
+    nblk = size(blk_dof, 2)
+    for _ in 1:nu
+        matvec!(r, x)
+        @. r = b - r
+        _block_jacobi_kernel!(backend)(x, r, blk_inv, blk_dof, ω; ndrange = nblk)
     end
     return x
 end
@@ -316,7 +455,11 @@ function _amg_vcycle!(z, r, h::DeviceAMGHierarchy, fine_matvec!, backend)
 
     # Pre-smooth on the fine level from zero initial guess.
     fill!(z, 0.0)
-    _smooth!(z, r, h.r1, fine_matvec!, h.inv_d1, h.lmax1, h.nu, backend, nfine)
+    if h.blk_inv1 === nothing
+        _smooth!(z, r, h.r1, fine_matvec!, h.inv_d1, h.lmax1, h.nu, backend, nfine)
+    else
+        _smooth_block!(z, r, h.r1, fine_matvec!, h.blk_inv1, h.blk_dof1, h.lmax1, h.nu, backend)
+    end
 
     # Fine residual → restrict to level 1 of the assembled hierarchy.
     fine_matvec!(h.z1, z)
@@ -358,7 +501,11 @@ function _amg_vcycle!(z, r, h::DeviceAMGHierarchy, fine_matvec!, backend)
     x1 = nlev >= 1 ? h.levels[1].x : h.coarse_x
     _csr_mul!(h.z1, h.P1, x1, backend)
     @. z += h.z1
-    _smooth!(z, r, h.r1, fine_matvec!, h.inv_d1, h.lmax1, h.nu, backend, nfine)
+    if h.blk_inv1 === nothing
+        _smooth!(z, r, h.r1, fine_matvec!, h.inv_d1, h.lmax1, h.nu, backend, nfine)
+    else
+        _smooth_block!(z, r, h.r1, fine_matvec!, h.blk_inv1, h.blk_dof1, h.lmax1, h.nu, backend)
+    end
 
     return z
 end

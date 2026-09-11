@@ -244,6 +244,13 @@ $(LBFGS_TERM)  linear solver:
 """
     elseif startswith(kind, "cg-")
         precond = kind[4:end]
+        # `cg-amg-block` is AMG with the block-Jacobi fine smoother; the
+        # preconditioner type is still `amg`, the smoother is a sub-key.
+        smoother = ""
+        if precond == "amg-block"
+            precond = "amg"
+            smoother = "\n      smoother: block jacobi"
+        end
         precond in ("jacobi", "chebyshev", "ic", "amg") ||
             error("Unknown preconditioner \"$precond\".")
         return """
@@ -254,7 +261,7 @@ $(NEWTON_TERM)  linear solver:
     tolerance: 1.0e-8
     maximum iterations: 1000
     preconditioner:
-      type: $precond
+      type: $precond$smoother
 """
     else
         error("Unknown variant \"$variant\".")

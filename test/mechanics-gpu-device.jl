@@ -258,6 +258,13 @@ $solver
         direct = "  linear solver:\n    type: direct\n"
         amg    = "  linear solver:\n    type: iterative\n    tolerance: 1.0e-10\n" *
                  "    maximum iterations: 2000\n    preconditioner:\n      type: amg\n"
+        # The block-Jacobi fine smoother: same hierarchy, 3x3 nodal blocks
+        # inverted on the device in place of the scalar diagonal.  Measured
+        # to give the same iteration count as scalar Jacobi on the torsion bar
+        # (benchmark_report.md, open item 6); kept as an option and tested so
+        # that result stays reproducible and the block machinery stays
+        # correct for the smoothers that can build on it.
+        amg_block = amg * "      smoother: block jacobi\n"
 
         function run_with(solver, dev)
             mktempdir() do dir
@@ -273,6 +280,38 @@ $solver
         _, u_ref = run_with(direct, Carina.KA.CPU())
         sim_amg, u_amg = run_with(amg, backend)
         @test u_amg ≈ u_ref rtol = 1e-7
+
+        sim_blk, u_blk = run_with(amg_block, backend)
+        @test u_blk ≈ u_ref rtol = 1e-7
+        pcb = sim_blk.integrator.nonlinear_solver.linear_solver.precond
+        @test pcb.smoother === :block_jacobi
+        @test pcb.hierarchy.blk_inv1 !== nothing
+        # The inverses really invert the operator CG sees: for a node with
+        # every component free, K_block from three matrix-free actions on
+        # unit vectors times blk_inv is the identity.  A Dirichlet node with a
+        # ragged block is checked the same way over its free components.
+        let ig = sim_blk.integrator, blk_dof = Array(pcb.blk_dof), blk_inv = Array(pcb.blk_inv)
+            Carina._refresh_gpu_amg_blocks!(pcb, ig.asm, ig.U, sim_blk.params)
+            blk_inv = Array(pcb.blk_inv)
+            nfree = length(ig.U)
+            e_d = similar(ig.U); y_d = similar(ig.U); e_h = zeros(nfree)
+            for want in (3, 2)
+                nd = findfirst(c -> count(>(0), blk_dof[:, c]) == want, 1:size(blk_dof, 2))
+                nd === nothing && continue
+                f = blk_dof[:, nd] .> 0
+                Kb = Matrix{Float64}(Carina.LinearAlgebra.I, 3, 3)
+                for k in 1:3
+                    f[k] || continue
+                    fill!(e_h, 0.0); e_h[blk_dof[k, nd]] = 1.0; copyto!(e_d, e_h)
+                    Carina._stiffness_matvec_qs!(y_d, e_d, ig.asm, ig.U, sim_blk.params)
+                    yk = Array(y_d)
+                    for i in 1:3
+                        f[i] && (Kb[i, k] = yk[blk_dof[i, nd]])
+                    end
+                end
+                @test Carina.LinearAlgebra.norm(blk_inv[:, :, nd] * Kb - Carina.LinearAlgebra.I) < 1e-12
+            end
+        end
 
         # The hierarchy really was built, lives on the device, and has at
         # least one assembled intermediate level (multilevel V-cycle, not a

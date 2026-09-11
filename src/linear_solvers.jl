@@ -215,10 +215,18 @@ _amg_track_iters!(::Preconditioner, _) = nothing
 # GPU AMG: host-built SA hierarchy, device V-cycle (src/gpu_amg.jl)
 # --------------------------------------------------------------------------- #
 
-function _compute_gpu_amg_precond(asm_cpu, template)
+function _compute_gpu_amg_precond(asm_cpu, template, smoother::Symbol = :jacobi)
+    smoother in (:jacobi, :block_jacobi) ||
+        error("Unknown AMG smoother :$smoother. Expected :jacobi or :block_jacobi.")
     inv_d = similar(template); fill!(inv_d, 0.0)
+    # Block storage is allocated at the first hierarchy build, where the free
+    # DOF structure is read from the assembled operator; the three column
+    # buffers are free-DOF sized and can be made now.
+    blk_cols = smoother === :block_jacobi ?
+        ntuple(_ -> (v = similar(template); fill!(v, 0.0); v), 3) : nothing
     return GPUAMGPreconditioner(collect(asm_cpu.dof.unknown_dofs),
-                                inv_d, nothing, 1.0, -1.0, 0, false, 0)
+                                inv_d, nothing, 1.0, -1.0, 0, false, 0,
+                                smoother, nothing, nothing, blk_cols)
 end
 
 # Host-side hierarchy (re)build with the same staleness triggers as the CPU
@@ -245,10 +253,26 @@ function _build_gpu_amg_hierarchy!(precond::GPUAMGPreconditioner, c_M, U_dev)
         A = SparseArrays.sparse((K_raw + K_raw') / 2)
         B = _rigid_body_modes(_current_coords(p_cpu), precond.udofs)
         ml = _sa_hierarchy_lowmem(A, B)
-        dinv_h = 1.0 ./ Vector(diag(A))
-        precond.lmax_fine = _host_lambda_max(A, dinv_h)
+        if precond.smoother === :block_jacobi
+            # The block map is fixed by the free DOF structure; the block
+            # values here are the build-point ones and are refreshed every
+            # Newton iteration by `_refresh_gpu_amg_blocks!`.
+            blk_dof_h, blk_inv_h, lmax = _host_block_structure(A, precond.udofs)
+            if precond.blk_dof === nothing
+                precond.blk_dof = KA.allocate(backend, Int32, 3, size(blk_dof_h, 2))
+                precond.blk_inv = KA.allocate(backend, Float64, 3, 3, size(blk_dof_h, 2))
+            end
+            copyto!(precond.blk_dof, blk_dof_h)
+            copyto!(precond.blk_inv, blk_inv_h)
+            precond.lmax_fine = lmax
+        else
+            dinv_h = 1.0 ./ Vector(diag(A))
+            precond.lmax_fine = _host_lambda_max(A, dinv_h)
+        end
         precond.hierarchy = DeviceAMGHierarchy(backend, ml, precond.inv_diag,
-                                               precond.lmax_fine)
+                                               precond.lmax_fine;
+                                               blk_inv1 = precond.blk_inv,
+                                               blk_dof1 = precond.blk_dof)
     end
     precond.built_c_M  = c_M
     precond.base_iters = 0
@@ -259,6 +283,24 @@ function _build_gpu_amg_hierarchy!(precond::GPUAMGPreconditioner, c_M, U_dev)
     return nothing
 end
 
+# Block-smoother refresh: three diagonal-shaped assemblies, one per column of
+# the nodal block, then a device inversion.  Runs after the hierarchy build,
+# which is what allocates `blk_dof`/`blk_inv` on the first call.  Three
+# assemblies where the scalar path needs one: ~60 ms against ~66 s of CG per
+# Newton iteration on the 530k-DOF torsion bar.
+function _refresh_gpu_amg_blocks!(precond::GPUAMGPreconditioner, asm, U, p)
+    precond.smoother === :block_jacobi || return nothing
+    precond.blk_dof === nothing && return nothing     # hierarchy not built yet
+    B1, B2, B3 = precond.blk_cols
+    FEC.assemble_diagonal!(asm, StiffnessBlockColumn{1}(), U, p); copyto!(B1, FEC.diagonal(asm))
+    FEC.assemble_diagonal!(asm, StiffnessBlockColumn{2}(), U, p); copyto!(B2, FEC.diagonal(asm))
+    FEC.assemble_diagonal!(asm, StiffnessBlockColumn{3}(), U, p); copyto!(B3, FEC.diagonal(asm))
+    backend = _backend_ref[]
+    _block_invert_kernel!(backend)(precond.blk_inv, precond.blk_dof, B1, B2, B3;
+                                   ndrange = size(precond.blk_dof, 2))
+    return nothing
+end
+
 # Per-Newton-iteration updates: refresh the fine diagonal (used by the
 # V-cycle's fine smoother), then lazily rebuild the hierarchy.
 function _update_gpu_amg_precond_qs!(precond::GPUAMGPreconditioner, asm, U, p)
@@ -266,12 +308,20 @@ function _update_gpu_amg_precond_qs!(precond::GPUAMGPreconditioner, asm, U, p)
     d = FEC.diagonal(asm)
     @. precond.inv_diag = 1.0 / max(abs(d), eps(Float64))
     _build_gpu_amg_hierarchy!(precond, 0.0, U)
+    _refresh_gpu_amg_blocks!(precond, asm, U, p)
     return nothing
 end
 _update_gpu_amg_precond_qs!(::Preconditioner, args...) = nothing
 
 function _update_gpu_amg_precond_eff!(precond::GPUAMGPreconditioner, asm, U,
                                       c_M, p)
+    # The block columns of K + c_M·M need a Newmark analog of
+    # StiffnessBlockColumn; until it exists, the block smoother is quasi-static
+    # only, and asking for it here is an error rather than a silent fallback
+    # to blocks of K alone.
+    precond.smoother === :block_jacobi && error(
+        "AMG smoother \"block jacobi\" is not implemented for the Newmark " *
+        "integrator; use \"jacobi\" or a quasi-static integrator.")
     FEC.assemble_diagonal!(asm, NewmarkDiagonal(c_M), U, p)
     d = FEC.diagonal(asm)
     @. precond.inv_diag = 1.0 / max(abs(d), eps(Float64))

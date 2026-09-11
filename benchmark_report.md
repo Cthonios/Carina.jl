@@ -483,6 +483,20 @@ sparse-matrix bandwidth, and it is why the Float32 smoother in §2 works.
 6. **Smoother tuning**: the device's damped Jacobi needs 951 iterations where
    CPU Gauss–Seidel needs 787 — ~20% via Chebyshev-polynomial smoothing (the
    machinery exists), ν/cycle-shape tuning, or ℓ1-Jacobi.
+   *Block Jacobi measured and ruled out (2026-09-11).* Inverting each node's
+   3×3 tangent block instead of its diagonal — the smoother-scale form of the
+   inverted-diagonal idea in ShyLU/Tacho — gives **964 CG iterations against
+   964** on the torsion bar, per-Newton counts identical to the digit, and
+   costs 15% more wall time for the three-column refresh. The smoother kernel
+   is 0.3% of an iteration (`vcycle_bench.jl`), so the only way a smoother
+   change pays is through the iteration count, and this one does not move it.
+   The reason is that the Gauss–Seidel advantage is inter-nodal propagation
+   within a sweep, which block Jacobi does not supply; the intra-nodal
+   coupling it does supply is not what limits convergence here. The option is
+   retained as `smoother: block jacobi` and tested, because its inverted
+   nodal blocks are the ingredient a multicolor block Gauss–Seidel would
+   need — the level-set idea applied to a smoother, and the first candidate
+   that actually attacks the propagation gap.
 7. **Map the Newmark large-Δt crossover.** AMG should become preferable once Δt grows enough
    that `c_M` stops conditioning the system; that Δt is unknown.
 8. ~~**CUDA validation.**~~ *Resolved.* CUDA has been exercised on the V100,
