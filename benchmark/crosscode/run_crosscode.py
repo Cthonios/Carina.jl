@@ -15,7 +15,7 @@ honestly comparable here: it cancels every fixed cost, which otherwise differ by
 more than the thing being measured -- Julia pays ~40 s of JIT per process that
 Albany does not, and Albany pays a serial Exodus read that Carina's harness
 front-loads differently.  Total wall time is recorded too, but it is a statement
-about startup as much as about solver speed, and is labelled as such.
+about startup as much as about solver speed, and is labeled as such.
 
 Each code runs with the linear solver its own torsion test ships with.  The
 point is to compare codes as they are meant to be used, not to force one code's
@@ -74,7 +74,14 @@ def env_with(**kw):
 
 
 def run(cmd, cwd, env, logpath, timeout=14400):
-    """Run one configuration, return (wall_seconds, ok)."""
+    """Run one configuration, return (wall_seconds, stop_wall_seconds, ok).
+
+    `stop_wall_seconds` sums the `wall = ...` fields of the `[STOP]` lines
+    both Julia codes print per output stop.  It starts after setup, so its
+    difference between the n4 and n8 runs is the same per-step estimator as
+    the process wall but with the setup jitter removed (README section 4,
+    `method: stop_wall`).  Albany prints no such line and gets NaN.
+    """
     with open(logpath, "w") as log:
         t0 = time.monotonic()
         try:
@@ -82,9 +89,43 @@ def run(cmd, cwd, env, logpath, timeout=14400):
                                stderr=subprocess.STDOUT, timeout=timeout)
             rc = p.returncode
         except subprocess.TimeoutExpired:
-            return (float("nan"), False)
+            return (float("nan"), float("nan"), False)
         wall = time.monotonic() - t0
-    return (wall, rc == 0)
+    return (wall, stop_wall(logpath), rc == 0)
+
+
+def stop_wall(logpath):
+    """Sum of the `[STOP] ... wall = 1m 22.18s` fields, or NaN if none."""
+    total, found = 0.0, False
+    with open(logpath, errors="replace") as f:
+        for line in f:
+            if not line.startswith("[STOP]"):
+                continue
+            m = re.search(r"wall = (?:(\d+)h )?(?:(\d+)m )?([\d.]+)s", line)
+            if m is None:
+                continue
+            h, mi, sec = m.groups()
+            total += 3600 * float(h or 0) + 60 * float(mi or 0) + float(sec)
+            found = True
+    return total if found else float("nan")
+
+
+def git_head(repo):
+    try:
+        return subprocess.run(["git", "-C", repo, "rev-parse", "--short",
+                               "HEAD"], capture_output=True, text=True,
+                              check=True).stdout.strip()
+    except (subprocess.CalledProcessError, OSError):
+        return None
+
+
+def julia_version():
+    try:
+        out = subprocess.run(["julia", "--version"], capture_output=True,
+                             text=True, check=True).stdout
+        return out.strip().replace("julia version ", "")
+    except (subprocess.CalledProcessError, OSError):
+        return None
 
 
 # --------------------------------------------------------------------------- #
@@ -92,10 +133,18 @@ def run(cmd, cwd, env, logpath, timeout=14400):
 # --------------------------------------------------------------------------- #
 
 def carina_case(variant, nsteps, threads):
-    """Carina writes its decks from cases.jl; patch final time for nsteps."""
+    """Carina writes its decks from cases.jl; patch final time for nsteps.
+
+    A `-nowrite` suffix keeps the same deck and adds `output interval: 1.0`,
+    so only the initial and final frames are written.  That is the row
+    comparable to Norma, whose decks write nothing; the plain variants
+    write every step (README section 4, "The tax nobody was counting").
+    """
+    nowrite = variant.endswith("-nowrite")
+    base = variant[:-len("-nowrite")] if nowrite else variant
     deck = os.path.join(HERE, "carina-%s-n%d.yaml" % (variant, nsteps))
     src = os.path.join(REPO, "benchmark", "inputs",
-                       "torsion-newmark-%s.yaml" % variant)
+                       "torsion-newmark-%s.yaml" % base)
     with open(src) as f:
         y = f.read()
     y = y.replace("final time: 2.0e-4", "final time: %.8g" % (DT * nsteps))
@@ -103,6 +152,9 @@ def carina_case(variant, nsteps, threads):
     y = re.sub(r"output mesh file: .*",
                "output mesh file: carina-%s.e" % variant, y)
     y = y.replace("device: rocm", "device: %s" % GPU_DEVICE)
+    if nowrite:
+        y = re.sub(r"(output mesh file: .*\n)",
+                   r"\1output interval: 1.0\n", y, count=1)
     with open(deck, "w") as f:
         f.write(y)
     # `bin/carina` is the supported entry point: it owns the launcher
@@ -113,11 +165,19 @@ def carina_case(variant, nsteps, threads):
     return cmd, HERE, env_with()
 
 
-def norma_case(nsteps, threads):
-    deck = os.path.join(HERE, "norma-newmark-n%d.yaml" % nsteps)
+def norma_case(variant, nsteps, threads):
+    """Norma's deck ships with its default linear solver (unpreconditioned
+    CG on the assembled tangent); the `-direct` variant selects the sparse
+    Cholesky it gained in September 2026, by adding the one key."""
+    deck = os.path.join(HERE, "norma-newmark-%s-n%d.yaml" % (variant, nsteps))
     with open(os.path.join(HERE, "norma-newmark.yaml")) as f:
         y = f.read()
     y = y.replace("final time: 2.0e-04", "final time: %.8g" % (DT * nsteps))
+    if variant == "hessian-newton-direct":
+        y = y.replace("  step: full Newton\n",
+                      "  step: full Newton\n  linear solver: direct\n")
+    elif variant != "hessian-newton":
+        sys.exit("unknown Norma variant %r" % variant)
     with open(deck, "w") as f:
         f.write(y)
     cmd = ["julia", "--project=%s" % NORMA, "-t", str(threads),
@@ -169,11 +229,14 @@ def main():
     configs = []
     if "carina" in only:
         # GPU variants: no thread dimension.
-        for v in ("gpu-cg-jacobi", "gpu-cg-chebyshev", "gpu-lbfgs"):
+        for v in ("gpu-cg-jacobi", "gpu-cg-jacobi-nowrite",
+                  "gpu-cg-chebyshev", "gpu-lbfgs"):
             configs.append(("carina", v, 1, "gpu"))
         # CPU: every variant at 24 threads, and the representative one at 1.
-        for v in ("cpu-cg-jacobi", "cpu-cg-amg", "cpu-cg-ic", "cpu-direct"):
+        for v in ("cpu-cg-jacobi", "cpu-cg-jacobi-nowrite", "cpu-cg-amg",
+                  "cpu-cg-ic", "cpu-direct"):
             configs.append(("carina", v, 24, "cpu"))
+        configs.append(("carina", "cpu-cg-jacobi-nowrite", 1, "cpu"))
         # Thread-scaling sweep on the representative CPU variant.
         # Report section 5 measures 9.9x at 24 threads for the EXPLICIT
         # kernel; the implicit CPU path has never been measured, and the
@@ -184,6 +247,7 @@ def main():
     if "norma" in only:
         configs.append(("norma", "hessian-newton", 24, "cpu"))
         configs.append(("norma", "hessian-newton", 1, "cpu"))
+        configs.append(("norma", "hessian-newton-direct", 24, "cpu"))
     if "lcm" in only:
         for n in (24, 12, 1):
             configs.append(("lcm", "belos-gmres-ilut", n, "cpu"))
@@ -193,45 +257,56 @@ def main():
     if wfilter:
         configs = [c for c in configs if c[2] in wfilter]
 
+    commits = {"carina": git_head(REPO), "norma": git_head(NORMA),
+               "lcm": None}
+    jl = julia_version()
+
     for (code, variant, ways, dev) in configs:
-        walls = {}
+        walls, stops = {}, {}
         ok_all = True
         if args.warmup:
             n = steps[0]
             if code == "carina":
                 cmd, cwd, env = carina_case(variant, n, ways)
             elif code == "norma":
-                cmd, cwd, env = norma_case(n, ways)
+                cmd, cwd, env = norma_case(variant, n, ways)
             else:
                 cmd, cwd, env = lcm_case(n, ways)
             tag = "%s_%s_%dway_warmup" % (code, variant, ways)
             logp = os.path.join(HERE, "logs", tag + ".log")
             os.makedirs(os.path.dirname(logp), exist_ok=True)
             print("[WARM] %-40s ..." % tag, flush=True, end=" ")
-            w, _ = run(cmd, cwd, env, logp)
+            w, _, _ = run(cmd, cwd, env, logp)
             print("%.1f s (discarded)" % w, flush=True)
         for n in steps:
             if code == "carina":
                 cmd, cwd, env = carina_case(variant, n, ways)
             elif code == "norma":
-                cmd, cwd, env = norma_case(n, ways)
+                cmd, cwd, env = norma_case(variant, n, ways)
             else:
                 cmd, cwd, env = lcm_case(n, ways)
             tag = "%s_%s_%dway_n%d" % (code, variant, ways, n)
             logp = os.path.join(HERE, "logs", tag + ".log")
             os.makedirs(os.path.dirname(logp), exist_ok=True)
             print("[RUN] %-40s ..." % tag, flush=True, end=" ")
-            wall, ok = run(cmd, cwd, env, logp)
+            wall, stop, ok = run(cmd, cwd, env, logp)
             print("%.1f s %s" % (wall, "" if ok else "FAILED"), flush=True)
             walls[n] = wall
+            stops[n] = stop
             ok_all = ok_all and ok
-        per_step = ((walls[steps[-1]] - walls[steps[0]]) /
-                    (steps[-1] - steps[0])) if len(steps) > 1 else None
+        diff = lambda d: ((d[steps[-1]] - d[steps[0]]) /
+                          (steps[-1] - steps[0])) if len(steps) > 1 else None
+        per_step = diff(walls)
+        per_step_stop = diff(stops)
         rec = {
             "code": code, "variant": variant, "device": dev,
             "ways": ways, "ok": ok_all,
             "walls": {str(k): v for k, v in walls.items()},
             "per_step_s": per_step,
+            # The same difference over the [STOP] walls (setup excluded);
+            # NaN for Albany, which prints no per-stop wall.
+            "stop_walls": {str(k): v for k, v in stops.items()},
+            "per_step_stop_s": per_step_stop,
             # Whether a discarded warm-up preceded the timed pair.  Rows with
             # warmup=false that duplicate a warmup=true row are superseded:
             # they are the cold-cache measurements kept for the record.
@@ -240,12 +315,17 @@ def main():
             # / RX 7600 box every earlier section describes.
             "host": socket.gethostname(),
             "gpu_device": GPU_DEVICE if dev == "gpu" else None,
+            # HEAD of the repository that produced the row (None for LCM,
+            # whose build is not tracked here), and the Julia that ran it.
+            "commit": commits[code],
+            "julia": jl if code != "lcm" else None,
             "n_dofs": 530523, "dt": DT,
         }
         with open(RESULTS, "a") as f:
             f.write(json.dumps(rec) + "\n")
-        print("      -> per-step %.3f s" % per_step if per_step else "",
-              flush=True)
+        if per_step is not None:
+            print("      -> per-step %.3f s (process wall), %.3f s (stop wall)"
+                  % (per_step, per_step_stop), flush=True)
 
 
 if __name__ == "__main__":

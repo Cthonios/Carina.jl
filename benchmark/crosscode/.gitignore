@@ -8,6 +8,7 @@ torsion.g.*
 *.e
 *.e.*
 carina-*-n*.yaml
+norma-newmark-*-n*.yaml
 norma-newmark-n*.yaml
 lcm-newmark-n*.yaml
 logs/

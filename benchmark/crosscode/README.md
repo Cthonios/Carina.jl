@@ -79,8 +79,69 @@ cross-code comparison originally measured.
   second hardware thread per core gains nothing here.
 - The direct solver moved most in relative terms, 114.43 → 23.08 s/step, and is
   now competitive with the iterative variants rather than five times worse.
-- Norma is untouched by any of this and is the honest control: it and Carina's
+- Norma is untouched by any of this and is the honest control (until its own
+  September round, below): it and Carina's
   CPU path were within 1.22× before, and are 2.1× apart after.
+
+### Rerun after Norma's optimization round (2026-09-12)
+
+Norma gained about seventy commits between the table above (its `024b361a`,
+2026-08-08) and `cf367595`, among them a type-stable element kernel, cached
+connectivity and shape-function tables, in-place element accumulation,
+assembly through a fixed sparsity pattern, a row-wise CG matrix-vector
+product, a closed-form neo-Hookean tangent, and a sparse-Cholesky option
+for the Newton step (`linear solver: direct`).  Both Julia codes were
+re-measured the same afternoon on the same box, now under Julia 1.13.0,
+Carina at `bb0ea9b`, with a discarded warm-up before each timed pair.  The
+per-step figures below are the `[STOP]`-wall difference `(S_8 - S_4)/4`
+(setup excluded, as in §4); the process-wall difference agrees to within
+0.2 s on every row and both are in `results.jsonl`.  Norma's decks write no
+output, so the comparable Carina rows are the `-nowrite` ones (initial and
+final frame only); the per-step-write rows are kept for continuity with the
+table above.
+
+| code | solver | device | ways | per-step | August |
+|---|---|---|---:|---:|---:|
+| **Carina** | CG+Jacobi, no writes | GPU (RX 7600) | — | **5.52 s** | 5.00 |
+| **Carina** | CG+Jacobi, no writes | CPU | 24 thr | **10.29 s** | 9.85 |
+| Carina | CG+Jacobi, per-step writes | CPU | 24 thr | 10.46 s | 10.79 |
+| **Norma** | Newton + CG | CPU | 24 thr | **12.80 s** | 22.70 |
+| **Norma** | Newton + CG | CPU | 1 thr | **13.44 s** | 39.78 |
+| Carina | CG+Jacobi, no writes | CPU | 1 thr | 15.14 s | — |
+| Carina | CG+Jacobi, per-step writes | CPU | 1 thr | 16.36 s | 14.99 |
+| Norma | Newton + sparse Cholesky | CPU | 24 thr | 23.24 s | — |
+
+- **Norma is 1.77x faster at 24 threads and 2.96x faster at one thread than
+  in August**, with the identical Newton history (three iterations per
+  step, residual norms agreeing to three digits with Carina's) so the gain
+  is implementation, not a different solve.  The two Norma rows that were
+  the control in §2 are no longer a control; the August rows stand as the
+  record of what they measured then.
+- **Core for core, Norma now leads Carina: 13.44 against 15.14 s/step
+  (1.13x)**, where Carina led 2.65x in August.  At 24 threads Carina leads
+  1.24x (10.29 against 12.80), and its GPU row leads Norma's best 2.3x.
+- Norma's thread scaling is now 1.05x over 24 threads, Carina's 1.47x.
+  Both are at the same wall: a single Ryzen core nearly saturates
+  dual-channel DDR5 on a 40M-nonzero SpMV (§3, "What remains"), so the
+  1-thread column is where the two implementations are actually compared,
+  and there the difference is 1.7 s per step.  Carina's log puts
+  3.4-4.0 s of each Newton iteration in the CG solve (about 215 iterations
+  at one thread, roughly 11 s of the 15.1 s step), with assembly, the
+  COO-to-CSC conversion, and the line search making up the rest.  Norma
+  applies unpreconditioned CG to the assembled tangent at
+  `sqrt(eps)` relative tolerance; a per-step breakdown of the two on the
+  same footing has not been done and is the natural next measurement.
+- Norma's direct row, 23.24 s/step, is within 1% of Carina's own CHOLMOD
+  row (23.08 in §2): both are the cost of refactorizing a 530k-DOF tangent
+  three times a step, and neither code's implementation is what sets it.
+- Carina's CPU rows are unchanged within scatter since August (10.29 vs
+  9.85 and 10.46 vs 10.79 at 24 threads).  The RX 7600 row is 10% slower
+  than the 5.00 s measured at `37f0bea` under Julia 1.12.6; the matrix
+  spine (`../MATRIX.md`, Julia 1.13, `011802a`) shows the same offset
+  against the August `df8ff62` row on this card, so it predates today's
+  run and is not a property of `bb0ea9b`.  Invariants hold on every row
+  (`|U|_max = 3.98e-02`).  Rows carry `commit: cf367595` (Norma) and
+  `commit: bb0ea9b` (Carina), `julia: 1.13.0`.
 
 ---
 
@@ -562,9 +623,11 @@ and identical displacements at every stop.
   algorithm as Carina's CG+Jacobi. Iteration counts are not comparable across
   codes; only wall time per step is.
 - Only Carina's CPU rows changed between the two columns in §2. Norma and LCM
-  were measured once and are untouched, which makes them the control: if the
-  Carina improvements were a measurement artifact rather than real, the
-  unchanged codes would have drifted too, and they did not.
+  were measured once for that table and are untouched there, which makes them
+  the control: if the Carina improvements were a measurement artifact rather
+  than real, the unchanged codes would have drifted too, and they did not.
+  Norma was re-measured on 2026-09-12 after its own optimization round
+  (§2, "Rerun"); LCM has not been re-measured.
 - Until `37f0bea` every Carina row included a per-step Exodus write
   (displacement plus per-QP stress and F, recomputed on the host), while
   Norma's decks ran with `Exodus output interval: 0` — no output at all.
@@ -583,7 +646,17 @@ python3 run_crosscode.py --only lcm --ways 12  # one cell
 python3 run_crosscode.py --only carina --variants gpu-cg-jacobi --warmup
 python3 run_crosscode.py --only carina --variants gpu-cg-jacobi \
         --warmup --gpu-device cuda            # on an NVIDIA host
+python3 run_crosscode.py --only norma --warmup # both Norma solvers, 24 and 1 thr
+python3 run_crosscode.py --only carina --warmup --ways 24,1 \
+        --variants cpu-cg-jacobi-nowrite,gpu-cg-jacobi-nowrite
 ```
+
+A `-nowrite` suffix on a Carina variant adds `output interval: 1.0` to the
+deck (initial and final frame only); `hessian-newton-direct` adds
+`linear solver: direct` to Norma's.  Every row records the `commit` of the
+repository that produced it, the `julia` version, and `per_step_stop_s`,
+the same difference taken over the `[STOP]` walls both Julia codes print
+(setup excluded); rows before 2026-09-12 lack these fields.
 
 `--warmup` runs and discards one extra run before the timed pair. It exists
 because the first configuration of the first batch returned a *negative*
