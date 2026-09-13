@@ -38,6 +38,7 @@ Three things make them unsuitable for comparing devices:
 | `bisect.jsonl`, `detail.jsonl`, `variance.jsonl` | Diagnostics: a regression hunt, a per-phase breakdown, and a run-to-run spread check. |
 | `threadcheck.jsonl` | CPU thread scaling at 530k DOF. |
 | `explicit-scaling.jsonl` | The original explicit ladder, RX 7600 against its desktop host. |
+| `matrix-sirius-rx7600-prebound.jsonl` | The RX 7600 matrix rows at `011802a`/`c956814`, before the ROCm workgroup bound of `f5082b4`; every point was re-measured with it (`../matrix/`). Kernel-bound points gained 9–16%, AMG points 5–11%. |
 | `explicit-rigel.jsonl`, `explicit-rigel-threads.jsonl` | Rigel's CPU ladder and its thread sweep, which found the 48-thread optimum. |
 | `explicit-ascicgpu073.jsonl`, `explicit-ascicgpu24.jsonl` | The A100 and V100 explicit ladders. |
 | `explicit-rigel-l4.jsonl` | The L4 explicit ladder, 2026-09-08. |

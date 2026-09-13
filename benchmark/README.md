@@ -156,12 +156,12 @@ GPUs where atomics were free) — worth porting to the CPU path only if
 big-CPU-node explicit becomes a real target.
 
 - **Per-element cost is flat everywhere** once past launch overhead:
-  ~13.5–15.5 ns/elem (A100), ~27–29 (V100), ~29–33 (L4), ~40 (RX 7600),
-  ~70–80 (Rigel at 48T), ~135–145 (desktop CPU).  No scaling cliff up to 31.5M
+  ~13.5–15.5 ns/elem (A100), ~27–29 (V100), ~29–33 (L4), ~38 (RX 7600,
+  ~40 before the workgroup bound of `f5082b4`), ~70–80 (Rigel at 48T), ~135–145 (desktop CPU).  No scaling cliff up to 31.5M
   DOF; memory capacity, not bandwidth, is the ceiling (~1.0–1.3 KB/DOF
   on every card measured).
 - **Against the fastest CPU measured, the saturated ratios are A100 ~10x,
-  V100 ~5x, RX 7600 3.4x** — stable across the size range because the CPU
+  V100 ~5x, RX 7600 3.6x** (3.4x before the workgroup bound) — stable across the size range because the CPU
   is flat per element too.  The CPU ladder stops at N=50; the A100 runs
   4x that problem.
 - **Placement**: every GPU is faster than every CPU node measured (even the

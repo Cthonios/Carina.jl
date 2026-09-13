@@ -35,7 +35,7 @@ software quality.
 > (`benchmark/README.md`) puts the same kernel at 7.2–7.4× over the CPU in the
 > *same host* and 9.9× over this desktop CPU on an A100. Per-element cost is
 > flat on every device measured — 13.5–15.5 ns (A100), 27–29 (V100), 29–33
-> (L4), 40 (RX 7600), 69–90 (a 168-core EPYC at 48 threads) — so what varied
+> (L4), 38 (RX 7600, since the workgroup bound of `f5082b4`; 40 before), 69–90 (a 168-core EPYC at 48 threads) — so what varied
 > was which CPU the GPU was compared against, not a bandwidth ceiling in the
 > software.
 >
