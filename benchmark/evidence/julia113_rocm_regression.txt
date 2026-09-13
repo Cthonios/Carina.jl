@@ -1,0 +1,74 @@
+Julia 1.13 makes the ROCm element kernels 10-12% slower; CUDA and CPU unaffected
+===============================================================================
+
+Question.  Every RX 7600 row taken after the Julia 1.12 -> 1.13 upgrade
+(matrix spine at 011802a, crosscode rerun 2026-09-12 at bb0ea9b) is about 10%
+slower than the August rows at df8ff62 / 37f0bea, while the CPU 24-thread rows
+are unchanged.  Is that a Carina regression, or the toolchain?
+
+Method.  Two git worktrees at the SAME commit (bb0ea9b), each freshly resolved
+so the package set is identical apart from the Julia stdlibs and
+ROCmDeviceLibs_jll (6.2.1 under 1.12, 7.0.2 under 1.13 -- AMDGPU.jl pairs the
+device bitcode with Julia's LLVM).  benchmark/action_bench.jl, 50 reps,
+state = initial, on the RX 7600 (sirius); the same script on the L4 (rigel)
+under 1.13, against the 1.12.7 figure in action_cross_vendor.txt; the box
+otherwise idle.  Measured 2026-09-12.
+
+  stiffness action, median      Julia 1.12.7 (LLVM 18.1.7)   Julia 1.13.0 (LLVM 20.1.8)
+  RX 7600, run 1                        8.347 ms                    9.624 ms
+  RX 7600, run 2                        8.511 ms                    9.554 ms
+  RX 7600, fresh-resolve worktree           --                      9.455 ms
+  RX 7600, 1.13 + ROCmDeviceLibs 6.2.1      --                      9.426 ms
+  L4 (rigel)                            5.095 ms  (c85390d)         5.149 ms  (a8825cd)
+
+  mass action, median
+  RX 7600                               2.486 / 2.513 ms            2.755 / 2.740 ms
+  L4                                    2.604 ms                    2.650 ms
+
+Checksums agree to every printed digit in all runs (1.906160379496682e+06 and
+2.124830956604735e-06).  Pinning the older device libs under 1.13 changes
+nothing, so the cause is Julia's own LLVM, not ROCmDeviceLibs.
+
+Why.  AMDGPU.@device_code of the two kernels (gfx1102), same source, two LLVMs:
+
+  kernel              metric                  LLVM 18      LLVM 20
+  stiffness action    v_fma_f64 / v_mul_f64   351 / 293    351 / 293   (identical arithmetic)
+                      global_load             99           99
+                      scratch_load            432          577         +34%
+                      scratch_store           324          401         +24%
+                      s_waitcnt               888          1083        +22%
+                      .vgpr_spill_count       442          544
+                      .vgpr_count / occupancy 127 / 8      128 / 8
+                      codeLenInByte           70644        77848       +10%
+  mass action         scratch_load / store    219 / 219    270 / 270   +23%
+                      .vgpr_spill_count       186          236
+                      codeLenInByte           59576        66464       +12%
+
+The kernel does the same work; LLVM 20's allocator spills more of it at the
+128-VGPR cap it chooses for eight waves per SIMD on RDNA3.  The CUDA kernel
+has no such cap after the August register work (crosscode/README.md par. 4,
+"The wall, removed"), which is why the L4 is flat to 1%.
+
+CPU.  benchmark/cpu_step_profile.jl at one thread, both worktrees: the
+assembled SpMV is 13.60 vs 13.70 ms per CG iteration, assemble_stiffness!
+1106 vs 984 ms per Newton iteration (1.13 faster), everything else within 2%.
+Back-to-back one-thread no-write crosscode pairs on an idle box:
+1.12 -> 15.70 s/step, 1.13 -> 14.98 s/step (and 15.14 earlier in the day).
+The August one-thread row, 14.99 s/step WITH per-step writes, is not a faster
+Carina: its n4/n8 walls were 145.0 / 205.0 s against 122.2 / 187.6 s today,
+i.e. today's 8-step run is 17 s faster in total, and the August difference
+was pulled down by an n4 run that carried more fixed cost than its n8.  That
+is the difference method's known weakness and the reason the [STOP]-wall
+estimator now sits beside it in results.jsonl.
+
+Conclusions.
+  1. No Carina regression on any device.  The RX 7600 offset since August is
+     Julia 1.13 codegen for gfx1102; compare RX 7600 rows only within one
+     Julia version.
+  2. The CUDA cards and the CPU path carry no such offset; their rows are
+     comparable across the upgrade.
+  3. A lever exists and is untested: the occupancy/VGPR trade on RDNA3.
+     LLVM caps the kernel at 128 VGPRs to reach occupancy 8 and pays for it
+     in scratch traffic; an `amdgpu-waves-per-eu` bound that allows 256
+     VGPRs at occupancy 4 might remove the spills on both LLVMs.  The A100
+     maxregs sweep was flat, but that kernel had already lost its spills.

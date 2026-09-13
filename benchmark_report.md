@@ -570,6 +570,15 @@ by measurement, noted here because they circulated:
   per cycle, and 74% of a preconditioned CG iteration is that action. This is
   what redirected the FP32 work from the CSR levels to the constitutive kernel.
 
+One toolchain effect is recorded so that it is not mistaken for a code
+change: under Julia 1.13 (LLVM 20) the ROCm element kernels run 10-12%
+slower on the RX 7600 than under 1.12 at the same commit, from additional
+register spills at the 128-VGPR occupancy cap LLVM picks for gfx1102; the
+CUDA cards and the CPU path are unaffected
+(`benchmark/evidence/julia113_rocm_regression.txt`). RX 7600 rows are
+comparable only within one Julia version; every row in
+`benchmark/results/matrix/` is under 1.13.
+
 Raw records live in `benchmark/results/archive/`, which holds the evidence
 trail of the optimization rounds: `current.jsonl` has the implicit numbers
 quoted here, `explicit-scaling.jsonl` the explicit sweep, `threadcheck.jsonl`

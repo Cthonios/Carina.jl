@@ -135,13 +135,17 @@ table above.
   row (23.08 in §2): both are the cost of refactorizing a 530k-DOF tangent
   three times a step, and neither code's implementation is what sets it.
 - Carina's CPU rows are unchanged within scatter since August (10.29 vs
-  9.85 and 10.46 vs 10.79 at 24 threads).  The RX 7600 row is 10% slower
-  than the 5.00 s measured at `37f0bea` under Julia 1.12.6; the matrix
-  spine (`../MATRIX.md`, Julia 1.13, `011802a`) shows the same offset
-  against the August `df8ff62` row on this card, so it predates today's
-  run and is not a property of `bb0ea9b`.  Invariants hold on every row
-  (`|U|_max = 3.98e-02`).  Rows carry `commit: cf367595` (Norma) and
-  `commit: bb0ea9b` (Carina), `julia: 1.13.0`.
+  9.85 and 10.46 vs 10.79 at 24 threads; the one-thread 8-step run is 17 s
+  faster in total than August's, whose 14.99 came from a pair with an
+  inflated n4).  The RX 7600 row is 10% slower than the 5.00 s measured at
+  `37f0bea` under Julia 1.12.6, and that is the toolchain, not the code:
+  at one commit, Julia 1.13's LLVM 20 emits the same arithmetic for the
+  gfx1102 kernels but 24-34% more register-spill traffic, and the
+  stiffness action runs 8.4 -> 9.5 ms; the L4 under 1.13 is flat to 1%
+  (`../evidence/julia113_rocm_regression.txt`).  RX 7600 rows are
+  therefore comparable only within one Julia version.  Invariants hold on
+  every row (`|U|_max = 3.98e-02`).  Rows carry `commit: cf367595` (Norma)
+  and `commit: bb0ea9b` (Carina), `julia: 1.13.0`.
 
 ---
 
