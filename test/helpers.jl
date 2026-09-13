@@ -5,6 +5,9 @@ using Statistics
 # Load them when available so the GPU verification can run; otherwise CPU-only.
 try; @eval import CUDA;   catch; end
 try; @eval import AMDGPU; catch; end
+# The launcher's ROCm workgroup bound (bin/rocm_workgroup_bound.jl) is
+# applied here too, so the tests exercise the kernels as bin/carina runs them.
+isdefined(@__MODULE__, :AMDGPU) && include(joinpath(@__DIR__, "..", "bin", "rocm_workgroup_bound.jl"))
 
 # `CUDA.@allocated` is a MACRO, so a use of it anywhere in a test file is
 # resolved when that file is lowered -- before any runtime guard can skip it.

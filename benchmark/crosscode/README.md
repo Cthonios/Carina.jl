@@ -142,8 +142,11 @@ table above.
   at one commit, Julia 1.13's LLVM 20 emits the same arithmetic for the
   gfx1102 kernels but 24-34% more register-spill traffic, and the
   stiffness action runs 8.4 -> 9.5 ms; the L4 under 1.13 is flat to 1%
-  (`../evidence/julia113_rocm_regression.txt`).  RX 7600 rows are
-  therefore comparable only within one Julia version.  Invariants hold on
+  (`../evidence/julia113_rocm_regression.txt`).  The cap is AMDGPU.jl
+  compiling without a workgroup-size bound; `bin/rocm_workgroup_bound.jl`
+  now supplies it, and the RX 7600 Newmark step is back at its Julia 1.12
+  level (harness steady steps 6.3-6.7 -> 5.5-5.9 s).  The rows in this
+  table predate the hook.  Invariants hold on
   every row (`|U|_max = 3.98e-02`).  Rows carry `commit: cf367595` (Norma)
   and `commit: bb0ea9b` (Carina), `julia: 1.13.0`.
 

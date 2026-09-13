@@ -575,9 +575,15 @@ change: under Julia 1.13 (LLVM 20) the ROCm element kernels run 10-12%
 slower on the RX 7600 than under 1.12 at the same commit, from additional
 register spills at the 128-VGPR occupancy cap LLVM picks for gfx1102; the
 CUDA cards and the CPU path are unaffected
-(`benchmark/evidence/julia113_rocm_regression.txt`). RX 7600 rows are
-comparable only within one Julia version; every row in
-`benchmark/results/matrix/` is under 1.13.
+(`benchmark/evidence/julia113_rocm_regression.txt`). The cap itself is
+AMDGPU.jl compiling without a workgroup-size bound, so the backend budgets
+registers for 1024-thread workgroups where Carina launches 256;
+`bin/rocm_workgroup_bound.jl` supplies the bound from the kernel's own
+KernelAbstractions signature, which lets the RX 7600 allocate 256 VGPRs at
+occupancy 4, halves the spills, and returns the Newmark step to its
+Julia 1.12 level (6.3–6.7 → 5.5–5.9 s/step; quasi-static AMG 13.9 → 13.1).
+RX 7600 rows are comparable only within one Julia version and one setting
+of that bound; every row in `benchmark/results/matrix/` predates it.
 
 Raw records live in `benchmark/results/archive/`, which holds the evidence
 trail of the optimization rounds: `current.jsonl` has the implicit numbers

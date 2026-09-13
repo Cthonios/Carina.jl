@@ -11,6 +11,7 @@
 import CUDA
 import AMDGPU
 import KernelAbstractions as KA
+include("rocm_workgroup_bound.jl")
 import YAML
 import Carina
 

@@ -20,6 +20,7 @@ if DEVICE == "cuda"
     const BACKEND = CUDA.CUDABackend()
 else
     import AMDGPU
+    include(joinpath(@__DIR__, "..", "bin", "rocm_workgroup_bound.jl"))
     AMDGPU.functional() || error("no functional AMD GPU")
     const BACKEND = AMDGPU.ROCBackend()
 end

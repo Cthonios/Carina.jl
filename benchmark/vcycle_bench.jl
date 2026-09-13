@@ -37,6 +37,7 @@
 # and a reduction in iteration count against the cost of the action it saves.
 
 import AMDGPU
+include(joinpath(@__DIR__, "..", "bin", "rocm_workgroup_bound.jl"))
 import CUDA
 using Carina
 import Carina: FEC

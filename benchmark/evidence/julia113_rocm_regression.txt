@@ -72,3 +72,56 @@ Conclusions.
      in scratch traffic; an `amdgpu-waves-per-eu` bound that allows 256
      VGPRs at occupancy 4 might remove the spills on both LLVMs.  The A100
      maxregs sweep was flat, but that kernel had already lost its spills.
+
+
+The lever, pulled (2026-09-12, bin/rocm_workgroup_bound.jl)
+------------------------------------------------------------
+
+Why the cap is 128.  AMDGPU.jl's compiler config never sets the
+`amdgpu-flat-work-group-size` bound (GPUCompiler only emits it when
+`maxthreads` is given, and AMDGPU.jl's `_compiler_config` never passes it),
+so the backend budgets registers for a 1024-thread workgroup: 32 waves per
+WGP, eight per SIMD, 128 VGPRs per lane on RDNA3.  Under LLVM 20 the AMDGPU
+attributor additionally writes `amdgpu-waves-per-eu = "8,16"` into the IR
+from that default (it is absent under LLVM 18), which is why the two
+compilers differ.  Carina launches every element loop at 256 threads.
+
+Experiments, RX 7600, Julia 1.13, same commit, action_bench 50 reps:
+
+  attributes on the element kernels                   stiffness (med / min)  VGPR  occ  spills  scratch B
+  none (AMDGPU.jl default)                             9.78 / 9.11 ms        128   8    544     1312
+  flat-work-group-size 1,256 set AFTER optimization    9.5  / 9.1  ms        128   8    544     1312   (attributor already pinned 8,16)
+  + waves-per-eu 2,4                                   8.48 / 7.90 ms        256   4    206      640
+  + waves-per-eu 4,4                                   8.51 / 7.90 ms        256   4    204      640
+  + waves-per-eu 2,2                                       --                256   4    208      656
+  flat-work-group-size 1,256 set BEFORE optimization   8.68 / 8.16, 8.58 / 7.94, 8.48 / 7.85 ms
+                                                       (LLVM infers 2,16)    256   4    206      640
+  mass action, same setting                            2.68 -> 2.40 ms       255   4    236 -> 4  608 -> 32
+
+  Julia 1.12, same lever: 8.74 / 8.27 -> 8.60 / 7.94 ms (spills 442 -> 194).
+  The occupancy loss costs LLVM 18 about what the spill removal gains; on
+  LLVM 20 the same trade recovers the whole regression.  Checksums identical
+  in every run.
+
+Shipped form.  bin/rocm_workgroup_bound.jl reads the static workgroup size
+off the KernelAbstractions `CompilerMetadata` type in the kernel signature
+and attaches `amdgpu-flat-work-group-size = 1,<size>` in a method added to
+GPUCompiler.optimize! for AMDGPU's job type, i.e. before the attributor
+runs, so LLVM derives the waves-per-EU range itself and no architecture
+constant is hard-coded.  Kernels with a dynamic workgroup size are left
+alone.  Included by bin/carina.jl, the harness, the action/vcycle/AMG
+benches, and test/helpers.jl.
+
+End to end, RX 7600, Julia 1.13, bb0ea9b + hook (benchmark/harness.jl):
+
+  torsion-newmark gpu-cg-jacobi   steady steps 6.27-6.72 s -> 5.48-5.85 s   (-13%; 2300 CG, |U|_max unchanged)
+  torsion-qs      gpu-cg-amg      steady steps 13.83-14.15 -> 12.99-13.31 s (-6%;  963 CG, |U|_max unchanged)
+
+The Newmark step is back to the Julia 1.12 August level (5.57 s at df8ff62).
+The remaining 206 spills at 256 VGPRs are the kernel's own live state, the
+same problem the A100 register work addressed on CUDA; the next step on RDNA3
+is the same one, not a further allocator setting.
+
+This belongs upstream: AMDGPU.jl's ROCKernels launch could pass the static
+workgroup size through as `maxthreads` the way CUDA.jl does, and every
+KernelAbstractions kernel on ROCm would get the bound without a hook.

@@ -26,6 +26,7 @@
 
 import AMDGPU
 import CUDA
+include(joinpath(@__DIR__, "..", "bin", "rocm_workgroup_bound.jl"))
 using Carina
 import Carina: FEC
 import KernelAbstractions as KA

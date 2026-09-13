@@ -97,6 +97,7 @@ device in ("auto", "rocm", "cuda") ||
 if use_gpu && device in ("auto", "rocm")
     try
         @eval using AMDGPU
+        include(joinpath(@__DIR__, "..", "bin", "rocm_workgroup_bound.jl"))
     catch err
         @warn "AMDGPU failed to load" exception = err
     end
