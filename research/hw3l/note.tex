@@ -58,71 +58,45 @@
 
 \begin{abstract}
 \noindent
-A tetrahedral element for very large deformation and deviatoric plasticity,
-aimed at removing the stabilization that the composite-tetrahedron and
-variational-multiscale lineages both carry. Three fields --- motion, volumetric
-strain, and pressure --- are coupled through a Hu--Washizu functional. The
-deviatoric response is evaluated pointwise at quadrature, so the constitutive
-law is an unmodified small-strain algorithm, and both auxiliary fields are
-discontinuous, so their elimination is element-local. The material is not
-arbitrary, and \S\ref{sec:matreq} says how far it is not: the stored energy
-must split exactly into volumetric and isochoric parts. Five of the seven
-materials implemented in Norma do. Two of them have a volumetric part quadratic
-in the projected variable --- Hencky in $\log J$, and the Simo--Hughes $J_2$
-model in $J-1$ --- which makes the discrete pressure equal $\kappa\bar\theta$
-pointwise and is the case developed here, so the material and its volumetric
-variable are not chosen independently.
-
-Volumetric locking and spurious soft modes are the failures of the two
-hypotheses of Brezzi's theorem: the inf-sup condition on the pair, and
-coercivity of the deviatoric form on the discretely isochoric subspace. The
-first is a property of the pair alone and is settled here. The second holds in
-elasticity for every conforming pair, so the elastic argument against a
-constant pressure that an earlier version of this note made does not stand.
-It is in plasticity, where the deviatoric tangent loses its stiffness along
-the flow direction, that the hypothesis can fail. Read as a constant, it does
-not separate pairs: an identity bounds the coercivity constant below by
-$(1-\beta)/2$ for every conforming pair, with $\beta$ the fraction of the
-shear stiffness the plastic tangent removes, and at $\beta = 1$ the continuum
-operator itself admits shear bands of arbitrarily small width. What separates
-the pairs is whether the soft directions are isochoric, and that is the claim
-of this note (\S\ref{sec:prediction}): the soft modes of the stable pair carry
-a dilatation that vanishes under refinement, and those of a constant pressure
-do not. It is a statement about two linear operators at a fixed plastic
-state, and \S\ref{sec:plastic} supports it on a Freudenthal mesh family:
-under a uniaxial flow direction the lowest plastic modes of the
-constant-pressure pairs carry a dilatation of $0.20$ to $0.27$ that does not
-decay, those of the Crouzeix--Raviart pair one that decays as $h^2$, and
-those of Taylor--Hood are dilatation almost entirely; in a confined plastic
-zone with a varying flow direction the Crouzeix--Raviart pair has no
-spurious mode among its twenty softest from $N = 4$ on, and the
-constant-pressure pairs retain between four and fifteen at $N = 5$. On
-deformed configurations the inf-sup constant decreases with the shear of the
-deformation and is unchanged by its volume change (\S\ref{sec:deformed}). With both auxiliary fields in one space the functional
-reduces exactly to mean dilatation (\S\ref{sec:meandilatation}): the mechanism
-is classical, and the open question was which pressure space to project onto.
-
-That question is answered here, and the answer is the one
-\citet{BoffiBrezziFortin:2013} predict. Six element-local pairs are measured
-against a Taylor--Hood control that validates the test. Quadratic displacement
-over a constant or a linear discontinuous pressure decays, with or without an
-interior bubble; face bubbles stabilize the constant pressure; and the full
-three-dimensional Crouzeix--Raviart pair --- face and interior bubbles over a
-linear discontinuous pressure --- settles on a discrete inf-sup constant of
-$0.2968$ with a one-dimensional pressure null space, above the control's
-$0.2216$. The face bubbles are shared between neighbors rather than
-element-local, so the stable pair costs global degrees of freedom that an
-earlier version of this note claimed it did not: $2.6$ times the incumbent's
-on the same mesh, with the pressure elimination still element-local. A
-degree-of-freedom count that clears a pair is necessary and not sufficient ---
-two of the failures clear it. The soft-mode argument against a constant
-pressure was tested here by counting exact zeros, which is the wrong test: the
-question is coercivity on the discretely isochoric subspace, closed for the
-stable pair in elasticity and open in plasticity. The measurement this
-formulation is intended to address --- whether plastic strain fields are
-smooth --- remains untested, and will be made on the Simo--Hughes model both
-codes ship, which substitutes a multiplicative plasticity model for the
-additive logarithmic one specified here.
+A tetrahedral element for large-deformation deviatoric plasticity is
+proposed, with the aim of removing the stabilization that the
+composite-tetrahedron and variational-multiscale lineages carry. Three
+fields --- the motion, a volumetric strain and a pressure --- are coupled
+through a Hu--Washizu functional. The deviatoric response is evaluated
+pointwise at quadrature, so the constitutive law is an unmodified
+small-strain algorithm, and both auxiliary fields are discontinuous, so
+their elimination is element-local. The stored energy must split exactly
+into volumetric and isochoric parts, which five of the seven materials in
+Norma do. With both auxiliary fields in one space the functional reduces
+exactly to mean dilatation, and what is open is the choice of pair: the
+discrete space for the displacement together with the discrete space for
+the pressure. Volumetric locking and spurious soft modes are failures of
+the two hypotheses of Brezzi's theorem for that pair, the inf-sup condition
+and coercivity of the deviatoric form on the discretely isochoric subspace.
+The first is settled by measurement over a mesh sequence against a
+Taylor--Hood control: of six element-local pairs only the three-dimensional
+Crouzeix--Raviart pair --- quadratic displacement enriched with face and
+interior bubbles, over a linear discontinuous pressure --- is stable, at a
+constant of $0.2968$; its face bubbles are global and cost $2.6$ times the
+incumbent's degrees of freedom. The second holds in elasticity for every
+conforming pair, and under a plastic tangent an identity bounds its constant
+below by $(1-\beta)/2$ for every pair, so it cannot separate them. The claim
+of this note is that the pairs differ instead in whether their soft modes are
+isochoric, and it is supported on the linearized operator: under a plastic
+tangent the softest modes of a constant-pressure element carry a dilatation
+of $0.20$ to $0.27$ that does not decay under refinement, those of the
+Crouzeix--Raviart pair one that decays as $h^2$, and those of Taylor--Hood
+are dilatation almost entirely; in a confined plastic zone with a varying
+flow direction the Crouzeix--Raviart pair has no spurious mode among its
+twenty softest at the finest mesh, and the constant-pressure pairs retain
+between five and fifteen. On deformed configurations the inf-sup constant
+decreases with the shear of the deformation and is unchanged by its volume
+change. A fourteen-point degree-five quadrature rule and a nodal
+fifteen-node basis are shown sufficient and are recommended; the explicit
+stable step is $3.3$ times smaller than a linear tetrahedron's. The
+nonlinear confirmation --- the smoothness of plastic strain fields in a
+solve --- remains to be made, on the Simo--Hughes model both codes ship
+rather than on the additive logarithmic plasticity specified here.
 \end{abstract}
 
 \section{Problem statement}
@@ -176,7 +150,9 @@ because the contamination path is the formulation.
 \paragraph{The common cause.} Both are failures of the hypotheses of one
 theorem, and an earlier version of this paragraph compressed the two
 hypotheses into one. Brezzi's theorem for the mixed problem asks two things of
-the pair \citep[\S3.4, \S5.2]{BoffiBrezziFortin:2013}: the inf-sup condition,
+the pair --- the discrete space $U_h$ for the displacement together with the
+discrete space $Q_h$ for the pressure
+\citep[\S3.4, \S5.2]{BoffiBrezziFortin:2013}: the inf-sup condition,
 that every pressure mode be resisted by some displacement, whose failure is
 locking on one side and spurious pressure on the other; and ellipticity of the
 deviatoric form on the discretely isochoric subspace $\ker ~G_h$, that no
