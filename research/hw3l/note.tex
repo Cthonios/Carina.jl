@@ -292,8 +292,9 @@ $\partial J/\partial\F = J\F^{-\mathsf T}$,
   \frac{\partial\theta}{\partial\F} = \theta'(J)\, J\, \F^{-\mathsf T},
 \end{equation}
 so \eqref{eq:thetadef} also forces $\partial\theta/\partial\F = \Id$ at
-$\F = \Id$ --- which is what makes the mixed pairing reduce to the Stokes
-pairing independently of the choice of $\theta$ (\S\ref{sec:fe-spaces}).
+$\F = \Id$ --- which is what makes the pressure--displacement pairing reduce
+to $\int \bar p \Div\testd \diff V$ independently of the choice of $\theta$
+(\S\ref{sec:fe-spaces}).
 
 Two choices are used below and are developed in \S\ref{sec:instances}: the
 logarithmic measure $\theta = \log J$, and $\theta = J - 1$. Both satisfy
@@ -635,11 +636,11 @@ pointwise relation $\bar p = \kappa\bar\theta$, and the element-local
 elimination hold for any $\theta$ satisfying \eqref{eq:thetadef} and any
 $W\supiso$ satisfying \eqref{eq:energy}.
 
-\emph{The Stokes limit is instance-independent, and this matters for
-\S\ref{sec:results}.} By \eqref{eq:dtheta} and the normalization
+\emph{The pairing at $\F = \Id$ is instance-independent, and this matters
+for \S\ref{sec:results}.} By \eqref{eq:dtheta} and the normalization
 \eqref{eq:thetadef}, $\partial\theta/\partial\F = \Id$ at $\F = \Id$ in both
-columns, so the pairing that \S\ref{sec:fe-spaces} reduces to the Stokes
-pairing is the same for both. The inf-sup analysis, and with it the negative
+columns, so the pairing that \S\ref{sec:fe-spaces} reduces to
+$\int \bar p \Div\testd \diff V$ is the same for both. The inf-sup analysis, and with it the negative
 stability results of \S\ref{sec:beta}, therefore transfer between instances
 unchanged: those results are a property of the pair
 $(U_h, Q_h)$, not an artifact of having measured the logarithmic one.
@@ -801,12 +802,22 @@ $\int \varpi \,\F^{-\mathsf T}\!:\!\Grad\testd$ with
 $\varpi = \theta'(J)\,J\,\bar p$, and not $\int \bar p
 \,\F^{-\mathsf T}\!:\!\Grad\testd$; the two coincide at $\F = \Id$ and nowhere
 else. The normalization \eqref{eq:thetadef} sets $\theta'(1) = 1$, so
-$\varpi = \bar p$ there and the pairing reduces to the Stokes pairing
-$\int \bar p \Div\testd$ --- in both instances of
+$\varpi = \bar p$ there and the pairing reduces to the divergence pairing
+$\int \bar p \Div\testd \diff V$ --- in both instances of
 Table~\ref{tab:instances}, which is what makes the stability results of
-\S\ref{sec:beta} a property of the pair rather than of the material. The
-admissible pairs are therefore the inf-sup stable Stokes pairs, and stability
-must hold uniformly in $h$ and on the target range of $\kappa/\mu$
+\S\ref{sec:beta} a property of the pair rather than of the material. That
+pairing is the one of incompressible linear elasticity, in which the pressure
+is the multiplier of the constraint $\Div\disp = 0$, and its discrete
+inf-sup condition,
+\begin{equation}
+  \label{eq:infsup}
+  \inf_{q \in Q_h}\;\sup_{~v \in U_h}\;
+  \frac{\int_B q \, \Div ~v \diff V}{\lvert ~v \rvert_{H^1} \norm{q}_{L^2}}
+  \;\ge\; \beta_h ,
+\end{equation}
+is the condition on the pair. The admissible pairs are therefore those for
+which $\beta_h$ in \eqref{eq:infsup} is bounded below uniformly in $h$, and
+stability must also hold on the target range of $\kappa/\mu$
 \citep{BoffiBrezziFortin:2013}.
 
 The distinction that matters is dimensional and is easy to get wrong. The
@@ -1102,8 +1113,8 @@ three operators are assembled,
   \qquad
   M_{mn} = \int \mu_m \mu_n \diff V,
 \end{equation}
-with $K$ the $H^1$ seminorm, the norm in which the Stokes inf-sup condition is
-stated. The discrete inf-sup
+with $K$ the $H^1$ seminorm, the norm on the displacement in
+\eqref{eq:infsup}. The discrete inf-sup
 constant is $\beta_h = \sqrt{\lambda_{\min}}$ over the nonzero spectrum of
 \begin{equation}
   \label{eq:infsup-eig}
@@ -1741,8 +1752,11 @@ that the first round of numerical work is decisive.
         null space at every mesh. The face bubbles are the part that matters;
         the interior bubble alone is not enough
         (Remark~\ref{rem:whyface}). The measurement is at $\F = \Id$. At
-        finite deformation the pairing is the Stokes pairing on the deformed
-        configuration (\S\ref{sec:fe-spaces}), and uniformity of $\beta_h$
+        finite deformation the pairing is
+        $\int \varpi \,\F^{-\mathsf T}\!:\!\Grad\testd \diff V =
+        \int \varpi \,\mathrm{div}_{\bx}\testd \diff V$, the divergence
+        pairing taken on the deformed configuration
+        (\S\ref{sec:fe-spaces}), and uniformity of $\beta_h$
         under a large non-affine deformation, the regime of \S1, is not
         established here; it is measured by assembling $~G$ at a prescribed
         deformed state, which the bench can do and has not done. What remains
@@ -1751,8 +1765,9 @@ that the first round of numerical work is decisive.
         needs no separate measurement: for the penalized saddle point,
         stability of the incompressible limit gives error estimates
         independent of the penalty \citep[\S5.5.2, \S8.12.1]{BoffiBrezziFortin:2013},
-        and every pair stable for Stokes may be used for nearly incompressible
-        elasticity \citep[Remark~8.12.1]{BoffiBrezziFortin:2013}.
+        and every pair satisfying \eqref{eq:infsup} uniformly may be used
+        for nearly incompressible elasticity
+        \citep[Remark~8.12.1]{BoffiBrezziFortin:2013}.
   \item \textbf{No soft modes.} \emph{Closed in elasticity; in plasticity,
         supported on the linearized operator and not yet in a nonlinear
         solve.} Three exact
@@ -1855,8 +1870,9 @@ carries no such requirement.
 
 \emph{Nothing here is novel in its parts.} Mixed volumetric treatment
 \citep{SimoTaylorPister:1985}, logarithmic-strain plasticity
-\citep{Miehe.Apel.Lambrecht:2002} and stable Stokes pairs
-\citep{BoffiBrezziFortin:2013} are all established. The contribution, if there
+\citep{Miehe.Apel.Lambrecht:2002} and displacement--pressure pairs
+satisfying \eqref{eq:infsup} uniformly \citep{BoffiBrezziFortin:2013} are all
+established. The contribution, if there
 is one, is the claim that combining them correctly removes the need for the
 stabilization that both the composite-tetrahedron and variational-multiscale
 lineages carry --- and that claim carries only the weight of the numerical
