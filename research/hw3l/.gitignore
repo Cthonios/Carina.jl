@@ -20,9 +20,8 @@
 *.vrb
 *.xdv
 
-# Generated main PDF (Overleaf builds it server-side).
-# Scoped to the top-level build output so figure PDFs remain trackable.
-/note.pdf
+# The built note.pdf is tracked: rebuild it with `make` and commit it with
+# the source (README.md).
 
 # Editor/OS noise
 .DS_Store

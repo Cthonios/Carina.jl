@@ -19,7 +19,9 @@ make purge    # remove auxiliary files and the PDF
 `pdflatex` via `latexmk`, not the `lualatex` the theory manual uses — this
 document was written against Overleaf's default toolchain and keeps it.
 
-The PDF is a build product and is not tracked.
+The PDF is checked in so the document can be read without a TeX
+installation. It is a build product of the source beside it: rebuild it with
+`make` and commit it together with any change to the source.
 
 ### Requirements
 

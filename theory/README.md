@@ -20,7 +20,9 @@ make clean    # remove auxiliary files, keep the PDF
 make purge    # remove auxiliary files and the PDF
 ```
 
-The PDF is a build product and is not tracked.
+The PDF is checked in so the document can be read without a TeX
+installation. It is a build product of the source beside it: rebuild it with
+`make` and commit it together with any change to the source.
 
 ### Requirements
 
