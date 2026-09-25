@@ -194,6 +194,13 @@ function free_dofs(coords, bc::Symbol = _BC_ALL)
     return free, gmap
 end
 
+"Unit deviatoric flow direction as the Voigt vector pairing with engineering strain."
+function _flow_voigt(n)
+    abs(tr(n)) < 1e-10 || error("the flow direction must be deviatoric")
+    abs(sum(abs2, n) - 1) < 1e-10 || error("the flow direction must be unit")
+    return [n[1,1], n[2,2], n[3,3], n[1,2], n[2,3], n[1,3]]
+end
+
 "Voigt B operator (6 x 3*nen), and dV, at one quadrature point."
 function bmatrix(dN, nen)
     B = zeros(6, NSD * nen)
@@ -337,22 +344,23 @@ function assemble_all(coords, conn, p::Int, m::Int; mu = 1.0,
                       bubble::Symbol = :none,
                       q_degree::Int = bubble === :none ? 2 : 6,
                       bc::Symbol = _BC_ALL, nvert::Int = 0,
-                      flow = nothing, beta::Real = 0.0)
+                      flow = nothing, beta::Real = 0.0,
+                      bc_coords = coords)
     bubble in _ENRICH || error(
         "unknown enrichment $bubble; expected one of $(_ENRICH)")
-    # Consistent J2 tangent at a plastic state with a uniform flow direction:
+    # Consistent J2 tangent at a plastic state:
     #     C_ep = 2 mu [ I_dev - beta n (x) n ],   n : n = 1,  tr n = 0,
     # beta = 1 for perfect plasticity and 2mu/(2mu + 2H/3) with linear
-    # hardening H.  In Voigt form n : eps = n11 eps11 + ... + n12 gamma12 + ...
-    nv = if flow === nothing
-        beta == 0 || error("a flow direction is required when beta != 0")
-        nothing
-    else
-        n = Matrix{Float64}(flow)
-        abs(tr(n)) < 1e-12 || error("the flow direction must be deviatoric")
-        abs(sum(abs2, n) - 1) < 1e-12 || error("the flow direction must be unit")
-        [n[1,1], n[2,2], n[3,3], n[1,2], n[2,3], n[1,3]]
-    end
+    # hardening H.  `flow` is either a 3x3 direction, uniform with the given
+    # `beta`, or a function of the quadrature point's coordinates returning
+    # (n, beta) there, so that the plastic zone and the flow direction can
+    # vary in space.  In Voigt form n : eps = n11 eps11 + ... + n12 gamma12 + ...
+    flow === nothing && beta != 0 && error("a flow direction is required when beta != 0")
+    flow_fn = flow isa Function ? flow :
+              flow === nothing ? nothing : (x -> (flow, beta))
+    # `bc_coords` decides which nodes and faces are constrained; `coords` is
+    # what is assembled on.  They differ for a deformed configuration, whose
+    # boundary is still the reference cube's boundary.
     if bubble !== :none
         p == 2 || error("the bubble enrichment is defined on P2 only, got p = $p")
         q_degree >= 6 || error(
@@ -367,7 +375,7 @@ function assemble_all(coords, conn, p::Int, m::Int; mu = 1.0,
     nqp  = length(qwts)
     nen  = size(conn, 1)
     nelem = size(conn, 2)
-    free, gmap = free_dofs(coords, bc)
+    free, gmap = free_dofs(bc_coords, bc)
     # Continuous P1 pressure is numbered by vertex; every discontinuous space is
     # numbered element by element.
     continuous = m == _P1C
@@ -375,7 +383,7 @@ function assemble_all(coords, conn, p::Int, m::Int; mu = 1.0,
     has_int  = bubble in (:interior, :full)
     has_face = bubble in (:face, :full)
     n_int  = has_int ? NSD * nelem : 0
-    nfaces, fmap = has_face ? face_table(coords, conn, bc) : (0, zeros(Int, 4, nelem))
+    nfaces, fmap = has_face ? face_table(bc_coords, conn, bc) : (0, zeros(Int, 4, nelem))
     n_face = NSD * nfaces
     nu = nu_nodal + n_int + n_face
     np = continuous ? nvert : m * nelem
@@ -411,6 +419,7 @@ function assemble_all(coords, conn, p::Int, m::Int; mu = 1.0,
             w  = qwts[q]
             dN_ref = RFE.shape_function_gradient(el, xi)
             J  = X * dN_ref
+            det(J) > 0 || error("non-positive Jacobian $(det(J)) in element $e")
             dN = dN_ref / J
             if has_int
                 _, gb = interior_bubble(xi)
@@ -426,9 +435,14 @@ function assemble_all(coords, conn, p::Int, m::Int; mu = 1.0,
             B  = bmatrix(dN, nen_a)
             Bd = _DEV * B
             Ke = dV * 2mu * (Bd' * _VOIGT_W * Bd)
-            if nv !== nothing && beta != 0
-                nB = nv' * Bd
-                Ke -= dV * 2mu * beta * (nB' * nB)
+            if flow_fn !== nothing
+                xq = X * collect(RFE.shape_function_value(el, xi))
+                n, bq = flow_fn(xq)
+                if bq != 0
+                    nv = _flow_voigt(n)
+                    nB = nv' * Bd
+                    Ke -= dV * 2mu * bq * (nB' * nB)
+                end
             end
             phi = continuous ? p1_shape(xi) : pressure_basis(Val(m), xi)
             prow = continuous ? (a -> conn[a, e]) : (a -> m * (e - 1) + a)

@@ -93,7 +93,12 @@ state, and \S\ref{sec:plastic} supports it on a Freudenthal mesh family:
 under a uniaxial flow direction the lowest plastic modes of the
 constant-pressure pairs carry a dilatation of $0.20$ to $0.27$ that does not
 decay, those of the Crouzeix--Raviart pair one that decays as $h^2$, and
-those of Taylor--Hood are dilatation almost entirely. With both auxiliary fields in one space the functional
+those of Taylor--Hood are dilatation almost entirely; in a confined plastic
+zone with a varying flow direction the Crouzeix--Raviart pair has no
+spurious mode among its twenty softest from $N = 4$ on, and the
+constant-pressure pairs retain between four and fifteen at $N = 5$. On
+deformed configurations the inf-sup constant decreases with the shear of the
+deformation and is unchanged by its volume change (\S\ref{sec:deformed}). With both auxiliary fields in one space the functional
 reduces exactly to mean dilatation (\S\ref{sec:meandilatation}): the mechanism
 is classical, and the open question was which pressure space to project onto.
 
@@ -241,13 +246,12 @@ element-constant pressure on a quadratic displacement, $\ker ~G_h$ contains
 displacements whose dilatation is nonzero pointwise and averages to zero over
 each element, and their dilatation does not vanish with $h$.
 
-The claim is therefore the following. \emph{Under a plastic tangent, the
-lowest modes of the deviatoric form on $\ker ~G_h$ carry a dilatation
-$\int (\Div ~v)^2 \diff V / \int \lvert\Grad ~v\rvert^2 \diff V$ that vanishes
-under refinement for the stable pair with a linear discontinuous pressure and
-does not for a constant pressure; the soft modes reported for
-constant-pressure elements are the latter, and no stabilization is needed
-where they are absent.} Both operators are linear at a fixed plastic state,
+The claim is therefore the following. \emph{Under a plastic tangent, every
+soft mode of the stable pair with a linear discontinuous pressure carries a
+dilatation $\int (\Div ~v)^2 \diff V / \int \lvert\Grad ~v\rvert^2 \diff V$
+that vanishes under refinement, and a constant pressure has soft modes whose
+dilatation does not; the soft modes reported for constant-pressure elements
+are the latter, and no stabilization is needed where they are absent.} Both operators are linear at a fixed plastic state,
 so the claim is tested without a nonlinear solve, and \S\ref{sec:plastic}
 tests it. If the dilatation of the soft modes does not separate the pairs,
 the formulation has no advantage over the constant-pressure elements it is
@@ -1562,10 +1566,93 @@ on a structured mesh and remain well behaved on a general one. The accurate
 statement is that $P_2/P_0$, $P_2/P_1^{\mathrm{disc}}$ and
 $P_2 \oplus b_{\mathrm{int}}/P_1^{\mathrm{disc}}$ decay \emph{here}; confirming
 that as a property of the pairs rather than of the mesh needs a sequence of
-unstructured meshes, which this study does not have. The affirmative result
+unstructured meshes, which this study does not have. \S\ref{sec:deformed}
+adds one data point in the other direction: on the non-affine images of this
+mesh the $P_2/P_0$ constant is smaller still. The affirmative result
 needs no such confirmation, since \citet[Example~8.7.2]{BoffiBrezziFortin:2013}
 establish it on any shape-regular family; what the sweep adds is the constant.
 \end{remark}
+
+\subsection{Stability on a deformed configuration}
+\label{sec:deformed}
+
+Every measurement above is at $\F = \Id$. At a finite deformation the
+pairing is $\int \varpi\,\mathrm{div}_{\bx}\testd \diff V$ (\S\ref{sec:fe-spaces}),
+the divergence pairing on the deformed configuration with the pressure scaled
+by $1/J$, and whether $\beta_h$ stays bounded below under a large non-affine
+deformation is what the regime of \S1 requires. The operators
+\eqref{eq:infsup-ops} are assembled on the isoparametric image of the
+quadratic mesh under a prescribed map, with the derivatives, the divergence
+and the volume taken on the image and the pressure basis on the reference
+cell as the element uses it, and with the boundary conditions of the
+reference cube; the scaling by $1/J$ changes $\beta_h$ by at most the ratio
+of extreme Jacobians and is not applied. Four maps of the unit cube, about
+its center: a twist about the vertical axis by $90^\circ$ and by $180^\circ$
+over the height, isochoric and non-affine, with shear strains near $2$ at the
+corners of the latter; a parabolic shear $x_1 = X_1 + \tfrac12 X_3^2$,
+isochoric; a radial inflation with $J$ from $1$ to $2.3$; and an affine
+compression to $J = \tfrac12$ as a control, since an affine map changes
+$\beta_h$ only through the element aspect ratio. Table~\ref{tab:deformed}
+gives the result at $N = 5$ with the local rate over the last refinement.
+Script: \code{prototype/deformed.jl}.
+
+\begin{table}[tbp]
+\centering
+\caption{$\beta_h$ at $N = 5$ on deformed configurations, whole boundary
+fixed, with the local rate over $N = 4 \to 5$ in parentheses for the
+Crouzeix--Raviart pair; the null dimension is one on every row. The
+$P_2/P_0$ column gives the pressure null dimension and $\beta_h$: its three
+exact spurious modes exist only on the affine mesh.}
+\label{tab:deformed}
+\begin{tabular}{@{}llrrrl@{}}
+\toprule
+map & $J$ & $P_2/P_1$ cont. & $P_2 \oplus b_{\mathrm{face}}/P_0$
+    & $P_2 \oplus b_{\mathrm{int}} \oplus b_{\mathrm{face}}/P_1^{\mathrm{disc}}$
+    & $P_2/P_0$ (null, $\beta_h$) \\
+\midrule
+reference          & $1$          & 0.221 & 0.413 & 0.297 ($-0.003$) & 4, 0.063 \\
+twist $90^\circ$   & $0.99$--$1.01$ & 0.189 & 0.385 & 0.204 ($0.18$)  & 1, 0.027 \\
+twist $180^\circ$  & $0.98$--$1.05$ & 0.137 & 0.345 & 0.116 ($0.42$)  & 1, 0.051 \\
+parabolic shear    & $1$          & 0.176 & 0.336 & 0.183 ($0.05$)   & 1, 0.005 \\
+inflation          & $1.0$--$2.3$   & 0.192 & 0.368 & 0.276 ($0.01$)   & 1, 0.004 \\
+compression        & $0.5$        & 0.192 & 0.333 & 0.213 ($0.00$)   & 4, 0.038 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Three findings.
+
+\paragraph{$\beta_h$ is not uniform in the deformation.} It decreases with
+the local shear of the map for every pair, and most for the
+Crouzeix--Raviart pair: from $0.297$ to $0.204$ under the $90^\circ$ twist,
+$0.116$ under the $180^\circ$ twist and $0.183$ under the parabolic shear,
+against $0.221 \to 0.189$, $0.137$, $0.176$ for Taylor--Hood and
+$0.413 \to 0.385$, $0.345$, $0.336$ for the face-bubbled constant-pressure
+pair. The inflation, which changes $J$ by a factor of $2.3$ but shears
+little, leaves the constant at $0.276$. The affine compression gives $0.213$,
+flat to four digits from $N = 3$: the aspect-ratio effect alone, as expected.
+The dependence is on the shear of the deformation and not on its volume
+change.
+
+\paragraph{At a fixed deformation the sequence in $h$ is consistent with a
+positive limit.} The local rate of the Crouzeix--Raviart pair falls with
+$N$ on every non-affine map: $0.28$, $0.22$, $0.18$ over $N = 2$ to $5$ for
+the $90^\circ$ twist, $0.67$, $0.53$, $0.42$ for the $180^\circ$ twist, and
+$0.05$ for the parabolic shear (through $N = 5$). A power-law decay would hold its rate. The
+$180^\circ$ row has not flattened by $N = 5$, and its shear strain of about
+$2$ at the corners is beyond what a plastic zone of the benchmark set
+reaches; the finding is that the constant degrades with the strain, not that
+it vanishes. At $N = 6$ the pair gives $0.1975$, $0.1088$ and $0.182$ on
+the three non-affine maps, local rates of $0.17$, $0.35$ and $0.04$, each
+below the rate before it.
+
+\paragraph{The exact spurious modes of $P_2/P_0$ belong to the affine mesh.}
+Under every non-affine map the pressure null dimension of $P_2/P_0$ falls
+from four to one and $\beta_h$ falls to between $0.004$ and $0.05$: the three
+modes are no longer exactly unresisted but nearly so, and the pair is worse
+off the reference configuration than on it. This corrects the direction of
+Remark~\ref{rem:structured}, which allowed that a structured mesh might show
+the pair at its worst.
 
 \subsection{Coercivity under a plastic tangent}
 \label{sec:plastic}
@@ -1669,11 +1756,64 @@ $N = 2$ to $5$, decaying as $h^2$, the rate at which
 isochoric space; its soft modes are physical. Under the shear direction the
 lowest modes of every pair are shear bands whose dilatation decays, the
 Crouzeix--Raviart pair's three to four times smaller than the others' at
-$N = 5$. The spurious dilatational modes of a constant pressure are therefore
-present in both directions but are the \emph{lowest} modes only where the
-flow admits no band; in a plastic zone with a varying flow direction both
-kinds occur, and their practical weight is what claim~4 of \S\ref{sec:verify}
-measures.
+$N = 5$. Counted over the twenty lowest modes, with a mode called spurious when
+$r_v > 0.1$ (the stable pair's soft modes lie below $0.02$ from $N = 4$ on,
+the spurious ones at $0.2$--$0.4$): under the uniaxial direction at $N = 5$
+all twenty of each constant-pressure pair's and of Taylor--Hood's are
+spurious, and none of the Crouzeix--Raviart pair's at any $N$; under the
+shear direction the twenty lowest of every element-local pair are bands at
+$N = 5$. The spurious modes of a constant pressure are therefore present in
+both directions but are the \emph{lowest} modes only where the flow admits
+no band, which is why the next paragraph counts them in a zone with a
+varying direction rather than reading the lowest three.
+
+\paragraph{A confined zone with a varying flow direction.} The flow
+direction and the plastic zone are taken from a prescribed displacement
+field: $~n = \dev\eps(~u)/\norm{\dev\eps(~u)}$ at each quadrature point and
+$\beta = 1$ where $\lvert\dev\eps(~u)\rvert$ exceeds $0.35$ of its peak,
+$\beta = 0$ elsewhere. Two fields: an indentation of the top face,
+$u_3 = -\exp(-r^2/w^2)\,X_3$ with $r$ the distance from the vertical axis and
+$w = \tfrac14$, whose zone is $51\%$ of the volume with elastic
+surroundings; and the displacement of the $90^\circ$ twist of
+\S\ref{sec:deformed}, whose zone is $97\%$. Both are run with the whole
+boundary fixed and with the base alone fixed. Table~\ref{tab:zone} counts
+the spurious modes among the twenty lowest. Script:
+\code{prototype/plastic\_zone.jl}.
+
+\begin{table}[tbp]
+\centering
+\caption{Spurious modes among the twenty lowest of the plastic form on
+$\ker ~G_h$ ($r_v > 0.1$) in a confined plastic zone with a varying flow
+direction, at $N = 3$, $4$, $5$.}
+\label{tab:zone}
+\begin{tabular}{@{}llrrrr@{}}
+\toprule
+field & boundary & $P_2/P_0$ & $P_2 \oplus b_{\mathrm{face}}/P_0$
+      & $P_2 \oplus b_{\mathrm{int}} \oplus b_{\mathrm{face}}/P_1^{\mathrm{disc}}$
+      & $P_2/P_1$ cont. \\
+\midrule
+indentation & all fixed  & 16, 15, 7  & 18, 17, 5  & 4, \textbf{0, 0} & 20, 18, 17 \\
+indentation & base fixed & 11, 1, 0   & 13, 5, 0   & \textbf{0, 0, 0} & 14, 7, 5 \\
+twist       & all fixed  & 14, 18, 15 & 18, 13, 8  & 1, 4, \textbf{0} & 20, 20, 20 \\
+twist       & base fixed & 5, 2, 0    & 13, 7, 4   & \textbf{0, 0, 0} & 12, 13, 12 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+With the whole boundary fixed the constant-pressure pairs retain between
+five and fifteen spurious modes among their twenty softest at $N = 5$, and
+under the twist the softest mode of $P_2/P_0$ is spurious at every $N$ up to
+$4$ ($r_v = 0.22$--$0.31$) and its third at $N = 5$ ($0.20$). The
+Crouzeix--Raviart pair has none from $N = 4$ on under the indentation and
+none at $N = 5$ under the twist, and none at any $N$ with the base alone
+fixed. Taylor--Hood keeps seventeen to twenty, and under the twist its
+softest mode's dilatation grows with refinement, $0.29$, $0.37$, $0.66$,
+$0.74$. With the base alone fixed the softest modes of every pair are
+long-wavelength motions of the block and the counts fall for the
+constant-pressure pairs too, to zero at $N = 5$ for $P_2/P_0$ and four for
+the face-bubbled pair, so the spurious modes are then above the twentieth;
+they are not absent, as the all-fixed rows show. What claim~4 of
+\S\ref{sec:verify} adds is whether a nonlinear solve excites them.
 
 \paragraph{Taylor--Hood is the worst pair on this measure.} Its pressure is
 continuous, so its kernel is divergence-free only against continuous linear
@@ -1751,16 +1891,18 @@ that the first round of numerical work is decisive.
         Taylor--Hood control's $0.2216$ and with a one-dimensional pressure
         null space at every mesh. The face bubbles are the part that matters;
         the interior bubble alone is not enough
-        (Remark~\ref{rem:whyface}). The measurement is at $\F = \Id$. At
-        finite deformation the pairing is
+        (Remark~\ref{rem:whyface}). At finite deformation the pairing is
         $\int \varpi \,\F^{-\mathsf T}\!:\!\Grad\testd \diff V =
         \int \varpi \,\mathrm{div}_{\bx}\testd \diff V$, the divergence
         pairing taken on the deformed configuration
-        (\S\ref{sec:fe-spaces}), and uniformity of $\beta_h$
-        under a large non-affine deformation, the regime of \S1, is not
-        established here; it is measured by assembling $~G$ at a prescribed
-        deformed state, which the bench can do and has not done. What remains
-        otherwise is an unstructured mesh
+        (\S\ref{sec:fe-spaces}), and \S\ref{sec:deformed} measures it on
+        four deformed states: $\beta_h$ degrades with the shear of the
+        deformation, to $0.204$ at a $90^\circ$ twist and $0.116$ at
+        $180^\circ$, is unchanged by a volume change of $2.3$, and at each
+        fixed deformation the sequence in $h$ is consistent with a positive
+        limit. Uniformity in the deformation does not hold and should not be
+        claimed; what holds is a constant that decreases with the local
+        shear strain. What remains is an unstructured mesh
         sequence (Remark~\ref{rem:structured}). Uniformity in $\kappa/\mu$
         needs no separate measurement: for the penalized saddle point,
         stability of the incompressible limit gives error estimates

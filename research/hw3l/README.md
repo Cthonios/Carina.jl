@@ -43,8 +43,13 @@ plastic tangent with a uniaxial flow direction, the softest modes of a
 constant-pressure element carry a dilatation of 0.20–0.27 that does not decay
 under refinement and that the continuum would resist with $\kappa$; those of
 the stable pair carry one that decays as $h^2$; those of Taylor–Hood are
-dilatation almost entirely. No stabilization is needed where the spurious
-modes are absent. The composite tetrahedron relieves locking with a constant
+dilatation almost entirely. In a confined plastic zone with a varying flow
+direction the stable pair has no spurious mode among its twenty softest from
+$N = 4$ on, and the constant-pressure pairs retain between four and fifteen.
+On deformed configurations the inf-sup constant decreases with the shear of
+the deformation (0.30 → 0.20 at a 90° twist, 0.12 at 180°) and is unchanged
+by its volume change. No stabilization is needed where the spurious modes
+are absent. The composite tetrahedron relieves locking with a constant
 pressure and pays for the soft modes with a penalty; variational-multiscale
 methods add a time-step-dependent subgrid term that reaches the plastic return
 map. Neither is needed with a pair inside the admissible window.

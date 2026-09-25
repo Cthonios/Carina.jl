@@ -51,7 +51,15 @@ const PAIRS = (("P2/P0",              1,     :none, 5),
                ("P2+int+face/P1disc", 4,     :full, 5),
                ("P2/P1c (TH)",        _P1C,  :none, 5))
 const BETAS = (1.0, 0.9)
-const NMODES = 3
+# Eigenpairs kept per case.  The three lowest are printed; the count of
+# spurious modes is taken over all twenty, because in a plastic zone with a
+# varying flow direction physical shear bands can lie below the spurious
+# dilatational modes, which are then invisible to the lowest three alone.
+const NMODES = 20
+# A mode is counted as spurious when its dilatation exceeds this: the stable
+# pair's soft modes sit below 0.02 from N = 4 on, the constant-pressure
+# pairs' spurious ones at 0.2-0.4.
+const RV_SPURIOUS = 0.1
 
 "Lowest generalized eigenpairs of K on ker G against the H1 seminorm."
 function kernel_modes(a, K; k = NMODES)
@@ -68,7 +76,7 @@ dilatation(a, v) = dot(v, a.Kdiv * v) / dot(v, a.Kh1 * v)
 
 function run_case(m, bubble, N, flow, beta)
     coords, conn = mesh_of(N, 2)
-    nvert = m == _P1C ? size(coords, 2) : 0
+    nvert = m == _P1C ? (N + 1)^3 : 0
     ae = assemble_all(coords, conn, 2, m; bubble, nvert)
     ap = assemble_all(coords, conn, 2, m; bubble, nvert, flow, beta)
     ae.nu == 0 && return nothing
@@ -81,6 +89,12 @@ function run_case(m, bubble, N, flow, beta)
               rvp = [dilatation(ae, vp[:, i]) for i in 1:length(lp)])
 end
 
+"Number of spurious modes among the kept ones, and the index of the first."
+function spurious(rv)
+    idx = findall(>(RV_SPURIOUS), rv)
+    return length(idx), isempty(idx) ? 0 : first(idx)
+end
+
 fmt(x) = string(round(x, sigdigits = 3))
 cell(v, i) = i <= length(v) ? fmt(v[i]) : "--"
 
@@ -91,15 +105,18 @@ function main()
     println("eigenvalue; r_v,i = int (div v_i)^2 / |grad v_i|^2 is the dilatation")
     println("the mode carries, zero for an isochoric field.  For beta < 1 every")
     println("lam_i >= (1 - beta)/2 exactly, for every pair; the discriminating column")
-    println("is r_v of the plastic modes.\n")
+    println("is r_v of the plastic modes.  n_spur/20 counts the modes among the")
+    println("twenty lowest with r_v > $(RV_SPURIOUS), and `first` is the index of the")
+    println("first such mode (0 if none).\n")
     for beta in BETAS, (fname, flow) in (("shear  n = sym(e1 e2)/sqrt2", N_SHEAR),
                                           ("axial  n = dev(e3 e3)/|.|", N_AXIAL))
         println("beta = $beta   floor (1-beta)/2 = $(fmt((1 - beta) / 2))   flow: $fname")
         println(rpad("pair", 21), rpad("N", 3), rpad("dim ker", 8),
                 rpad("lam1 el", 9), rpad("r_v el1", 9),
                 rpad("lam1 pl", 9), rpad("lam2 pl", 9), rpad("lam3 pl", 9),
-                rpad("r_v pl1", 9), rpad("r_v pl2", 9), "r_v pl3")
-        println("-"^104)
+                rpad("r_v pl1", 9), rpad("r_v pl2", 9), rpad("r_v pl3", 9),
+                rpad("n_spur/20", 10), "first")
+        println("-"^124)
         for (label, m, bubble, Nmax) in PAIRS
             for N in 2:Nmax
                 r = run_case(m, bubble, N, flow, beta)
@@ -107,7 +124,8 @@ function main()
                 println(rpad(label, 21), rpad(string(N), 3), rpad(string(r.kdim), 8),
                         rpad(cell(r.le, 1), 9), rpad(cell(r.rve, 1), 9),
                         rpad(cell(r.lp, 1), 9), rpad(cell(r.lp, 2), 9), rpad(cell(r.lp, 3), 9),
-                        rpad(cell(r.rvp, 1), 9), rpad(cell(r.rvp, 2), 9), cell(r.rvp, 3))
+                        rpad(cell(r.rvp, 1), 9), rpad(cell(r.rvp, 2), 9), rpad(cell(r.rvp, 3), 9),
+                        rpad(string(spurious(r.rvp)[1]), 10), string(spurious(r.rvp)[2]))
                 flush(stdout)
             end
         end

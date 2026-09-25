@@ -130,6 +130,26 @@ An earlier version of this script *extrapolated* the enriched pair by adding
 at `N = 4`; the extrapolation overstated the isochoric fraction by a factor of
 two. All enriched pairs are now assembled.
 
+## `deformed.jl` — the inf-sup constant on a deformed configuration
+
+Every stability result above is at `F = I`. This assembles the same
+operators on the isoparametric image of the P2 mesh under a prescribed map
+(twist 90° and 180° about the vertical axis, a parabolic shear, a radial
+inflation with `J` up to 2.3, and an affine compression to `J = 0.5` as the
+control), with the reference cube's boundary conditions, and computes `β_h`
+as `beta.jl` does. `julia deformed.jl extend` adds the CR pair at `N = 6` on
+the three non-affine isochoric maps.
+
+**Result.** `β_h` decreases with the local shear of the map for every pair,
+most for the CR pair (0.297 → 0.204 at 90°, 0.116 at 180°, 0.183 under the
+parabolic shear; Taylor–Hood 0.221 → 0.189, 0.137, 0.176), is unchanged by
+the inflation (0.276) and flat under the affine compression (0.213: the
+aspect-ratio effect alone). At a fixed deformation the local rate falls with
+`N`, consistent with a positive limit. The three exact spurious pressure
+modes of `P2/P0` exist only on the affine mesh: under every non-affine map
+its null dimension drops to one and `β_h` to 0.004–0.05. Output kept in
+`deformed_out.txt`.
+
 ## `plastic.jl` — soft modes under a plastic tangent
 
 The consistent J2 tangent `C_ep = 2μ [I_dev − β n⊗n]` removes the shear
@@ -154,6 +174,22 @@ Under a shear direction every pair's soft modes are bands and decay, the CR
 pair's fastest. The elastic lowest mode is `λ = 0.500`, `r_v = 0` on every row,
 which the identity requires and which checks the bench. Output kept in
 `plastic_out.txt`.
+
+## `plastic_zone.jl` — the same, in a confined zone with a varying flow direction
+
+`n = dev ε(u)/|dev ε(u)|` and `β = 1` where `|dev ε(u)|` exceeds 0.35 of its
+peak, from a prescribed field `u`: an indentation of the top face (zone 51%
+of the volume) and the 90° twist (97%), with the whole boundary fixed and
+with the base alone fixed. Spurious modes are counted among the twenty
+lowest (`r_v > 0.1`), because physical shear bands can lie below them and
+hide them from the lowest three.
+
+**Result**, counts at `N = 3, 4, 5` with the whole boundary fixed:
+`P2/P0` 16, 15, 7 (indentation) and 14, 18, 15 (twist); `P2 ⊕ face/P0`
+18, 17, 5 and 18, 13, 8; the CR pair 4, 0, 0 and 1, 4, 0; Taylor–Hood
+20, 18, 17 and 20, 20, 20, its softest twist mode growing to `r_v = 0.74`.
+With the base alone fixed the CR pair has none at any `N`. Output kept in
+`plastic_zone_out.txt`.
 
 ## `materials.jl` — what the materials satisfy (needs Norma)
 
@@ -206,5 +242,5 @@ now right.
 ## Kept outputs
 
 `beta_out.txt`, `locking_out.txt`, `materials_out.txt`, `checks_out.txt`,
-`softmode_out.txt`, `plastic_out.txt` are the runs the note's tables were
-transcribed from.
+`softmode_out.txt`, `plastic_out.txt`, `deformed_out.txt`, `plastic_zone_out.txt`
+are the runs the note's tables were transcribed from.
