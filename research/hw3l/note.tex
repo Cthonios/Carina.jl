@@ -78,7 +78,7 @@ Taylor--Hood control: of six element-local pairs only the three-dimensional
 Crouzeix--Raviart pair --- quadratic displacement enriched with face and
 interior bubbles, over a linear discontinuous pressure --- is stable, at a
 constant of $0.2968$; its face bubbles are global and cost $2.6$ times the
-incumbent's degrees of freedom. The second holds in elasticity for every
+degrees of freedom of the composite tetrahedron it is meant to replace. The second holds in elasticity for every
 conforming pair, and under a plastic tangent an identity bounds its constant
 below by $(1-\beta)/2$ for every pair, so it cannot separate them. The claim
 of this note is that the pairs differ instead in whether their soft modes are
@@ -904,8 +904,9 @@ The locality is a consequence of the discontinuous pressure, not of the
 Hu--Washizu structure. A conforming auxiliary field --- one requiring
 inter-element continuity --- would make $\bar p(\disp)$ a global function of
 $\disp$, and every tangent--vector product would then require a global solve
-with its mass matrix. That is a substantial regression against the incumbent
-and is the main reason the pressure is kept discontinuous.
+with its mass matrix. That is a substantial regression against the
+composite tetrahedron, whose pressure elimination is element-local, and is
+the main reason the pressure is kept discontinuous.
 \end{remark}
 
 \section{Plasticity}
