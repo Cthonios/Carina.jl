@@ -1,0 +1,42 @@
+Quadrature for the enriched element: zero-energy modes and softening
+relative to a degree-11 rule (216 points), kappa/mu = 1e4 for K_e.
+Keast 14-point rule: worst monomial error through degree 5 = 4.163336342344337e-16, at degree 6 = 0.052071430489269786
+
+reference tetrahedron
+  rule            points  zero(K_e)  zero(K_dev)  soft min  soft max  dev min   dev max
+  RFE deg 2       4       21         25           -3.805e-151.304     -1.903e-151.124
+  RFE deg 3       5       21         25           -0.2332   1.127     -0.2332   1.061
+  conical deg 3   8       6          10           0.1024    1.139     0.1076    1.058
+  Keast deg 5     14      6          10           1.0       1.349     1.0       1.349
+  conical deg 5   27      6          10           0.9131    1.0       0.9131    1.0
+  conical deg 7   64      6          10           1.0       1.0       1.0       1.0
+  conical deg 9   125     6          10           1.0       1.0       1.0       1.0
+
+distorted midsides (0.06, det J from 0.55 to 1.19)
+  rule            points  zero(K_e)  zero(K_dev)  soft min  soft max  dev min   dev max
+  RFE deg 2       4       21         25           -5.11e-15 1.296     -9.195e-151.158
+  RFE deg 3       5       21         25           -0.2319   1.153     -0.5997   1.114
+  conical deg 3   8       6          7            0.08707   1.083     0.005709  1.067
+  Keast deg 5     14      6          7            0.9321    1.317     0.9274    1.318
+  conical deg 5   27      6          7            0.8454    1.0       0.8448    1.0
+  conical deg 7   64      6          7            0.9925    1.0       0.9925    1.0
+  conical deg 9   125     6          7            0.9996    1.0       0.9996    1.0
+
+Kuhn tetrahedron of the Freudenthal mesh
+  rule            points  zero(K_e)  zero(K_dev)  soft min  soft max  dev min   dev max
+  RFE deg 2       4       21         25           -2.8e-15  1.296     -3.087e-151.124
+  RFE deg 3       5       21         25           -0.1484   1.119     -0.1484   1.061
+  conical deg 3   8       6          10           0.03053   1.209     0.03223   1.086
+  Keast deg 5     14      6          10           1.0       1.349     1.0       1.349
+  conical deg 5   27      6          10           0.8765    1.0       0.8765    1.0
+  conical deg 7   64      6          10           1.0       1.0       1.0       1.0
+  conical deg 9   125     6          10           1.0       1.0       1.0       1.0
+
+Assembled, Crouzeix-Raviart pair, whole boundary fixed: beta_h and the
+spurious count under the uniaxial plastic tangent (r_v > 0.1 among the
+twenty lowest, N = 4) with reduced rules.
+  rule            beta N=2  N=3       N=4       N=5       null  spurious/20 at N=4
+  conical deg 3   0.3363    0.34      0.3398    0.3393    1     0  (r_v of the lowest: 0.0235)
+  Keast deg 5     0.284     0.2912    0.293     0.2934    1     0  (r_v of the lowest: 0.00727)
+  conical deg 5   0.2887    0.2957    0.2973    0.2978    1     0  (r_v of the lowest: 0.00742)
+  conical deg 7   0.2875    0.2945    0.2962    0.2967    1     0  (r_v of the lowest: 0.00737)

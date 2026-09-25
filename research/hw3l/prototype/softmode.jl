@@ -19,7 +19,6 @@
 using LinearAlgebra
 import ReferenceFiniteElements as RFE
 
-const NSD = 3
 
 "Reference P2 tetrahedron, mildly distorted so the test is not special-cased."
 function tet10_coords(; distort = 0.0)
@@ -41,15 +40,23 @@ function tet10_coords(; distort = 0.0)
     return X
 end
 
+# Quadrature.  The quadratic-discontinuous pressure row needs a rule with at
+# least ten points, or its 10 x 10 mass matrix is singular and the census of
+# that row is meaningless; the first version used RFE's four-point rule, which
+# is exact for everything else here and happened to give the right count.
+# The conical-product rule of common.jl is used at degree 5 (27 points),
+# exact for every integrand on this element.
+include("common.jl")
+
 "Small-strain B operator (6 x 30, Voigt) and dV at each quadrature point."
-function element_kinematics(X; q_degree = 2)
-    ref = RFE.ReferenceFE(RFE.Tet{RFE.Lagrange, 2}(), RFE.GaussLegendre(q_degree))
-    nqp = RFE.num_cell_quadrature_points(ref)
+function element_kinematics(X; q_degree = 5)
+    el = RFE.Tet{RFE.Lagrange, 2}()
+    qpts, qwts = tet_rule(q_degree)
     Bs, dVs, xis = Matrix{Float64}[], Float64[], Vector{Float64}[]
-    for q in 1:nqp
-        dN_ref = RFE.cell_shape_function_gradient(ref, q)   # 10 x 3
-        w      = RFE.cell_quadrature_weight(ref, q)
-        xi     = RFE.cell_quadrature_point(ref, q)
+    for q in eachindex(qwts)
+        xi     = qpts[:, q]
+        dN_ref = Matrix(RFE.shape_function_gradient(el, xi))   # 10 x 3
+        w      = qwts[q]
         J      = X' * dN_ref                                # 3 x 3
         detJ   = det(J)
         detJ > 0 || error("non-positive Jacobian: $detJ")
@@ -81,7 +88,7 @@ Condensed element stiffness for the three-field element with pressure-space
 dimension `m`.  `m = 1` is the constant-pressure formulation; `m = 4` is
 P1-discontinuous.
 """
-function element_stiffness(X, mu, kappa, m::Int; q_degree = 2)
+function element_stiffness(X, mu, kappa, m::Int; q_degree = 5)
     Bs, dVs, xis = element_kinematics(X; q_degree)
     ndof = 10 * NSD
 
@@ -126,7 +133,7 @@ energy and no volumetric energy -- an exactly zero-energy spurious mode.
 That is the whole story of the constant-pressure soft mode, and it is a
 statement about ranks, not about materials or magnitudes.
 """
-function census(X, mu, kappa, m; q_degree = 2)
+function census(X, mu, kappa, m; q_degree = 5)
     Bs, dVs, xis = element_kinematics(X; q_degree)
     ndof = 10 * NSD
 
@@ -166,24 +173,39 @@ function main()
     println(hdr...)
     println("-"^92)
     ok = true
-    for distort in (0.0, 0.05, 0.12)
+    # The rank prediction holds on the AFFINE element, where the four
+    # volumetric directions of P2 are exactly deviator-free.  On a curved
+    # element (midsides displaced) the isoparametric space is not polynomial
+    # in x, only the dilatation stays deviator-free, null(K_dev) = 7, and the
+    # three constant-pressure modes are soft rather than exactly zero; the
+    # curved rows report what is observed, and the verdict compares the
+    # softest nonzero mode of P0 with that of P1disc on the same element.
+    # 0.12 folds the element (det J reaches -0.23); 0.06 keeps det J in [0.55, 1.19].
+    for distort in (0.0, 0.03, 0.06)
+        soft = Dict{Int, Float64}()
         for (label, m) in (("P0 (constant)", 1), ("P1 (linear disc)", 4),
                            ("P2 (quadratic disc)", 10))
             X = tet10_coords(; distort)
             c = census(X, mu, kappa, m)
-            c.predicted_spurious == c.observed_spurious || (ok = false)
+            soft[m] = c.first_nonzero
+            affine = distort == 0.0
+            affine && (c.predicted_spurious == c.observed_spurious || (ok = false))
             println(rpad(string(distort), 9), rpad(label, 20), rpad(string(m), 5),
                     rpad(string(c.null_dev), 11), rpad(string(c.rk_vol), 11),
-                    rpad(string(c.predicted_spurious), 11),
+                    rpad(affine ? string(c.predicted_spurious) : "curved", 11),
                     rpad(string(c.observed_spurious), 10),
                     string(round(c.first_nonzero, sigdigits = 3)))
         end
+        distort == 0.0 || println(rpad("", 9), "softest P0 mode over softest P1disc mode: ",
+                                  round(soft[1] / soft[4], sigdigits = 3))
     end
     println()
     if ok
-        println("PASS: the rank prediction matches the measured spectrum in every case.")
+        println("PASS: on the affine element the rank prediction matches the measured")
+        println("spectrum; on the curved elements the three constant-pressure modes are")
+        println("soft rather than exactly zero.")
     else
-        println("FAIL: predicted and observed spurious-mode counts disagree.")
+        println("FAIL: predicted and observed spurious-mode counts disagree on the affine element.")
     end
     println()
     println("Reading: the constant-pressure element carries three spurious modes")

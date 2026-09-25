@@ -1,0 +1,43 @@
+Basis choice for the enriched element: kappa/mu = 2 (nu = 0.286), mu = rho = 1.
+`min m` is the smallest lumped mass over rho V; `momentum` is the momentum of a
+unit translation under the lumped mass over its exact value rho V.
+
+reference tetrahedron, h = 1
+  volume 0.16667,  Courant number c_p dt / h from the element bound
+  basis / lumping                             cond K    cond M    min m     momentum  Courant
+  hierarchical, consistent M                  797.0     778.0     --        --        0.09177
+  hierarchical, HRZ over all 15               --        --        0.0135    0.4863    0.09713
+  hierarchical, HRZ over Lagrange 10          --        --        0.0278    1.0       0.1139
+  nodal (TETRA15), consistent M               559.0     94.4      --        --        0.09177
+  nodal (TETRA15), HRZ                        --        --        0.0213    1.0       0.145
+  nodal (TETRA15), row sum                    --        --        0.0202    1.0       0.1457
+  TETRA10 displacement, HRZ                   --        --        0.0278    1.0       0.1966
+  TETRA10 displacement, row sum               --        --        -0.05     1.0       undefined
+  TETRA4 displacement, row sum                --        --        0.25      1.0       0.4755
+
+distorted midsides (0.06, det J from 0.55 to 1.19), h = 1
+  volume 0.16317,  Courant number c_p dt / h from the element bound
+  basis / lumping                             cond K    cond M    min m     momentum  Courant
+  hierarchical, consistent M                  1460.0    816.0     --        --        0.0783
+  hierarchical, HRZ over all 15               --        --        0.0113    0.4832    0.08517
+  hierarchical, HRZ over Lagrange 10          --        --        0.0234    1.0       0.1006
+  nodal (TETRA15), consistent M               1070.0    102.0     --        --        0.0783
+  nodal (TETRA15), HRZ                        --        --        0.0151    1.0       0.1188
+  nodal (TETRA15), row sum                    --        --        0.0111    1.0       0.118
+  TETRA10 displacement, HRZ                   --        --        0.0234    1.0       0.1692
+  TETRA10 displacement, row sum               --        --        -0.058    1.0       undefined
+  TETRA4 displacement, row sum                --        --        0.255     1.0       0.4755
+
+Kuhn tetrahedron of the Freudenthal mesh, N = 1 (longest edge sqrt 3)
+  volume 0.16667,  Courant number c_p dt / h from the element bound
+  basis / lumping                             cond K    cond M    min m     momentum  Courant
+  hierarchical, consistent M                  780.0     778.0     --        --        0.05836
+  hierarchical, HRZ over all 15               --        --        0.0135    0.4863    0.06639
+  hierarchical, HRZ over Lagrange 10          --        --        0.0278    1.0       0.07756
+  nodal (TETRA15), consistent M               631.0     94.4      --        --        0.05836
+  nodal (TETRA15), HRZ                        --        --        0.0213    1.0       0.09475
+  nodal (TETRA15), row sum                    --        --        0.0202    1.0       0.0955
+  TETRA10 displacement, HRZ                   --        --        0.0278    1.0       0.1342
+  TETRA10 displacement, row sum               --        --        -0.05     1.0       undefined
+  TETRA4 displacement, row sum                --        --        0.25      1.0       0.2848
+

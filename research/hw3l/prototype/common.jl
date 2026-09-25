@@ -284,6 +284,55 @@ face_bubble(f, xi) = _bubble_of(_TET_FACES[f], 27.0, xi)
 const _ENRICH = (:none, :interior, :face, :full)
 
 """
+Values and reference gradients of the fifteen functions of the enriched
+space in the hierarchical order assemble_all uses: the ten P2 Lagrange
+functions, the interior bubble, the four face bubbles.
+"""
+function enriched_shape(xi)
+    el = ref_element(2)
+    N  = collect(RFE.shape_function_value(el, xi))
+    dN = Matrix(RFE.shape_function_gradient(el, xi))
+    vb, gb = interior_bubble(xi)
+    push!(N, vb); dN = vcat(dN, reshape(gb, 1, NSD))
+    for f in 1:4
+        vf, gf = face_bubble(f, xi)
+        push!(N, vf); dN = vcat(dN, reshape(gf, 1, NSD))
+    end
+    return N, dN
+end
+
+"""
+Parametric nodes of the nodal (TETRA15-like) basis for the same space: the
+four vertices, the six edge midpoints in RFE's TET10 order, the centroid,
+and the four face centroids in the order of `_TET_FACES`.
+"""
+function enriched_nodes()
+    v = ([0.0, 0, 0], [1.0, 0, 0], [0.0, 1, 0], [0.0, 0, 1])
+    pts = collect(v)
+    for (a, b) in _TET_EDGES
+        push!(pts, 0.5 .* (v[a] .+ v[b]))
+    end
+    push!(pts, [0.25, 0.25, 0.25])
+    for f in 1:4
+        push!(pts, sum(v[m] for m in _TET_FACES[f]) ./ 3)
+    end
+    return pts
+end
+
+"""
+Matrix A with psi = A phi: the nodal basis (unit value at one node of
+`enriched_nodes`, zero at the others) in terms of the hierarchical one.
+"""
+function nodal_transform()
+    pts = enriched_nodes()
+    V = zeros(15, 15)
+    for (j, xi) in enumerate(pts)
+        V[j, :] = enriched_shape(xi)[1]
+    end
+    return inv(V)'
+end
+
+"""
 Global face numbering for the tetrahedral mesh, with faces on the constrained
 boundary removed.
 
@@ -342,10 +391,10 @@ displacement numbering, in that order.
 """
 function assemble_all(coords, conn, p::Int, m::Int; mu = 1.0,
                       bubble::Symbol = :none,
-                      q_degree::Int = bubble === :none ? 2 : 6,
+                      q_degree = bubble === :none ? 2 : 6,
                       bc::Symbol = _BC_ALL, nvert::Int = 0,
                       flow = nothing, beta::Real = 0.0,
-                      bc_coords = coords)
+                      bc_coords = coords, allow_reduced::Bool = false)
     bubble in _ENRICH || error(
         "unknown enrichment $bubble; expected one of $(_ENRICH)")
     # Consistent J2 tangent at a plastic state:
@@ -363,7 +412,10 @@ function assemble_all(coords, conn, p::Int, m::Int; mu = 1.0,
     # boundary is still the reference cube's boundary.
     if bubble !== :none
         p == 2 || error("the bubble enrichment is defined on P2 only, got p = $p")
-        q_degree >= 6 || error(
+        # `allow_reduced` exists for quadrature.jl, which measures what a
+        # rule below degree 6 does to the assembled operators; every other
+        # script keeps the refusal.
+        allow_reduced || (q_degree isa Int && q_degree >= 6) || error(
             "the enriched space needs a rule exact to degree 6 -- the quartic " *
             "interior bubble has a cubic gradient, so its block of Kdev and " *
             "Kh1 is of degree 6 -- but q_degree = $q_degree was given. " *
@@ -371,7 +423,7 @@ function assemble_all(coords, conn, p::Int, m::Int; mu = 1.0,
             "measures.")
     end
     el   = ref_element(p)
-    qpts, qwts = tet_rule(q_degree)
+    qpts, qwts = q_degree isa Symbol ? rule(q_degree) : tet_rule(q_degree)
     nqp  = length(qwts)
     nen  = size(conn, 1)
     nelem = size(conn, 2)

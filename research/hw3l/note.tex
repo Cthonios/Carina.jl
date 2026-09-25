@@ -1050,22 +1050,34 @@ non-positive vertex masses and cannot be used. Diagonal-scaling (HRZ) lumping
 \citep{HintonRockZienkiewicz:1976}, which scales the diagonal of the consistent
 mass to preserve total mass, is positive for any basis, so positivity is not
 the issue; on quadratic simplices the known cost of HRZ is accuracy, with the
-vertex masses small. The issue the enrichment adds is consistency. The bubbles
-are hierarchical: a rigid translation has zero coefficient on every bubble
-degree of freedom, so their diagonal mass is inert for translations, yet HRZ's
-normalization counts it, and the nodal masses come out short of the total by
-the fraction the bubbles absorb --- a rigid translation then carries the wrong
-momentum. The normalization must run over the Lagrange degrees of freedom
-alone, with each bubble keeping its own consistent diagonal; the interior
-bubble should be condensed in any case. None of this has been measured yet.
+vertex masses small. The issue the enrichment adds depends on the basis that
+carries it, and \S\ref{sec:basis} measures both choices. With hierarchical
+bubbles a rigid translation has zero coefficient on every bubble degree of
+freedom, so their diagonal mass is inert for translations, yet HRZ's
+normalization counts it: the Lagrange masses come out short of the total by
+the fraction the bubbles absorb, $51\%$ on the reference tetrahedron, and a
+rigid translation carries half its momentum. The normalization must then run
+over the Lagrange degrees of freedom alone, with each bubble keeping its own
+consistent diagonal, which restores the momentum exactly. With a nodal basis
+on the fifteen nodes of the \code{TETRA15} arrangement --- vertices, edge
+midpoints, face centroids, centroid --- the functions form a partition of
+unity, HRZ conserves momentum without qualification, and the lumped masses
+are positive on every element measured. Row-sum lumping was also positive in
+that basis on the three elements measured, unlike for \code{TETRA10}, but
+its positivity is not guaranteed and HRZ is the choice.
 
-\emph{Critical time step.} Quadratic elements carry a higher maximum
-eigenvalue than linear elements on the same mesh, so the explicit stable step
-is smaller for a given $h$ --- roughly a factor of two, with the bubble
-enrichment reducing it further through the bubbles' own high frequencies;
-neither figure has been measured here. Against this, a $P_2$ mesh resolves a given
-feature with far fewer elements. Whether the trade-off is favorable
-depends on the problem and should be measured.
+\emph{Critical time step.} From the element eigenvalue bound at
+$\kappa/\mu = 2$ (\S\ref{sec:basis}), the Courant number $c_p\,\Delta t/h$
+is $0.48$ for \code{TETRA4}, $0.20$ for \code{TETRA10} under HRZ, and for the
+enriched element $0.15$ with the nodal basis under HRZ and $0.11$ with the
+hierarchical basis under Lagrange-only HRZ; on a Kuhn tetrahedron of the
+Freudenthal mesh, $0.28$, $0.13$, $0.095$ and $0.078$. The quadratic element
+therefore costs a factor of $2.4$ in the stable step against the linear one
+on the same mesh, and the enrichment a further $1.4$ with the nodal basis;
+the earlier estimate of ``roughly a factor of two'' for the first was
+measured, not assumed, only now. Against this, a $P_2$ mesh resolves a given
+feature with far fewer elements. Whether the trade-off is favorable depends
+on the problem and should be measured.
 
 \section{Optional five-field variant}
 \label{sec:fivefield}
@@ -1169,8 +1181,8 @@ $P_2$ discontinuous       & 10 & 10 & 4 & 0 & 0 \\
 \bottomrule
 \end{tabular}
 \caption{Spurious zero-energy modes of the three-field quadratic tetrahedron at
-$\kappa/\mu = 10^4$. Identical at element distortions $0$, $0.05$ and $0.12$.
-Script: \code{prototype/softmode.jl}.}
+$\kappa/\mu = 10^4$, on the affine element. Script:
+\code{prototype/softmode.jl}.}
 \label{tab:census}
 \end{table}
 
@@ -1189,6 +1201,20 @@ and is unstable once assembled.
 Enriching the pressure further changes nothing: the rank saturates at four,
 because four is all the displacement space can produce. Over-enrichment is
 wasteful here rather than harmful, at least in this rank sense.
+
+The count is a property of the affine element. On a curved element, with the
+midside nodes displaced so that $\det ~J$ ranges over $[0.55, 1.19]$, the
+isoparametric displacement space is not polynomial in $\bx$, only the
+dilatation of its four volumetric directions remains free of deviatoric
+strain, $\dim\ker ~K\supdev = 7$, and the three constant-pressure modes are
+soft rather than exactly zero: the softest nonzero mode of the
+constant-pressure element lies one to two orders of magnitude below the
+softest mode of the linear-pressure element on the same curved element. An
+earlier version of this section reported the counts as identical at
+distortions up to $0.12$; that came from a four-point rule, which sees only
+four points of a curved element, and $0.12$ folds the element. The
+conclusion is unchanged, since the assembled behavior of \S\ref{sec:assembled}
+already rests on soft rather than exact modes.
 
 \begin{remark}
 This settles the \emph{mechanism} and nothing more. Inf-sup stability is a
@@ -1825,6 +1851,112 @@ as the fallback should the enrichment prove too costly; on this evidence it is
 a fallback for elasticity only.
 
 
+\subsection{Quadrature rule and basis}
+\label{sec:basis}
+
+Two implementation choices set the element's cost, and neither is decided by
+the stability results: the quadrature rule, and the basis that carries the
+enriched space. Both are measured on one element. Scripts:
+\code{prototype/quadrature.jl} and \code{prototype/basis.jl}.
+
+\paragraph{Quadrature.} The bench integrates the enriched element to degree
+$6$ so that the linear measurements are exact. For the element the criterion
+is weaker: a rule is admissible when the condensed stiffness
+$~K_e = ~K\supdev + \kappa\transpose{~G}~M^{-1}~G$ has exactly six
+zero-energy modes, and its cost is the softening it introduces, measured as
+the extreme generalized eigenvalues of $~K_e(\text{rule})$ against
+$~K_e(\text{exact})$ on the complement of the rigid modes, which are $1$ for
+an exact rule. Table~\ref{tab:quadrature} gives both for the rules at hand,
+with a degree-11 rule of $216$ points as the reference. The two rules
+\code{ReferenceFiniteElements} supplies, four and five points, leave
+$21$ zero modes and are inadmissible. The eight-point conical rule is rank
+sufficient and softens the element to $0.03$--$0.10$ of its stiffness in
+the worst direction, which is also inadmissible. Two degree-5 rules are
+admissible: the $14$-point symmetric rule of \citet{Keast:1986}, which
+integrates every monomial through degree $5$ to $4\times10^{-16}$ and
+over-stiffens the interior bubble's own block by $35\%$ since its
+gradient-squared is of degree $6$, and the $27$-point conical rule, which
+under-stiffens the same block by $9$--$12\%$. Assembled, both give the
+Crouzeix--Raviart pair's constant within $1\%$ ($0.293$ and $0.298$ against
+$0.297$ at $N = 5$), a one-dimensional pressure null space, no spurious mode
+among the twenty lowest under the uniaxial plastic tangent, and the same
+dilatation of the lowest mode ($0.0073$, $0.0074$ and $0.0074$). The
+$14$-point rule is the recommendation: rank sufficient, positive weights,
+and $4.6$ times fewer points than the exact rule, at the price of a stiffer
+interior bubble.
+
+\begin{table}[tbp]
+\centering
+\caption{Quadrature rules on the enriched element: zero-energy modes of the
+condensed stiffness (six is correct) and of the deviatoric stiffness (ten:
+six rigid modes and the four conformal fields), and the extreme softening
+factors against a $216$-point rule, on the reference tetrahedron and on a
+Kuhn tetrahedron of the Freudenthal mesh. $\kappa/\mu = 10^4$. Script:
+\code{prototype/quadrature.jl}.}
+\label{tab:quadrature}
+\begin{tabular}{@{}lrrrrrrr@{}}
+\toprule
+& & \multicolumn{3}{c}{reference} & \multicolumn{3}{c}{Kuhn} \\
+\cmidrule(lr){3-5}\cmidrule(lr){6-8}
+rule & points & zero($~K_e$) & min & max & zero($~K_e$) & min & max \\
+\midrule
+RFE degree 2            & 4   & 21 & 0     & 1.30 & 21 & 0     & 1.30 \\
+RFE degree 3            & 5   & 21 & $<0$  & 1.13 & 21 & $<0$  & 1.12 \\
+conical degree 3        & 8   & 6  & 0.10  & 1.14 & 6  & 0.03  & 1.21 \\
+Keast degree 5          & 14  & 6  & 1.00  & 1.35 & 6  & 1.00  & 1.35 \\
+conical degree 5        & 27  & 6  & 0.91  & 1.00 & 6  & 0.88  & 1.00 \\
+conical degree 7        & 64  & 6  & 1.00  & 1.00 & 6  & 1.00  & 1.00 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{Basis.} The space $P_2 \oplus b_{\mathrm{int}} \oplus
+b_{\mathrm{face}}$ can be carried by the hierarchical basis of the bench, ten
+Lagrange functions and five bubbles, or by the nodal basis with unit value at
+one of fifteen nodes, the \code{TETRA15} arrangement: vertices, edge
+midpoints, face centroids, centroid. The space is the same, so every
+stiffness and stability result is the same; what differs is conditioning,
+lumping, and what a rigid translation looks like. Table~\ref{tab:basis}
+gives the measurements at $\kappa/\mu = 2$. The nodal basis conditions the
+consistent mass eight times better ($94$ against $778$) and the stiffness
+somewhat better. Under HRZ lumping the hierarchical basis loses $51\%$ of
+the momentum of a rigid translation unless the normalization runs over the
+Lagrange functions alone (\S4); the nodal basis conserves it without
+qualification, and its lumped masses are positive on every element
+measured. The explicit stable step from the element bound, as the Courant
+number $c_p\Delta t/h$, is $0.476$ for \code{TETRA4}, $0.197$ for
+\code{TETRA10} under HRZ, $0.145$ for the enriched element in the nodal
+basis under HRZ, and $0.114$ in the hierarchical basis under Lagrange-only
+HRZ, with the same ordering on the distorted and Kuhn elements. The nodal
+basis is the recommendation: it is what a node-based degree-of-freedom
+manager carries without a new kind of unknown, its mass lumps correctly by
+the standard construction, and it takes a $20$--$27\%$ larger stable step.
+
+\begin{table}[tbp]
+\centering
+\caption{Basis choice on the reference tetrahedron, $\kappa/\mu = 2$,
+$\mu = \rho = 1$: condition numbers of the condensed stiffness on the
+complement of the rigid modes and of the consistent mass, the smallest
+lumped mass over $\rho V$, the momentum of a unit translation under the
+lumped mass over $\rho V$, and the Courant number $c_p\Delta t/h$ from the
+element bound. Script: \code{prototype/basis.jl}.}
+\label{tab:basis}
+\begin{tabular}{@{}lrrrrr@{}}
+\toprule
+basis, lumping & cond $~K_e$ & cond $~M$ & min $m/\rho V$ & momentum & Courant \\
+\midrule
+hierarchical, consistent            & 797 & 778 & ---    & ---   & 0.092 \\
+hierarchical, HRZ over all 15       & --- & --- & 0.014  & 0.486 & 0.097 \\
+hierarchical, HRZ over Lagrange 10  & --- & --- & 0.028  & 1.000 & 0.114 \\
+nodal, consistent                   & 559 & 94  & ---    & ---   & 0.092 \\
+nodal, HRZ                          & --- & --- & 0.021  & 1.000 & 0.145 \\
+\code{TETRA10}, HRZ                 & --- & --- & 0.028  & 1.000 & 0.197 \\
+\code{TETRA10}, row sum             & --- & --- & $-0.050$ & 1.000 & --- \\
+\code{TETRA4}, row sum              & --- & --- & 0.250  & 1.000 & 0.476 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
 \subsection{The earlier eigenvalue sweep}
 \label{sec:eigensweep}
 
@@ -1988,14 +2120,22 @@ is already decided against Taylor--Hood by \S\ref{sec:plastic}: its softest
 modes under a plastic tangent are dilatation almost entirely, so it is a
 fallback for elasticity only.
 
-\emph{Quadratic tetrahedra are more expensive per element.} The claim that
-fewer of them are needed is plausible and unproven for this problem class. It
-should be measured on the benchmark set, not assumed.
+\emph{Quadratic tetrahedra are more expensive per element.} With the
+$14$-point rule of \S\ref{sec:basis} the enriched element evaluates the
+constitutive law at $14$ points on $45$ displacement degrees of freedom,
+against $4$ or $5$ on $30$ for \code{TETRA10} and one on $12$ for
+\code{TETRA4}. The claim that fewer of them are needed is plausible and
+unproven for this problem class. It should be measured on the benchmark set,
+not assumed.
 
-\emph{The explicit regime is the weakest part.} HRZ lumping resolves
-positivity, but the reduced critical time step is real. If weak shocks can be
-run with the implicit dynamic integrator the objection disappears; if they must
-be explicit, this trade needs measuring before commitment.
+\emph{The explicit regime is the weakest part.} HRZ lumping in the nodal
+basis resolves positivity and momentum, and the reduced critical time step
+is measured: a Courant number of $0.145$ against $0.476$ for \code{TETRA4}
+on the same element, a factor of $3.3$, of which $2.4$ is the quadratic
+element and $1.4$ the enrichment (\S\ref{sec:basis}). If weak shocks can be
+run with the implicit dynamic integrator the objection disappears; if they
+must be explicit, that factor against the coarser mesh a quadratic element
+allows needs measuring before commitment.
 
 \emph{The formulation restricts the material.} \S\ref{sec:matreq} requires an
 exact volumetric--isochoric split, and of the seven materials Norma implements

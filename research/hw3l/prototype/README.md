@@ -40,6 +40,11 @@ pressure) changes nothing, because the rank saturates at four.
 This settles the mechanism. It does **not** settle inf-sup stability, which is a
 global property of a mesh sequence and cannot be seen on one element.
 
+The census now integrates with the 27-point conical rule: the
+quadratic-discontinuous pressure row has a 10 × 10 mass matrix that the
+original 4-point rule left singular (the count happened to come out right);
+the distortions are 0, 0.03 and 0.06, since 0.12 folds the element.
+
 ## `infsup.jl` — the pair, settled by counting
 
 Whether the pressure pair is inf-sup stable is a property of a mesh *sequence*
@@ -191,6 +196,40 @@ hide them from the lowest three.
 With the base alone fixed the CR pair has none at any `N`. Output kept in
 `plastic_zone_out.txt`.
 
+## `quadrature.jl` — which rule the enriched element needs
+
+On one element (reference, distorted with `det J` in [0.55, 1.19], and a
+Kuhn tetrahedron), for each rule: the zero-energy modes of the condensed
+stiffness (six is correct) and the extreme generalized eigenvalues against a
+216-point rule on the complement of the rigid modes (1 for an exact rule).
+Then the assembled `β_h` and the uniaxial spurious count with the reduced
+rules, through `assemble_all(...; allow_reduced = true)`.
+
+**Result.** RFE's 4- and 5-point rules leave 21 zero modes; the 8-point
+conical rule is rank sufficient but softens to 0.03–0.10. Two degree-5 rules
+are admissible: Keast's 14-point rule (verified here to integrate every
+monomial through degree 5 to 4e-16) over-stiffens the interior bubble's block
+by 35%; the 27-point conical rule under-stiffens it by 9–12%. Assembled, both
+give `β_h` within 1% of the exact rule, one null mode, no spurious mode, and
+the same lowest-mode dilatation. Recommendation: Keast 14. Output in
+`quadrature_out.txt`. `element.jl` holds the shared element machinery.
+
+## `basis.jl` — hierarchical bubbles or a nodal basis
+
+Same space, two bases: the bench's hierarchical one and the nodal TETRA15
+arrangement (`nodal_transform()` in `common.jl`). Measures condition numbers,
+HRZ and row-sum lumping (positivity, momentum of a rigid translation), and
+the explicit Courant number `c_p Δt/h` from the element bound, against
+TETRA10 and TETRA4 on the same element.
+
+**Result.** The nodal basis conditions the mass 8× better (94 vs 778). HRZ
+on the hierarchical basis loses 51% of a translation's momentum unless
+normalized over the Lagrange functions only; the nodal basis conserves it.
+Courant numbers on the reference element: TETRA4 0.476, TETRA10 HRZ 0.197,
+enriched nodal HRZ 0.145, enriched hierarchical Lagrange-HRZ 0.114 (same
+ordering on the distorted and Kuhn elements). Recommendation: nodal. Output
+in `basis_out.txt`.
+
 ## `materials.jl` — what the materials satisfy (needs Norma)
 
 ```
@@ -242,5 +281,6 @@ now right.
 ## Kept outputs
 
 `beta_out.txt`, `locking_out.txt`, `materials_out.txt`, `checks_out.txt`,
-`softmode_out.txt`, `plastic_out.txt`, `deformed_out.txt`, `plastic_zone_out.txt`
-are the runs the note's tables were transcribed from.
+`softmode_out.txt`, `plastic_out.txt`, `deformed_out.txt`, `plastic_zone_out.txt`,
+`quadrature_out.txt`, `basis_out.txt` are the runs the note's tables were
+transcribed from.
