@@ -19,15 +19,15 @@
 # so (1/2mu) a_ep(v, v) >= (1 - beta)/2 |v|_1^2 for EVERY conforming pair and
 # every kernel, isochoric or not: for beta < 1 the constant is bounded below
 # by (1 - beta)/2 uniformly, and for beta = 1 the continuum operator itself
-# loses strong ellipticity (a shear band with normal e2 and jump e1 costs
-# nothing), so the constant tends to zero for every pair, Taylor-Hood
+# loses strong ellipticity (a shear band with normal e2 and jump e1 has
+# zero energy), so the constant tends to zero for every pair, Taylor-Hood
 # included.  The hypothesis, read as a constant, does not distinguish pairs.
 #
 # What distinguishes them is what the soft directions ARE.  A mode in ker G_h
 # that is nearly isochoric is a shear band the continuum also has, and its
 # low energy is physical.  A mode with pointwise nonzero dilatation of zero
-# element mean is one the continuum would charge kappa int (div v)^2 for and
-# the element charges nothing: when the tangent removes its shear energy it
+# element mean has the volumetric energy kappa int (div v)^2 in the continuum
+# and none in the element: when the tangent removes its shear energy it
 # is free in the element and stiff in the physics, which is the soft mode
 # reported for constant-pressure elements.  The measurement is therefore the
 # dilatation carried by the lowest plastic eigenmodes,

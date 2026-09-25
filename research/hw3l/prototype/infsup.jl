@@ -222,7 +222,7 @@ end
 # rank(G K^-1 G') <= n_u < n_p and the Schur complement is singular by counting
 # alone.  The pair cannot be inf-sup stable, whatever the constants do.
 #
-# This is cheap -- no assembly, no factorization -- so it can be pushed to mesh
+# This needs no assembly and no factorization, so it can be pushed to mesh
 # sizes the eigenvalue sweep cannot reach, which is where the asymptotic ratio
 # becomes visible.
 

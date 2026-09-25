@@ -7,7 +7,7 @@
 # face centroids, centroid.  The space, and with it every stiffness and
 # stability result, is the same; what differs is conditioning, how the mass
 # lumps, and what a rigid translation looks like.  Section 4 of the note
-# argued that HRZ lumping of the hierarchical basis charges the bubbles for
+# argued that HRZ lumping of the hierarchical basis assigns the bubbles
 # mass that a translation never carries; that argument is measured here, as
 # is the critical time step against TETRA4 and TETRA10 on the same element.
 #

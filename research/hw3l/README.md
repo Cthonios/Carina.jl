@@ -50,7 +50,7 @@ On deformed configurations the inf-sup constant decreases with the shear of
 the deformation (0.30 → 0.20 at a 90° twist, 0.12 at 180°) and is unchanged
 by its volume change. No stabilization is needed where the spurious modes
 are absent. The composite tetrahedron relieves locking with a constant
-pressure and pays for the soft modes with a penalty; variational-multiscale
+pressure and removes the resulting soft modes with a penalty; variational-multiscale
 methods add a time-step-dependent subgrid term that reaches the plastic return
 map. Neither is needed with a pair inside the admissible window.
 
@@ -72,8 +72,8 @@ Properties that motivated the choices:
 - **Strain and stress never cross discretizations.** Both are evaluated at the
   same quadrature point of the same element.
 - **Elimination is element-local.** Both auxiliary fields are discontinuous, so
-  the tangent keeps displacement-mesh sparsity — the property that makes the
-  composite tetrahedron affordable.
+  the tangent keeps displacement-mesh sparsity — the property that keeps the
+  composite tetrahedron's tangent as sparse as a displacement element's.
 
 ## What would kill it
 

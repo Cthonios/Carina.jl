@@ -10,7 +10,7 @@
 #
 #     K(kappa) = Kdev + kappa * G' * inv(M) * G,
 #
-# a displacement mode costs volumetric energy exactly when it is outside
+# a displacement mode has volumetric energy exactly when it is outside
 # ker(G).  As kappa -> infinity the reachable deformations collapse onto that
 # kernel, so
 #

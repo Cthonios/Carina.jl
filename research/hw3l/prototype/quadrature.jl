@@ -6,7 +6,7 @@
 # element itself the question is different: a rule is admissible when it
 # leaves the condensed element stiffness with exactly six zero-energy modes
 # and does not soften the remaining ones appreciably, and the rule that does
-# so with the fewest points sets the element's cost.
+# so with the fewest points sets the number of constitutive evaluations per element.
 #
 # Two measures on one element, for each rule.  The number of zero modes of
 # K_e = K_dev + kappa G' M^-1 G (must be 6) and of K_dev (10 for an exact

@@ -77,7 +77,7 @@ The first is settled by measurement over a mesh sequence against a
 Taylor--Hood control: of six element-local pairs only the three-dimensional
 Crouzeix--Raviart pair --- quadratic displacement enriched with face and
 interior bubbles, over a linear discontinuous pressure --- is stable, at a
-constant of $0.2968$; its face bubbles are global and cost $2.6$ times the
+constant of $0.2968$; its face bubbles are global, and the pair has $2.6$ times the
 degrees of freedom of the composite tetrahedron it is meant to replace. The second holds in elasticity for every
 conforming pair, and under a plastic tangent an identity bounds its constant
 below by $(1-\beta)/2$ for every pair, so it cannot separate them. The claim
@@ -112,7 +112,7 @@ quasi-static and dynamic regimes.
 Two established remedies fall short in ways that are instructive, and the
 diagnosis below is the reason for the choices that follow.
 
-\paragraph{Constant pressure relieves locking at the cost of soft modes.}
+\paragraph{Constant pressure relieves locking and introduces soft modes.}
 The composite tetrahedron \citep{Thoutireddy.etal:2002, Ostien.etal:2016} and
 its five-field extension \citep{Foulk.etal:2021} mitigate volumetric locking
 with an element-constant pressure. \citet{Foulk.etal:2021} report that this
@@ -121,9 +121,9 @@ soft mode ``common to both the quadratic and composite tetrahedral element with
 constant pressure formulations,'' remedied there by a convex energy penalty.
 The mechanism is a coercivity failure on the discretely isochoric subspace: an
 element-constant multiplier cannot see displacement patterns whose volume
-change varies within the element and averages to zero, so those patterns cost
-only shear energy. In elasticity that is the price every projected-pressure
-element pays, and a stable pair keeps it bounded; in a confined plastic zone
+change varies within the element and averages to zero, so those patterns carry
+only shear energy. In elasticity every projected-pressure element has such
+patterns, and a stable pair keeps their energy bounded away from zero; in a confined plastic zone
 the shear response itself softens along the flow direction and the pattern can
 become nearly free. \S\ref{sec:assembled} records that on the quadratic
 tetrahedron these patterns are not \emph{exactly} zero-energy, and
@@ -202,16 +202,16 @@ for every conforming pair and every member of its kernel, isochoric or not.
 For $\beta < 1$ the coercivity constant on $\ker ~G_h$ is therefore bounded
 below uniformly in $h$ and in the pair. For $\beta = 1$ the continuum
 operator loses strong ellipticity: a shear band with normal $~e_2$ and jump
-$~e_1$ has $\eps \propto \sym(~e_1 \otimes ~e_2)$, which \eqref{eq:cep} with
-that $~n$ charges nothing, so the constant tends to zero under refinement for
+$~e_1$ has $\eps \propto \sym(~e_1 \otimes ~e_2)$, to which \eqref{eq:cep} with
+that $~n$ assigns zero energy, so the constant tends to zero under refinement for
 every pair as the discrete space resolves narrower bands
 (\S\ref{sec:plastic}). Neither limit says anything about the pair.
 
 What distinguishes the pairs is what the soft directions are. A member of
 $\ker ~G_h$ that is nearly isochoric is a shear band the continuum problem
 also has, and its low energy is physical. A member with pointwise nonzero
-dilatation of zero element mean is charged $\kappa \int (\Div ~v)^2$ by the
-continuum and nothing by the element; once the tangent removes its shear
+dilatation of zero element mean has the volumetric energy $\kappa \int (\Div ~v)^2$ in the
+continuum and none in the element; once the tangent removes its shear
 energy it is free in the element and stiff in the physics. That is the soft
 mode reported for constant-pressure elements, and whether $\ker ~G_h$
 contains such members is a property of the pair. For a pair satisfying the
@@ -453,7 +453,7 @@ $\kappa\bar\theta$ already lies in $Q_h$, the projection in
 doubly projected pressure. The reduction \eqref{eq:collapsed} is exact either
 way, with $W\supvol(\Pi_h\theta)$ in place of the quadratic, and the
 elimination of \S\ref{sec:local} is linear either way; what the quadratic case
-buys is the pointwise relation and one projection fewer.
+gives is the pointwise relation and one projection fewer.
 
 \paragraph{The logarithmic measure itself.} This condition is required by
 nothing in
@@ -504,7 +504,7 @@ variable are not independently selectable, and neither choice generalizes to
 the other material. \S\ref{sec:instances} develops both.
 
 The three remaining split materials --- neo-Hookean, its reciprocal, and
-Seth--Hill --- are admissible at the cost of one projection more
+Seth--Hill --- are admissible with one projection more
 (Remark~\ref{rem:nonquadratic}) and are not developed here. What the
 formulation requires of a material is the split, and five of the seven have
 it.
@@ -528,8 +528,8 @@ Second, the choice of volumetric variable is no longer read off the material.
 For a quadratic $W\supvol$ the variable is whichever one makes it quadratic,
 and Table~\ref{tab:split} settles it. For a non-quadratic $W\supvol$ any
 monotone $\theta(J)$ satisfying \eqref{eq:thetadef} is admissible, and by
-Remark~\ref{rem:thetachoice} the choice changes the element. That is the real
-cost, and it is a modeling cost rather than a computational one.
+Remark~\ref{rem:thetachoice} the choice changes the element. That is the actual
+consequence, and it is a modeling decision rather than a computational one.
 \end{remark}
 
 \begin{remark}[The volumetric variable is a modeling choice]
@@ -749,7 +749,7 @@ No deviatoric mixed pair appears because none is needed. Volumetric locking is
 a constraint phenomenon: at $\kappa/\mu \gg 1$ the near-isochoric constraint
 over-determines the displacement space, and relieving it requires a multiplier.
 The deviatoric response is not constrained in the same sense and admits no
-analogous locking mode. Adding a deviatoric pair costs degrees of freedom, an
+analogous locking mode. Adding a deviatoric pair adds degrees of freedom, an
 inf-sup condition that has to be established separately, and --- if strain and
 stress are placed in different spaces --- a constitutive law evaluated across
 two discretizations, which is the aliasing that corrupts plastic strain fields.
@@ -848,15 +848,15 @@ interior bubble vanishes on the whole element boundary: it is never shared,
 never reached by a boundary condition, and condenses away, adding no global
 unknown. A face bubble vanishes on three faces and not on its own, so the two
 elements meeting there share it; it is a global unknown and does not condense.
-The enrichment therefore does carry a cost in degrees of freedom, which
-\S\ref{sec:infsup} quantifies. What survives is the weaker and sufficient
+The enrichment therefore does add global degrees of freedom, which
+\S\ref{sec:infsup} counts. What survives is the weaker and sufficient
 statement: the \emph{pressure} elimination of \S\ref{sec:local} stays
 element-by-element, because that rests on $Q_h$ being discontinuous and not on
 the displacement space at all.
 
 The linear pressure is not forced by the stability results. $P_2 \oplus
 b_{\mathrm{face}}/P_0$ is also stable (\S\ref{sec:beta}), at a higher constant
-and at the same global cost, since the interior bubble condenses. The census
+and with the same number of global unknowns, since the interior bubble condenses. The census
 of \S\ref{sec:firstresult} that argued against a constant pressure applies to
 the unenriched displacement space and was in any case withdrawn in
 \S\ref{sec:assembled}. What separates the two pressure spaces is the claim of
@@ -896,8 +896,9 @@ where it is not, it is replaced by a second projection with the same
 factorization (Remark~\ref{rem:nonquadratic}). Substituting $\bar p(\disp)$ into
 \eqref{eq:variations}$_1$ leaves a displacement-sized nonlinear problem whose
 tangent retains the sparsity of the displacement mesh --- the auxiliary fields
-never couple two elements. This is the property that makes the composite
-tetrahedron affordable, and it is preserved here.
+never couple two elements. This is the property that keeps the composite
+tetrahedron's tangent as sparse as a displacement element's, and it is
+preserved here.
 
 \begin{remark}
 The locality is a consequence of the discontinuous pressure, not of the
@@ -1026,7 +1027,7 @@ displacement block. Two implementation points deserve care.
 non-positive vertex masses and cannot be used. Diagonal-scaling (HRZ) lumping
 \citep{HintonRockZienkiewicz:1976}, which scales the diagonal of the consistent
 mass to preserve total mass, is positive for any basis, so positivity is not
-the issue; on quadratic simplices the known cost of HRZ is accuracy, with the
+the issue; on quadratic simplices the known disadvantage of HRZ is accuracy, with the
 vertex masses small. The issue the enrichment adds depends on the basis that
 carries it, and \S\ref{sec:basis} measures both choices. With hierarchical
 bubbles a rigid translation has zero coefficient on every bubble degree of
@@ -1049,7 +1050,7 @@ is $0.48$ for \code{TETRA4}, $0.20$ for \code{TETRA10} under HRZ, and for the
 enriched element $0.15$ with the nodal basis under HRZ and $0.11$ with the
 hierarchical basis under Lagrange-only HRZ; on a Kuhn tetrahedron of the
 Freudenthal mesh, $0.28$, $0.13$, $0.095$ and $0.078$. The quadratic element
-therefore costs a factor of $2.4$ in the stable step against the linear one
+therefore reduces the stable step by a factor of $2.4$ against the linear one
 on the same mesh, and the enrichment a further $1.4$ with the nodal basis;
 the earlier estimate of ``roughly a factor of two'' for the first was
 measured, not assumed, only now. Against this, a $P_2$ mesh resolves a given
@@ -1279,14 +1280,14 @@ face bubbles as well --- the enrichment \S\ref{sec:fe-spaces} actually calls
 for --- supplies $3n_{\mathrm{f}}$ more, one vector unknown per interior face,
 and moves it to $0.326$. Both clear the bound. This is the quantitative content
 of the recommendation in \S\ref{sec:fe-spaces}: the enrichment is not a matter
-of preference; it is what makes the count admissible. It also fixes its price. The interior bubble
+of preference; it is what makes the count admissible. It also fixes the number of global unknowns. The interior bubble
 condenses; the face bubbles are shared and do not. The global displacement
 count of the full enrichment is therefore $36{,}501 + 59{,}616 = 96{,}117$,
 which is $2.6$ times the $36{,}501$ of $P_2/P_0$ --- also the nodal count of
 the composite tetrahedron on the same \code{TETRA10} mesh --- and $2.5$ times
 the $38{,}698$ global unknowns of Taylor--Hood, whose $2{,}197$ vertex pressures
 cannot be eliminated. The $127{,}221$ in Table~\ref{tab:dofcount} is the
-dimension of the space, not the cost.
+dimension of the space, not the number of global unknowns.
 
 The count has a lineage that should be named. $n_p/n_u$ is the constraint
 count of \citet{NagtegaalParksRice:1974}, whose subject --- locking of
@@ -1317,7 +1318,7 @@ Table~\ref{tab:assembled} assembles $~K\supdev + \kappa \transpose{~G} ~M^{-1}
 only $z = 0$ fixed. The second matters because it is far closer to the
 confined-but-not-clamped conditions under which soft modes are reported.
 
-The locking measure is again a rank. A displacement mode costs volumetric
+The locking measure is again a rank. A displacement mode has volumetric
 energy exactly when it lies outside $\ker ~G$, so as $\kappa \to \infty$ the
 reachable deformations collapse onto that kernel and
 $\dim\ker ~G = n_u - \operatorname{rank} ~G$ is the discretely isochoric
@@ -1402,8 +1403,8 @@ assembly on these elements, and the earlier framing here overstated that
 case. What this test cannot see is the mode \citet{Foulk.etal:2021} actually
 report, which is remedied there by a penalty and therefore has energy --- too
 little, not none. Those are the displacement modes in $\ker ~G_{P_0}$ whose
-divergence is nonzero pointwise, hundreds per mesh, which the element charges
-shear energy alone; whether they are spurious is the coercivity question of
+divergence is nonzero pointwise, hundreds per mesh, which carry
+shear energy alone in the element; whether they are spurious is the coercivity question of
 \S\ref{sec:prediction}, which \S\ref{sec:plastic} measures, and not a count of
 zeros. The composite tetrahedron of \citet{Foulk.etal:2021} is
 built on a subdivided-linear displacement space rather than $P_2$, which is a
@@ -1739,7 +1740,7 @@ metric would have failed.
 \paragraph{The constant does not separate pairs, as \eqref{eq:floor}
 predicts.} Under the shear direction $\lambda_1$ decays for every pair, the
 control included, at rates between $h^{1.5}$ and $h^2$: the discrete spaces
-resolve narrower shear bands, which the continuum operator admits at no cost.
+resolve narrower shear bands, which the continuum operator admits with zero energy.
 Under the uniaxial direction no shear band has $\eps \propto ~n$, and
 $\lambda_1$ converges for the three element-local pairs, to $0.10$ for
 $P_2/P_0$, $0.071$ for $P_2 \oplus b_{\mathrm{face}}/P_0$ and $0.13$ for the
@@ -1750,8 +1751,8 @@ control's $0.067$.
 \paragraph{The dilatation of the soft modes separates them, in the direction
 claimed.} Under the uniaxial direction the lowest modes of both
 constant-pressure pairs carry $r_v = 0.20$--$0.27$ at every refinement, with
-no decay. These are the modes of \S\ref{sec:prediction}: the element charges
-them nothing for a dilatation the continuum resists with $\kappa$, and they
+no decay. These are the modes of \S\ref{sec:prediction}: the element assigns
+them no energy for a dilatation the continuum resists with $\kappa$, and they
 are the softest modes the element has. The lowest modes of the
 Crouzeix--Raviart pair carry $0.040$, $0.018$, $0.0074$ and $0.0042$ over
 $N = 2$ to $5$, decaying as $h^2$, the rate at which
@@ -1823,15 +1824,16 @@ continuous, so its kernel is divergence-free only against continuous linear
 test functions, and under the uniaxial direction its lowest modes are
 dilatation almost entirely: $r_v = 0.86$, $0.93$, $0.96$ at $N = 3$, $4$, $5$,
 with $\lambda_1$ decaying to $0.016$. Those modes have no counterpart in the
-continuum, which charges them $\kappa$. \S\ref{sec:risks} named Taylor--Hood
-as the fallback should the enrichment prove too costly; on this evidence it is
+continuum, which resists them with $\kappa$. \S\ref{sec:risks} named Taylor--Hood
+as the fallback should the enrichment add too many unknowns; on this evidence it is
 a fallback for elasticity only.
 
 
 \subsection{Quadrature rule and basis}
 \label{sec:basis}
 
-Two implementation choices set the element's cost, and neither is decided by
+Two implementation choices set the number of operations per element and its
+explicit stable step, and neither is decided by
 the stability results: the quadrature rule, and the basis that carries the
 enriched space. Both are measured on one element. Scripts:
 \code{prototype/quadrature.jl} and \code{prototype/basis.jl}.
@@ -1840,7 +1842,7 @@ enriched space. Both are measured on one element. Scripts:
 $6$ so that the linear measurements are exact. For the element the criterion
 is weaker: a rule is admissible when the condensed stiffness
 $~K_e = ~K\supdev + \kappa\transpose{~G}~M^{-1}~G$ has exactly six
-zero-energy modes, and its cost is the softening it introduces, measured as
+zero-energy modes, and its effect is the softening it introduces, measured as
 the extreme generalized eigenvalues of $~K_e(\text{rule})$ against
 $~K_e(\text{exact})$ on the complement of the rigid modes, which are $1$ for
 an exact rule. Table~\ref{tab:quadrature} gives both for the rules at hand,
@@ -1859,8 +1861,8 @@ $0.297$ at $N = 5$), a one-dimensional pressure null space, no spurious mode
 among the twenty lowest under the uniaxial plastic tangent, and the same
 dilatation of the lowest mode ($0.0073$, $0.0074$ and $0.0074$). The
 $14$-point rule is the recommendation: rank sufficient, positive weights,
-and $4.6$ times fewer points than the exact rule, at the price of a stiffer
-interior bubble.
+and $4.6$ times fewer points than the exact rule, with a stiffer interior
+bubble.
 
 \begin{table}[tbp]
 \centering
@@ -2059,7 +2061,7 @@ that the first round of numerical work is decisive.
         filtering. This will be measured on the Simo--Hughes $J_2$ model both
         codes ship rather than on the logarithmic return map of
         \eqref{eq:return}, for the reasons in Remark~\ref{rem:whichj2}.
-  \item \textbf{Element-local cost.} The assembled tangent must retain
+  \item \textbf{Element-local elimination.} The assembled tangent must retain
         displacement-mesh sparsity, confirming the elimination never couples
         elements.
 \end{enumerate}
@@ -2073,11 +2075,11 @@ same meshes.
 \section{Risks}
 \label{sec:risks}
 
-\emph{The pair is settled; its cost is now the risk.} The central risk of the
+\emph{The pair is settled; the number of its unknowns is now the risk.} The central risk of the
 previous version --- that no element-local pair had been shown to work --- is
 retired: $P_2 \oplus b_{\mathrm{int}} \oplus b_{\mathrm{face}}$ over
 $P_1^{\mathrm{disc}}$ is stable, with a constant above Taylor--Hood's
-(\S\ref{sec:beta}). What that verification also established is the price. The
+(\S\ref{sec:beta}). What that verification also established is the number of unknowns. The
 face bubbles are shared between neighbors, so they are global unknowns and do
 not condense; at $N = 12$ the enriched space carries $96{,}117$ global
 displacement degrees of freedom against $36{,}501$ for $P_2/P_0$ --- and for
@@ -2097,7 +2099,7 @@ is already decided against Taylor--Hood by \S\ref{sec:plastic}: its softest
 modes under a plastic tangent are dilatation almost entirely, so it is a
 fallback for elasticity only.
 
-\emph{Quadratic tetrahedra are more expensive per element.} With the
+\emph{Quadratic tetrahedra require more operations per element.} With the
 $14$-point rule of \S\ref{sec:basis} the enriched element evaluates the
 constitutive law at $14$ points on $45$ displacement degrees of freedom,
 against $4$ or $5$ on $30$ for \code{TETRA10} and one on $12$ for
@@ -2120,7 +2122,8 @@ five qualify; the two that do not, linear elasticity and
 Saint-Venant--Kirchhoff, are not finite-deformation models in the sense that
 matters here. An earlier version of this paragraph stated the restriction as
 narrower --- a quadratic volumetric energy, admitting two --- on the belief
-that the other three cost a local Newton per element; they cost one projection
+that the other three require a local Newton iteration per element; they
+require one projection
 (Remark~\ref{rem:nonquadratic}). What remains outside the split altogether is
 anisotropic or non-separable response, which would need the five-field variant
 of \S\ref{sec:fivefield} or a different treatment entirely. The restriction

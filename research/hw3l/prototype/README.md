@@ -71,7 +71,7 @@ never crosses. **The unenriched pair is not inf-sup stable, and refinement does
 not rescue it** — so the bubble enrichment is mandatory, not advisory.
 
 The count is *necessary and not sufficient*, and `beta.jl` shows two pairs that
-clear it and fail anyway (P2/P0 at 0.284, P2 ⊕ interior/P1disc at 0.613). Read this script as a cheap refutation tool, never as
+clear it and fail anyway (P2/P0 at 0.284, P2 ⊕ interior/P1disc at 0.613). Read this script as a refutation test that needs no factorization, never as
 a certificate.
 
 ## `beta.jl` — the discrete inf-sup constant over a mesh sequence
@@ -166,7 +166,7 @@ seminorm `Z'K_h1 Z`, with `Z` an exact basis of `ker G`.
 **That constant cannot separate pairs.** For every `v ∈ H¹₀`,
 `∫|dev ε|² = ½|∇v|² + ⅙∫(div v)²`, so the constant is at least `(1−β)/2` for
 every pair and every kernel, and at `β = 1` the continuum operator admits
-shear bands at no cost, so it decays for every pair, Taylor–Hood included.
+shear bands with zero energy, so it decays for every pair, Taylor–Hood included.
 Both are what the sweep shows. The first version of this script expected the
 constant to decide the question; it was wrong, and the identity says why.
 

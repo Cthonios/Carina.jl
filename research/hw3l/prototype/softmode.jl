@@ -10,7 +10,7 @@
 # so the volumetric stiffness has rank exactly m.  A P2 displacement produces a
 # volumetric strain tr(eps(u)) that is a P1 field -- 4-dimensional.  A P0
 # pressure therefore constrains one of those four directions and leaves three
-# unconstrained: those three are near-isochoric, cost only deviatoric energy,
+# unconstrained: those three are near-isochoric, carry only deviatoric energy,
 # and are the soft modes reported for constant-pressure formulations.
 #
 # The prediction this script tests: 3 soft modes per element for P0, none for
@@ -150,7 +150,7 @@ function census(X, mu, kappa, m; q_degree = 5)
 
     ev = eigvals(Symmetric(K))
     # Zero-energy modes measured against the deviatoric scale, not the
-    # kappa-inflated maximum: a mode costing O(mu) must not be counted as zero.
+    # kappa-inflated maximum: a mode with energy O(mu) must not be counted as zero.
     dev_scale = maximum(abs, diag(K_dev))
     observed_zero = count(e -> abs(e) < 1e-9 * dev_scale, ev)
     observed_spurious = observed_zero - 6
