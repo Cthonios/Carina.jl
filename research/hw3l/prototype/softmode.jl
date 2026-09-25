@@ -91,7 +91,10 @@ function element_stiffness(X, mu, kappa, m::Int; q_degree = 2)
     for i in 1:3, j in 1:3
         Idev[i, j] -= 1/3
     end
-    W = Diagonal([1.0, 1.0, 1.0, 2.0, 2.0, 2.0])   # Voigt energy metric
+    # Voigt energy metric with engineering shear: eps:eps carries 1/2 gamma^2.
+    # An earlier version had 2 here, which overstates shear stiffness by four;
+    # the counts below do not depend on it, the "1st nonzero" column does.
+    W = Diagonal([1.0, 1.0, 1.0, 0.5, 0.5, 0.5])
 
     K_dev = zeros(ndof, ndof)
     M = zeros(m, m)

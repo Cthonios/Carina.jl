@@ -209,7 +209,13 @@ function bmatrix(dN, nen)
     return B
 end
 
-const _VOIGT_W = Diagonal([1.0, 1.0, 1.0, 2.0, 2.0, 2.0])  # energy metric
+# Energy metric on Voigt strain with ENGINEERING shear, gamma_ij = 2 eps_ij:
+# eps:eps = sum_i eps_ii^2 + 2 sum_{i<j} eps_ij^2 = sum_i eps_ii^2 + (1/2) sum gamma_ij^2.
+# An earlier version weighted the shear rows by 2 instead of 1/2, which
+# overstated shear stiffness by a factor of four.  No kernel, rank or inf-sup
+# result depends on the metric; the smallest eigenvalues reported by
+# locking.jl and plastic.jl do, and both were regenerated after the fix.
+const _VOIGT_W = Diagonal([1.0, 1.0, 1.0, 0.5, 0.5, 0.5])
 const _DEV = let I6 = Matrix{Float64}(I, 6, 6)
     for i in 1:3, j in 1:3; I6[i, j] -= 1/3; end
     I6
@@ -314,6 +320,7 @@ eliminated:
 
     Kdev[i,j] = int 2 mu dev(eps_i) : dev(eps_j)      deviatoric stiffness
     Kh1[i,j]  = int grad(N_i) : grad(N_j)             H1 seminorm
+    Kdiv[i,j] = int div(N_i) div(N_j)                 dilatation
     G[m,i]    = int phi_m div(N_i)                    volumetric coupling
     M[m,n]    = int phi_m phi_n                       pressure mass
 
@@ -329,9 +336,23 @@ displacement numbering, in that order.
 function assemble_all(coords, conn, p::Int, m::Int; mu = 1.0,
                       bubble::Symbol = :none,
                       q_degree::Int = bubble === :none ? 2 : 6,
-                      bc::Symbol = _BC_ALL, nvert::Int = 0)
+                      bc::Symbol = _BC_ALL, nvert::Int = 0,
+                      flow = nothing, beta::Real = 0.0)
     bubble in _ENRICH || error(
         "unknown enrichment $bubble; expected one of $(_ENRICH)")
+    # Consistent J2 tangent at a plastic state with a uniform flow direction:
+    #     C_ep = 2 mu [ I_dev - beta n (x) n ],   n : n = 1,  tr n = 0,
+    # beta = 1 for perfect plasticity and 2mu/(2mu + 2H/3) with linear
+    # hardening H.  In Voigt form n : eps = n11 eps11 + ... + n12 gamma12 + ...
+    nv = if flow === nothing
+        beta == 0 || error("a flow direction is required when beta != 0")
+        nothing
+    else
+        n = Matrix{Float64}(flow)
+        abs(tr(n)) < 1e-12 || error("the flow direction must be deviatoric")
+        abs(sum(abs2, n) - 1) < 1e-12 || error("the flow direction must be unit")
+        [n[1,1], n[2,2], n[3,3], n[1,2], n[2,3], n[1,3]]
+    end
     if bubble !== :none
         p == 2 || error("the bubble enrichment is defined on P2 only, got p = $p")
         q_degree >= 6 || error(
@@ -364,6 +385,7 @@ function assemble_all(coords, conn, p::Int, m::Int; mu = 1.0,
 
     DI, DJ, DV = Int[], Int[], Float64[]
     HI, HJ, HV = Int[], Int[], Float64[]
+    VI, VJ, VV = Int[], Int[], Float64[]
     GI, GJ, GV = Int[], Int[], Float64[]
     MI, MJ, MV = Int[], Int[], Float64[]
 
@@ -404,6 +426,10 @@ function assemble_all(coords, conn, p::Int, m::Int; mu = 1.0,
             B  = bmatrix(dN, nen_a)
             Bd = _DEV * B
             Ke = dV * 2mu * (Bd' * _VOIGT_W * Bd)
+            if nv !== nothing && beta != 0
+                nB = nv' * Bd
+                Ke -= dV * 2mu * beta * (nB' * nB)
+            end
             phi = continuous ? p1_shape(xi) : pressure_basis(Val(m), xi)
             prow = continuous ? (a -> conn[a, e]) : (a -> m * (e - 1) + a)
             npl = continuous ? 4 : m
@@ -414,6 +440,7 @@ function assemble_all(coords, conn, p::Int, m::Int; mu = 1.0,
                 for (j, rj) in enumerate(rows)
                     rj == 0 && continue
                     push!(DI, ri); push!(DJ, rj); push!(DV, Ke[i, j])
+                    push!(VI, ri); push!(VJ, rj); push!(VV, dV * trB[i] * trB[j])
                 end
                 a, d = fldmod1(i, NSD)
                 for (j, rj) in enumerate(rows)
@@ -436,6 +463,7 @@ function assemble_all(coords, conn, p::Int, m::Int; mu = 1.0,
     end
     return (; Kdev = sparse(DI, DJ, DV, nu, nu),
               Kh1 = sparse(HI, HJ, HV, nu, nu),
+              Kdiv = sparse(VI, VJ, VV, nu, nu),
               G   = sparse(GI, GJ, GV, np, nu),
               M   = sparse(MI, MJ, MV, np, np),
               nu, np, nelem, nu_nodal, n_int, n_face)

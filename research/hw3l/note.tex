@@ -73,10 +73,27 @@ model in $J-1$ --- which makes the discrete pressure equal $\kappa\bar\theta$
 pointwise and is the case developed here, so the material and its volumetric
 variable are not chosen independently.
 
-The working hypothesis is that volumetric locking and spurious soft modes are
-the two hypotheses of Brezzi's theorem --- an inf-sup condition on the pair and
-coercivity on the discretely isochoric subspace --- so that a pair satisfying
-both removes both without a penalty, a subgrid model, or a tuned coefficient. With both auxiliary fields in one space the functional
+Volumetric locking and spurious soft modes are the failures of the two
+hypotheses of Brezzi's theorem: the inf-sup condition on the pair, and
+coercivity of the deviatoric form on the discretely isochoric subspace. The
+first is a property of the pair alone and is settled here. The second holds in
+elasticity for every conforming pair, so the elastic argument against a
+constant pressure that an earlier version of this note made does not stand.
+It is in plasticity, where the deviatoric tangent loses its stiffness along
+the flow direction, that the hypothesis can fail. Read as a constant, it does
+not separate pairs: an identity bounds the coercivity constant below by
+$(1-\beta)/2$ for every conforming pair, with $\beta$ the fraction of the
+shear stiffness the plastic tangent removes, and at $\beta = 1$ the continuum
+operator itself admits shear bands of arbitrarily small width. What separates
+the pairs is whether the soft directions are isochoric, and that is the claim
+of this note (\S\ref{sec:prediction}): the soft modes of the stable pair carry
+a dilatation that vanishes under refinement, and those of a constant pressure
+do not. It is a statement about two linear operators at a fixed plastic
+state, and \S\ref{sec:plastic} supports it on a Freudenthal mesh family:
+under a uniaxial flow direction the lowest plastic modes of the
+constant-pressure pairs carry a dilatation of $0.20$ to $0.27$ that does not
+decay, those of the Crouzeix--Raviart pair one that decays as $h^2$, and
+those of Taylor--Hood are dilatation almost entirely. With both auxiliary fields in one space the functional
 reduces exactly to mean dilatation (\S\ref{sec:meandilatation}): the mechanism
 is classical, and the open question was which pressure space to project onto.
 
@@ -151,20 +168,90 @@ deviator, and therefore the plastic return map, which is the observed origin of
 oscillations in equivalent plastic strain. No choice of $c_\tau$ removes this,
 because the contamination path is the formulation.
 
-\paragraph{The common cause.} Both are symptoms of one theorem, and an earlier
-version of this paragraph compressed its two hypotheses into one. Brezzi's
-theorem for the mixed problem asks two things of the pair
-\citep[\S3.4, \S5.2]{BoffiBrezziFortin:2013}: the inf-sup condition, that every
-pressure mode be resisted by some displacement --- its failure is locking on
-one side and spurious pressure on the other --- and ellipticity of the
-deviatoric form on the discretely isochoric subspace, that no displacement the
-pressure cannot see be free --- its failure is a soft mode. The first is a
-property of the pair alone and is settled in \S\ref{sec:beta}. The second is a
-property of the pair \emph{and} the material tangent; it holds in elasticity
-for any conforming pair, and plasticity is where it is threatened. Neither
-difficulty is a stabilization problem. Both are consequences of a pair that
-sits outside the admissible window, and the remedy is to choose a pair inside
-it --- and then to check the second hypothesis where the material can break it.
+\paragraph{The common cause.} Both are failures of the hypotheses of one
+theorem, and an earlier version of this paragraph compressed the two
+hypotheses into one. Brezzi's theorem for the mixed problem asks two things of
+the pair \citep[\S3.4, \S5.2]{BoffiBrezziFortin:2013}: the inf-sup condition,
+that every pressure mode be resisted by some displacement, whose failure is
+locking on one side and spurious pressure on the other; and ellipticity of the
+deviatoric form on the discretely isochoric subspace $\ker ~G_h$, that no
+displacement the pressure cannot see be free, whose failure is a soft mode.
+The first is a property of the pair alone and is settled in \S\ref{sec:beta}.
+The second depends on the material tangent as well as on the pair, and
+\S\ref{sec:prediction} states what this note claims about it. Neither
+difficulty is a stabilization problem: the remedy for the first is a pair
+inside the admissible window, and the second must then be checked where the
+material can break it.
+
+\section{The claim}
+\label{sec:prediction}
+
+In elasticity the second hypothesis holds for every conforming pair: the
+deviatoric form is coercive on all of $U_h$ by Korn's inequality, so it is
+coercive on $\ker ~G_h$, and no elastic soft mode is a failure of the theorem.
+An earlier version of this note argued against a constant pressure on elastic
+grounds, by counting exact zero-energy modes; \S\ref{sec:assembled} shows that
+those modes do not survive assembly, and the argument is withdrawn.
+
+Under plastic loading the consistent $J_2$ tangent is
+\begin{equation}
+  \label{eq:cep}
+  \mathbb{C}^{\mathrm{ep}} = 2\mu \left( \mathbb{I}\supdev - \beta\, ~n \otimes ~n \right),
+  \qquad
+  ~n := \sdev^{\mathrm{tr}} / \norm{\sdev^{\mathrm{tr}}},
+  \qquad
+  \beta = \frac{2\mu}{2\mu + \tfrac{2}{3}\mathcal{H}'} ,
+\end{equation}
+with $\beta = 1$ for perfect plasticity: the shear stiffness along the flow
+direction is removed.
+
+Read as a constant, the second hypothesis cannot separate pairs, and an
+earlier version of this section expected it to. For every $~v \in H^1_0(B)$,
+integration by parts gives $\int \lvert\dev\eps\rvert^2 \diff V =
+\tfrac12 \int \lvert\Grad ~v\rvert^2 \diff V + \tfrac16 \int (\Div ~v)^2
+\diff V$, and $(~n : \eps)^2 \le \lvert\dev\eps\rvert^2$ since $~n$ is a
+unit deviator, so
+\begin{equation}
+  \label{eq:floor}
+  \frac{1}{2\mu} \int \eps : \mathbb{C}^{\mathrm{ep}} : \eps \diff V
+  \;\ge\; (1 - \beta) \int \lvert\dev\eps\rvert^2 \diff V
+  \;\ge\; \frac{1 - \beta}{2} \int \lvert\Grad ~v\rvert^2 \diff V
+\end{equation}
+for every conforming pair and every member of its kernel, isochoric or not.
+For $\beta < 1$ the coercivity constant on $\ker ~G_h$ is therefore bounded
+below uniformly in $h$ and in the pair. For $\beta = 1$ the continuum
+operator loses strong ellipticity: a shear band with normal $~e_2$ and jump
+$~e_1$ has $\eps \propto \sym(~e_1 \otimes ~e_2)$, which \eqref{eq:cep} with
+that $~n$ charges nothing, so the constant tends to zero under refinement for
+every pair as the discrete space resolves narrower bands
+(\S\ref{sec:plastic}). Neither limit says anything about the pair.
+
+What distinguishes the pairs is what the soft directions are. A member of
+$\ker ~G_h$ that is nearly isochoric is a shear band the continuum problem
+also has, and its low energy is physical. A member with pointwise nonzero
+dilatation of zero element mean is charged $\kappa \int (\Div ~v)^2$ by the
+continuum and nothing by the element; once the tangent removes its shear
+energy it is free in the element and stiff in the physics. That is the soft
+mode reported for constant-pressure elements, and whether $\ker ~G_h$
+contains such members is a property of the pair. For a pair satisfying the
+inf-sup condition, $\ker ~G_h$ approximates the space of isochoric
+displacements at the rate of $U_h$ \citep[Prop.~5.1.3]{BoffiBrezziFortin:2013},
+so the dilatation carried by any of its members vanishes with $h$. For an
+element-constant pressure on a quadratic displacement, $\ker ~G_h$ contains
+displacements whose dilatation is nonzero pointwise and averages to zero over
+each element, and their dilatation does not vanish with $h$.
+
+The claim is therefore the following. \emph{Under a plastic tangent, the
+lowest modes of the deviatoric form on $\ker ~G_h$ carry a dilatation
+$\int (\Div ~v)^2 \diff V / \int \lvert\Grad ~v\rvert^2 \diff V$ that vanishes
+under refinement for the stable pair with a linear discontinuous pressure and
+does not for a constant pressure; the soft modes reported for
+constant-pressure elements are the latter, and no stabilization is needed
+where they are absent.} Both operators are linear at a fixed plastic state,
+so the claim is tested without a nonlinear solve, and \S\ref{sec:plastic}
+tests it. If the dilatation of the soft modes does not separate the pairs,
+the formulation has no advantage over the constant-pressure elements it is
+meant to replace.
 
 \section{Continuum formulation}
 
@@ -723,8 +810,11 @@ must hold uniformly in $h$ and on the target range of $\kappa/\mu$
 \citep{BoffiBrezziFortin:2013}.
 
 The distinction that matters is dimensional and is easy to get wrong. The
-conforming Crouzeix--Raviart pair \citep{CrouzeixRaviart:1973} is $P_2$
-enriched with a cubic interior bubble over $P_1^{\mathrm{disc}}$; unenriched
+conforming Crouzeix--Raviart pair \citep{CrouzeixRaviart:1973} is, in two
+dimensions, $P_2$ enriched with a cubic interior bubble over
+$P_1^{\mathrm{disc}}$; its three-dimensional counterpart below carries a
+quartic interior bubble and cubic face bubbles, and the quadrature degree the
+element needs follows from the quartic. Unenriched
 $P_2/P_1^{\mathrm{disc}}$ is stable in two dimensions only on special meshes.
 In three dimensions \citet[\S8.7]{BoffiBrezziFortin:2013} state that even a
 \emph{constant} discontinuous pressure is not controlled by $P_2$: ``to control
@@ -772,6 +862,20 @@ The enrichment therefore does carry a cost in degrees of freedom, which
 statement: the \emph{pressure} elimination of \S\ref{sec:local} stays
 element-by-element, because that rests on $Q_h$ being discontinuous and not on
 the displacement space at all.
+
+The linear pressure is not forced by the stability results. $P_2 \oplus
+b_{\mathrm{face}}/P_0$ is also stable (\S\ref{sec:beta}), at a higher constant
+and at the same global cost, since the interior bubble condenses. The census
+of \S\ref{sec:firstresult} that argued against a constant pressure applies to
+the unenriched displacement space and was in any case withdrawn in
+\S\ref{sec:assembled}. What separates the two pressure spaces is the claim of
+\S\ref{sec:prediction}: a constant pressure leaves in $\ker ~G_h$ the
+element-scale dilatational modes that a plastic tangent can free, and a linear
+one does not. \S\ref{sec:plastic} measures both pairs: under a uniaxial flow
+direction the lowest plastic modes of $P_2 \oplus b_{\mathrm{face}}/P_0$
+carry a dilatation of $0.26$--$0.27$ that does not decay under refinement,
+and those of the Crouzeix--Raviart pair one that decays as $h^2$. That
+measurement, and not the counts, is what the linear pressure is for.
 
 Both that pair and the Taylor--Hood control are measured in \S\ref{sec:beta}:
 the enriched pair settles on a discrete inf-sup constant of $0.2968$ and
@@ -1264,9 +1368,14 @@ Three findings, and the first and third correct this note.
 \paragraph{The constant-pressure soft modes do not survive assembly.}
 Zero spurious modes, under both boundary conditions, at every mesh. Nor are
 they present as merely low-energy ones: the smallest eigenvalue relative to the
-deviatoric scale is $1.51\times10^{-3}$ for $P_0$ against $1.84\times10^{-3}$
+deviatoric scale is $2.39\times10^{-3}$ for $P_0$ against $2.74\times10^{-3}$
 for $P_1^{\mathrm{disc}}$ on the same mesh --- indistinguishable, and both
-reflecting the long-wavelength modes of a lightly constrained block. The three
+reflecting the long-wavelength modes of a lightly constrained block. (An
+earlier version quoted $1.51\times10^{-3}$ and $1.84\times10^{-3}$; the
+scripts weighted the Voigt shear rows by $2$ where the engineering-shear
+energy metric is $\tfrac12$, which overstates shear stiffness by four. No
+count, rank or inf-sup constant in this note depends on that metric; the two
+eigenvalues do, and were regenerated.) The three
 modes per element of \S\ref{sec:firstresult} are real but element-local, and
 their traces do not match across faces.
 
@@ -1277,7 +1386,8 @@ report, which is remedied there by a penalty and therefore has energy --- too
 little, not none. Those are the displacement modes in $\ker ~G_{P_0}$ whose
 divergence is nonzero pointwise, hundreds per mesh, which the element charges
 shear energy alone; whether they are spurious is the coercivity question of
-\S\ref{sec:verify}, claim~2, and not a count of zeros. The composite tetrahedron of \citet{Foulk.etal:2021} is
+\S\ref{sec:prediction}, which \S\ref{sec:plastic} measures, and not a count of
+zeros. The composite tetrahedron of \citet{Foulk.etal:2021} is
 built on a subdivided-linear displacement space rather than $P_2$, which is a
 different kernel and is not modeled here; that lineage's soft mode may well be
 specific to it. Nothing above contradicts their observation; it does not
@@ -1446,6 +1556,124 @@ needs no such confirmation, since \citet[Example~8.7.2]{BoffiBrezziFortin:2013}
 establish it on any shape-regular family; what the sweep adds is the constant.
 \end{remark}
 
+\subsection{Coercivity under a plastic tangent}
+\label{sec:plastic}
+
+The claim of \S\ref{sec:prediction} is measured as the constant it names. With
+$~Z$ a basis of $\ker ~G_h$,
+\begin{equation}
+  \label{eq:coercivity}
+  \lambda_{\min} = \min_{q}
+    \frac{\transpose{q}\,\transpose{~Z} ~K^{\mathrm{ep}} ~Z\, q}
+         {\transpose{q}\,\transpose{~Z} ~K^{H^1} ~Z\, q},
+  \qquad
+  ~K^{\mathrm{ep}}_{ij} = \frac{1}{2\mu}\int \eps_i : \mathbb{C}^{\mathrm{ep}} : \eps_j \diff V,
+\end{equation}
+is the smallest generalized eigenvalue of the deviatoric form under the
+tangent \eqref{eq:cep} against the $H^1$ seminorm, restricted to the
+discretely isochoric subspace. It is dimensionless, it is taken on the exact
+kernel rather than through a penalty, and it is the constant of the second
+hypothesis; \eqref{eq:floor} says what to expect of it, at least
+$(1-\beta)/2$ for every pair when $\beta < 1$ and a decay to zero for every
+pair when $\beta = 1$. The quantity that carries the claim is the dilatation
+of the eigenmodes,
+\begin{equation}
+  \label{eq:rv}
+  r_v(~v) := \frac{\int (\Div ~v)^2 \diff V}{\int \lvert\Grad ~v\rvert^2 \diff V},
+\end{equation}
+zero for an isochoric field. The flow direction is uniform, $~n =
+\sym(~e_1 \otimes ~e_2)/\sqrt{2}$ or $~n = \dev(~e_3 \otimes ~e_3)/\norm{\cdot}$,
+which is the most unfavorable choice: the continuum operator then admits shear
+bands of any width, a decaying eigenvalue is expected of every pair, and only
+the dilatation of the mode says whether the band is physical. The tangent is
+taken at $\beta = 1$ and at $\beta = 0.9$, the boundary is fixed everywhere,
+and each pair is measured elastically ($\beta = 0$) on the same kernel.
+Script: \code{prototype/plastic.jl}.
+
+\begin{table}[tbp]
+\centering
+\caption{Lowest mode of the deviatoric form on $\ker ~G_h$ under the tangent
+\eqref{eq:cep} at $\beta = 1$, all-Dirichlet Freudenthal cube: the eigenvalue
+$\lambda_1$ of \eqref{eq:coercivity} and the dilatation $r_v$ of its mode,
+\eqref{eq:rv}, for a shear and a uniaxial flow direction. The elastic lowest
+mode has $\lambda_1 = 0.500$ and $r_v = 0$ on every row, as the identity
+behind \eqref{eq:floor} requires. At $\beta = 0.9$ every $\lambda_1$ exceeds
+the floor $0.05$ and the dilatations agree with those below to two digits.
+Script: \code{prototype/plastic.jl}.}
+\label{tab:plastic}
+\begin{tabular}{@{}lrrrrr@{}}
+\toprule
+& & \multicolumn{2}{c}{$~n = \sym(~e_1 \otimes ~e_2)/\sqrt2$}
+  & \multicolumn{2}{c}{$~n = \dev(~e_3 \otimes ~e_3)/\norm{\cdot}$} \\
+\cmidrule(lr){3-4}\cmidrule(lr){5-6}
+Pair & $N$ & $\lambda_1$ & $r_v$ & $\lambda_1$ & $r_v$ \\
+\midrule
+$P_2/P_0$                       & 3 & 0.109  & 0.065  & 0.117 & 0.208 \\
+                                & 4 & 0.067  & 0.034  & 0.106 & 0.217 \\
+                                & 5 & 0.047  & 0.029  & 0.101 & \textbf{0.220} \\
+$P_2 \oplus b_{\mathrm{face}}/P_0$
+                                & 3 & 0.044  & 0.044  & 0.082 & 0.274 \\
+                                & 4 & 0.026  & 0.028  & 0.074 & 0.268 \\
+                                & 5 & 0.017  & 0.019  & 0.071 & \textbf{0.261} \\
+$P_2 \oplus b_{\mathrm{int}} \oplus b_{\mathrm{face}}/P_1^{\mathrm{disc}}$
+                                & 3 & 0.074  & 0.036  & 0.147 & 0.018 \\
+                                & 4 & 0.049  & 0.019  & 0.139 & 0.0074 \\
+                                & 5 & 0.032  & 0.0066 & 0.134 & \textbf{0.0042} \\
+$P_2/P_1$ continuous (control)  & 3 & 0.056  & 0.051  & 0.053 & 0.861 \\
+                                & 4 & 0.030  & 0.029  & 0.026 & 0.929 \\
+                                & 5 & 0.019  & 0.020  & 0.016 & \textbf{0.956} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{The bench is checked by an identity.} By the identity behind
+\eqref{eq:floor}, the elastic form on any kernel satisfies
+$\lambda = \tfrac12 + \tfrac16 r_v$, so its lowest mode has $r_v = 0$ and
+$\lambda_1 = 0.5$ exactly. Every row of the sweep reproduces this; at $N = 2$
+for $P_2/P_0$, where the kernel has no isochoric member, $\lambda_1 = 0.5024$
+with $r_v = 0.0146$, as the identity requires. This is also the check on the
+Voigt metric correction recorded in \S\ref{sec:assembled}, which the earlier
+metric would have failed.
+
+\paragraph{The constant does not separate pairs, as \eqref{eq:floor}
+predicts.} Under the shear direction $\lambda_1$ decays for every pair, the
+control included, at rates between $h^{1.5}$ and $h^2$: the discrete spaces
+resolve narrower shear bands, which the continuum operator admits at no cost.
+Under the uniaxial direction no shear band has $\eps \propto ~n$, and
+$\lambda_1$ converges for the three element-local pairs, to $0.10$ for
+$P_2/P_0$, $0.071$ for $P_2 \oplus b_{\mathrm{face}}/P_0$ and $0.13$ for the
+Crouzeix--Raviart pair, while it decays for Taylor--Hood. At $\beta = 0.9$
+every $\lambda_1$ lies above the floor of $0.05$, the smallest being the
+control's $0.067$.
+
+\paragraph{The dilatation of the soft modes separates them, in the direction
+claimed.} Under the uniaxial direction the lowest modes of both
+constant-pressure pairs carry $r_v = 0.20$--$0.27$ at every refinement, with
+no decay. These are the modes of \S\ref{sec:prediction}: the element charges
+them nothing for a dilatation the continuum resists with $\kappa$, and they
+are the softest modes the element has. The lowest modes of the
+Crouzeix--Raviart pair carry $0.040$, $0.018$, $0.0074$ and $0.0042$ over
+$N = 2$ to $5$, decaying as $h^2$, the rate at which
+\citet[Prop.~5.1.3]{BoffiBrezziFortin:2013} makes $\ker ~G_h$ approximate the
+isochoric space; its soft modes are physical. Under the shear direction the
+lowest modes of every pair are shear bands whose dilatation decays, the
+Crouzeix--Raviart pair's three to four times smaller than the others' at
+$N = 5$. The spurious dilatational modes of a constant pressure are therefore
+present in both directions but are the \emph{lowest} modes only where the
+flow admits no band; in a plastic zone with a varying flow direction both
+kinds occur, and their practical weight is what claim~4 of \S\ref{sec:verify}
+measures.
+
+\paragraph{Taylor--Hood is the worst pair on this measure.} Its pressure is
+continuous, so its kernel is divergence-free only against continuous linear
+test functions, and under the uniaxial direction its lowest modes are
+dilatation almost entirely: $r_v = 0.86$, $0.93$, $0.96$ at $N = 3$, $4$, $5$,
+with $\lambda_1$ decaying to $0.016$. Those modes have no counterpart in the
+continuum, which charges them $\kappa$. \S\ref{sec:risks} named Taylor--Hood
+as the fallback should the enrichment prove too costly; on this evidence it is
+a fallback for elasticity only.
+
+
 \subsection{The earlier eigenvalue sweep}
 \label{sec:eigensweep}
 
@@ -1508,19 +1736,26 @@ that the first round of numerical work is decisive.
         $P_2/P_0$, for $P_2/P_1^{\mathrm{disc}}$, and for
         $P_2 \oplus b_{\mathrm{int}}/P_1^{\mathrm{disc}}$, while
         $P_2 \oplus b_{\mathrm{int}} \oplus b_{\mathrm{face}}/P_1^{\mathrm{disc}}$
-        settles on $0.2968$ at a fitted rate of $-0.011$, above the
+        settles on $0.2968$ at a local rate of $-0.003$, above the
         Taylor--Hood control's $0.2216$ and with a one-dimensional pressure
         null space at every mesh. The face bubbles are the part that matters;
         the interior bubble alone is not enough
-        (Remark~\ref{rem:whyface}). What remains is an unstructured mesh
+        (Remark~\ref{rem:whyface}). The measurement is at $\F = \Id$. At
+        finite deformation the pairing is the Stokes pairing on the deformed
+        configuration (\S\ref{sec:fe-spaces}), and uniformity of $\beta_h$
+        under a large non-affine deformation, the regime of \S1, is not
+        established here; it is measured by assembling $~G$ at a prescribed
+        deformed state, which the bench can do and has not done. What remains
+        otherwise is an unstructured mesh
         sequence (Remark~\ref{rem:structured}). Uniformity in $\kappa/\mu$
         needs no separate measurement: for the penalized saddle point,
         stability of the incompressible limit gives error estimates
         independent of the penalty \citep[\S5.5.2, \S8.12.1]{BoffiBrezziFortin:2013},
         and every pair stable for Stokes may be used for nearly incompressible
         elasticity \citep[Remark~8.12.1]{BoffiBrezziFortin:2013}.
-  \item \textbf{No soft modes.} \emph{Closed in elasticity, open in
-        plasticity, and not for the reason first given.} Three exact
+  \item \textbf{No soft modes.} \emph{Closed in elasticity; in plasticity,
+        supported on the linearized operator and not yet in a nonlinear
+        solve.} Three exact
         zero-energy modes per element for a constant pressure
         (\S\ref{sec:firstresult}), none of which survive assembly
         (\S\ref{sec:assembled}) --- but an exact-zero count is the wrong test
@@ -1533,10 +1768,18 @@ that the first round of numerical work is decisive.
         For the stable pair the second holds in elasticity by Korn's
         inequality, and \citet[Prop.~5.1.3]{BoffiBrezziFortin:2013} then makes
         $\ker ~G_h$ approximate the isochoric space at the rate of $U_h$. In
-        plasticity the deviatoric tangent loses coercivity along the flow
-        direction, the hypothesis fails exactly where the mode is reported,
-        and no linear operator here can decide it; claim~4's benchmark must
-        be instrumented to.
+        plasticity the deviatoric tangent loses its stiffness along the flow
+        direction, and the hypothesis can fail exactly where the mode is
+        reported. An earlier version of this item said that no linear
+        operator could decide the question; that was wrong, since the
+        consistent tangent at a fixed plastic state is a linear operator, and
+        \S\ref{sec:plastic} measures on it the constant, which \eqref{eq:floor}
+        shows cannot separate pairs, and the dilatation of the soft modes,
+        which does: under a uniaxial flow direction the constant-pressure
+        pairs' softest modes carry a dilatation of $0.20$--$0.27$ that does
+        not decay, and the stable pair's one that decays as $h^2$. Claim~4's
+        benchmark tests the same question in the nonlinear setting, with a
+        flow direction that varies in space.
   \item \textbf{No volumetric locking.} \emph{Settled for every pair}
         (\S\ref{sec:assembled}), by measuring the isochoric subspace
         $\dim\ker ~G$ rather than by running benchmarks:
@@ -1583,7 +1826,10 @@ coarser meshes is not established, and it is the comparison that now decides
 whether the formulation is worth preferring to Taylor--Hood, whose pressure is
 global but whose displacement space is $2.5$ times smaller. That is a benchmark
 question, not an operator question, and it is answered on the benchmark set
-below rather than by any of the counts above.
+below rather than by any of the counts above. For plasticity the comparison
+is already decided against Taylor--Hood by \S\ref{sec:plastic}: its softest
+modes under a plastic tangent are dilatation almost entirely, so it is a
+fallback for elasticity only.
 
 \emph{Quadratic tetrahedra are more expensive per element.} The claim that
 fewer of them are needed is plausible and unproven for this problem class. It

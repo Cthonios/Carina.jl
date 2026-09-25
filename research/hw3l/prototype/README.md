@@ -130,6 +130,31 @@ An earlier version of this script *extrapolated* the enriched pair by adding
 at `N = 4`; the extrapolation overstated the isochoric fraction by a factor of
 two. All enriched pairs are now assembled.
 
+## `plastic.jl` — soft modes under a plastic tangent
+
+The consistent J2 tangent `C_ep = 2μ [I_dev − β n⊗n]` removes the shear
+stiffness along a flow direction `n` (`β = 1` perfect plasticity). Brezzi's
+second hypothesis, coercivity of the deviatoric form on `ker G`, is measured
+as the smallest generalized eigenvalue of `Z'K_ep Z` against the `H1`
+seminorm `Z'K_h1 Z`, with `Z` an exact basis of `ker G`.
+
+**That constant cannot separate pairs.** For every `v ∈ H¹₀`,
+`∫|dev ε|² = ½|∇v|² + ⅙∫(div v)²`, so the constant is at least `(1−β)/2` for
+every pair and every kernel, and at `β = 1` the continuum operator admits
+shear bands at no cost, so it decays for every pair, Taylor–Hood included.
+Both are what the sweep shows. The first version of this script expected the
+constant to decide the question; it was wrong, and the identity says why.
+
+**The dilatation of the soft modes does.** `r_v = ∫(div v)²/|∇v|²` of the
+lowest plastic eigenmodes, all-Dirichlet cube, `N = 2..5`, uniaxial flow
+direction: 0.20–0.27 without decay for `P2/P0` and `P2 ⊕ face/P0`; 0.040,
+0.018, 0.0074, 0.0042 (`h²`) for the Crouzeix–Raviart pair; 0.86–0.96 for
+Taylor–Hood, whose kernel is divergence-free only against continuous `P1`.
+Under a shear direction every pair's soft modes are bands and decay, the CR
+pair's fastest. The elastic lowest mode is `λ = 0.500`, `r_v = 0` on every row,
+which the identity requires and which checks the bench. Output kept in
+`plastic_out.txt`.
+
 ## `materials.jl` — what the materials satisfy (needs Norma)
 
 ```
@@ -168,7 +193,18 @@ arbitrary points rather than at its own quadrature points, so there is no
 second implementation to disagree with the first. Swapping the quadrature
 reproduced every previously published number in this directory exactly.
 
+## Voigt metric correction (2026-09-25)
+
+`common.jl` and `softmode.jl` weighted the Voigt shear rows by 2 where the
+engineering-shear energy metric is ½, overstating shear stiffness by four.
+No kernel, rank, count or inf-sup constant depends on the metric; the
+`lam_min/dev` column of `locking.jl` and the `1st nonzero` column of
+`softmode.jl` do, and both outputs were regenerated. The identity
+`λ_el = ½ + r_v/6` reproduced by `plastic.jl` is the check that the metric is
+now right.
+
 ## Kept outputs
 
-`beta_out.txt`, `locking_out.txt`, `materials_out.txt`, `checks_out.txt` are
-the runs the note's tables were transcribed from.
+`beta_out.txt`, `locking_out.txt`, `materials_out.txt`, `checks_out.txt`,
+`softmode_out.txt`, `plastic_out.txt` are the runs the note's tables were
+transcribed from.
