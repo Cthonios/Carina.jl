@@ -79,13 +79,16 @@ Crouzeix--Raviart pair --- quadratic displacement enriched with face and
 interior bubbles, over a linear discontinuous pressure --- is stable, at a
 constant of $0.2968$; its face bubbles are global, and the pair has $2.6$ times the
 degrees of freedom of the composite tetrahedron it is meant to replace. The second holds in elasticity for every
-conforming pair, and under a plastic tangent an identity bounds its constant
-below by $(1-\beta)/2$ for every pair, so it cannot separate them. The claim
+conforming pair, and under a plastic tangent that removes the fraction
+$\beta$ of the shear stiffness along the flow direction ($\beta = 1$ for
+perfect plasticity) an identity bounds its constant below by $(1-\beta)/2$
+for every pair, so it cannot separate them. The claim
 of this note is that the pairs differ instead in whether their soft modes are
 isochoric, and it is supported on the linearized operator: under a plastic
 tangent the softest modes of a constant-pressure element carry a dilatation
 of $0.20$ to $0.27$ that does not decay under refinement, those of the
-Crouzeix--Raviart pair one that decays as $h^2$, and those of Taylor--Hood
+Crouzeix--Raviart pair one that decays as the square of the mesh size $h$,
+and those of Taylor--Hood
 are dilatation almost entirely; in a confined plastic zone with a varying
 flow direction the Crouzeix--Raviart pair has no spurious mode among its
 twenty softest at the finest mesh, and the constant-pressure pairs retain
