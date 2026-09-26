@@ -219,7 +219,30 @@ end
 
 const _BC_SECTION_KEYS = Set(["dirichlet", "neumann"])
 
-const _MODEL_KEYS = Set(["type", "material"])
+const _MODEL_KEYS = Set(["type", "material", "volumetric projection"])
+
+# `model.volumetric projection` selects the mean-dilatation formulation, in
+# which the volumetric strain of the constitutive model is replaced by its L²
+# projection onto element-wise polynomials (research/hw3l/note.tex).  The
+# value is the projection space; absent means the pointwise formulation.
+const _VOLUMETRIC_PROJECTIONS = Dict{String, Int}("constant" => 0, "linear" => 1)
+
+"""
+    _parse_volumetric_projection(dict) -> Union{Nothing, Int}
+
+The degree of the projection space named by `model.volumetric projection`,
+or `nothing` when the key is absent.  Unknown values are an error.
+"""
+function _parse_volumetric_projection(dict)
+    model = get(dict, "model", nothing)
+    model isa AbstractDict || return nothing
+    haskey(model, "volumetric projection") || return nothing
+    value = lowercase(strip(String(model["volumetric projection"])))
+    haskey(_VOLUMETRIC_PROJECTIONS, value) || error(
+        "Unknown model.volumetric projection = \"$value\". " *
+        "Supported: \"constant\" (element-wise constant), \"linear\" (element-wise linear).")
+    return _VOLUMETRIC_PROJECTIONS[value]
+end
 
 # Physics declared by `model.type`.  Only solid mechanics is implemented;
 # the key is accepted (and required to name a supported physics) so that a

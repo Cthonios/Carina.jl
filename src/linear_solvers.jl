@@ -457,11 +457,11 @@ function _use_fp32_smoother(::GPUAMGPreconditioner, asm)
     if ok
         _carina_logf(4, :solve, "    AMG smoother: Float32 action")
     else
-        @warn "AMG smoother falling back to Float64: these models promote " *
-              "Float32 inputs back to Float64, so the reduced-precision " *
-              "action would cost more than it saves. Make their `pk1_stress` " *
-              "constants type-generic (e.g. `one(J)/2` rather than `0.5`) " *
-              "to enable it." models = unique(offenders)
+        @warn "AMG smoother falling back to Float64: these physics have no " *
+              "Float32 action (a model that promotes Float32 inputs back to " *
+              "Float64, or the projected volumetric formulation). For a model, " *
+              "make the `pk1_stress` constants type-generic (e.g. `one(J)/2` " *
+              "rather than `0.5`) to enable it." models = unique(offenders)
     end
     _fp32_smoother_ok[] = ok
     return ok

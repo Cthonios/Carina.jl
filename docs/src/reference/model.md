@@ -18,6 +18,7 @@ model:
 |---|---|---|
 | `type` | no | Physics type. `solid mechanics` (aliases `solidmechanics`, `mechanics`). |
 | `material` | **yes** | Material assignment and properties — see [Materials](materials.md). |
+| `volumetric projection` | no | `constant` or `linear`: the mean-dilatation formulation, see below. Absent: the pointwise formulation. |
 
 ## `type` is checked but not yet dispatched on
 
@@ -48,6 +49,24 @@ The `material` sub-section is required and must contain a `blocks` mapping. See
 aliases — including the important limitation that Carina currently applies a
 **single** material to the whole mesh.
 
+## `volumetric projection`
+
+With this key the volumetric strain θ(J) of the constitutive model is replaced,
+element by element, by its L² projection onto polynomials of degree 0
+(`constant`) or 1 (`linear`) in the reference coordinates, and the volumetric
+energy κ/2 θ² is evaluated at the projected strain.  This is the
+mean-dilatation formulation of `research/hw3l/note.tex`, the reduction of the
+three-field functional in the motion, the volumetric strain and the pressure
+with the two auxiliary fields in one discontinuous space.  The isochoric
+response and the internal variables are evaluated at the quadrature points
+without projection.  The material must have an exact volumetric-isochoric
+split with a quadratic volumetric energy (currently `j2 plasticity`, with
+θ = J − 1); other materials are refused at startup.  The formulation is
+intended for the TETRA15 element with `linear`; it runs on any element.
+The projection couples the quadrature points of an element, so the kernels
+are assembled by element; the assembled matrix keeps the sparsity of the
+displacement mesh.
+
 ## Errors from this section
 
 All of these abort the run at startup:
@@ -56,6 +75,8 @@ All of these abort the run at startup:
 |---|---|
 | `Missing [model] section in input.` | No `model` key. |
 | `Unknown model.type = "X".` | `type` names a physics that does not exist. |
+| `Unknown model.volumetric projection = "X".` | Not `constant` or `linear`. |
+| `model.volumetric projection with the material of block "B": ...` | The block's material has no volumetric-isochoric split. |
 | `Missing [model.material] section in input.` | No `material` under `model`. |
 | `Missing [model.material.blocks] mapping.` | No `blocks` under `material`. |
 | `[model.material.blocks] is empty; ...` | `blocks` present but with no entries. |

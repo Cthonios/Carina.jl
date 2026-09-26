@@ -2,10 +2,21 @@
 
 **A Three-Field Hu–Washizu Tetrahedron in Logarithmic Strain.** Research note.
 
-Status: **proposal; the claim is stated as a prediction about the linearized
-plastic operator and is supported by `prototype/plastic.jl`.** Nothing is
-implemented in Carina. Norma carries an element-level prototype
-(`src/three_field.jl`) of the two unenriched pairs this note rules out.
+Status: **the claim is stated as a prediction about the linearized plastic
+operator and is supported by `prototype/plastic.jl`; the formulation is
+implemented in Carina** as the mean-dilatation reduction of the note
+(`src/projected_physics.jl`, input key `model.volumetric projection`), on the
+TETRA15 element (`Tet{EnrichedLagrange, 2}` of ReferenceFiniteElements,
+`bin/tetra15` converts TETRA4 and TETRA10 meshes), with the Simo--Hughes J2
+model of ConstitutiveModels through its volumetric--isochoric split
+(θ = J − 1).  The element-level assembly it needs is in
+FiniteElementContainers (`assembles_by_element`).  `test/projected-element.jl`
+checks energy, residual and tangent against each other, the matrix-free
+action and the diagonal kernels against the assembled matrices, and the
+affine patch test.  The nonlinear measurements of the note's "Summary of the
+evidence and open measurements" are not yet made.  Norma carries an
+element-level prototype (`src/three_field.jl`) of the two unenriched pairs
+this note rules out.
 
 ## Building
 

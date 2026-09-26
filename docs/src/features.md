@@ -117,6 +117,11 @@ convergence.
 ## Input and output
 
 - **Exodus** mesh input and result output, readable by ParaView.
+- **Projected volumetric strain** (`model.volumetric projection`): the
+  mean-dilatation formulation for near-incompressible response, with the
+  volumetric strain projected onto element-wise constant or linear functions
+  and the isochoric response evaluated pointwise; see
+  [Model](reference/model.md).
 - **Element types** HEX8, TETRA4, TETRA10 and TETRA15.  TETRA15 is the
   quadratic tetrahedron with one cubic bubble per face and one quartic
   interior bubble in a nodal basis; `bin/tetra15 in.g out.g` converts a

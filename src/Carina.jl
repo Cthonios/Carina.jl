@@ -37,6 +37,7 @@ include("materials.jl")
 include("input_parsing.jl")
 include("initialization.jl")
 include("io.jl")
+include("projected_physics.jl")
 include("mesh_tools.jl")
 include("simulation.jl")
 
@@ -54,6 +55,7 @@ export default_nonlinear_status_test, default_linear_status_test
 
 # Physics
 export SolidMechanics
+export ProjectedSolidMechanics
 export create_solid_mechanics_properties
 
 # Integrators

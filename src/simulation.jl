@@ -123,7 +123,23 @@ function create_simulation(dict::Dict{String,Any}, basedir::String="";
     end
 
     block_syms = Tuple(Symbol(m.block) for m in materials)
-    physics = NamedTuple{block_syms}(Tuple(SolidMechanics(m.cm) for m in materials))
+    projection = _parse_volumetric_projection(dict)
+    if projection === nothing
+        physics = NamedTuple{block_syms}(Tuple(SolidMechanics(m.cm) for m in materials))
+    else
+        # `ProjectedSolidMechanics` refuses a model without the volumetric-
+        # isochoric split; name the block in that case.
+        physics = NamedTuple{block_syms}(Tuple(
+            try
+                ProjectedSolidMechanics(m.cm, projection)
+            catch err
+                err isa ErrorException || rethrow()
+                error("model.volumetric projection with the material of block " *
+                      "\"$(m.block)\": $(err.msg)")
+            end for m in materials))
+        _carina_log(0, :setup, "Volumetric projection: " *
+                    (projection == 0 ? "element-wise constant" : "element-wise linear"))
+    end
     props   = NamedTuple{block_syms}(
         Tuple(create_solid_mechanics_properties(m.cm, m.props_inputs) for m in materials))
 
