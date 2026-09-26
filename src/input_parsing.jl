@@ -1490,7 +1490,7 @@ function _parse_neumann_bcs(dict)
             # FEC's Neumann convention adds f_val to the residual R (which is
             # F_int − F_ext), so a positive user traction must be negated.
             var_sym  = _component_to_string(entry["component"])
-            comp_idx = var_sym === :displ_x ? 1 : var_sym === :displ_y ? 2 : 3
+            comp_idx = _component_index(var_sym)
             scalar   = _make_function(entry["function"])
             func = let idx = comp_idx, f = scalar
                 (coords, t) -> begin
@@ -1629,7 +1629,7 @@ function _parse_body_forces(dict)
     for (i, entry) in enumerate(entries)
         _require_keys(entry, ("component", "function"), "body force entry $i")
         var_sym  = _component_to_string(entry["component"])
-        comp_idx = var_sym === :displ_x ? 1 : var_sym === :displ_y ? 2 : 3
+        comp_idx = _component_index(var_sym)
         scalar   = _make_function(entry["function"])
         func = let idx = comp_idx, f = scalar
             (coords, t) -> begin
@@ -1686,6 +1686,16 @@ function _component_to_string(comp::String)
     c == "y" && return "displ_y"
     c == "z" && return "displ_z"
     error("Unknown component \"$comp\". Expected x, y, or z.")
+end
+
+# The index of a displacement component named by `_component_to_string`.
+# (The comparison used to be against Symbols while the names are Strings, so
+# it always fell through to 3: every traction and point load acted in z.)
+function _component_index(var_name::String)
+    var_name == "displ_x" && return 1
+    var_name == "displ_y" && return 2
+    var_name == "displ_z" && return 3
+    error("Unknown displacement component \"$var_name\".")
 end
 
 # Variable namespace used by every YAML expression Carina builds.
