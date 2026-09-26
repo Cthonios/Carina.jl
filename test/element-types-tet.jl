@@ -1,4 +1,10 @@
-# Tetrahedral element coverage: TETRA4 and TETRA10.
+# Tetrahedral element coverage: TETRA4, TETRA10 and TETRA15.
+#
+# TETRA15 is the quadratic tetrahedron with one cubic bubble per face and one
+# quartic interior bubble in a nodal basis (Tet{EnrichedLagrange, 2} of
+# ReferenceFiniteElements).  Its mesh is produced from the TETRA10 cube by
+# `tetra15_mesh` (bin/tetra15), and the first test set below checks that
+# conversion against the shipped mesh.
 #
 # Carina inherited tet support from FEC and RFE and never exercised it: before
 # this file there was no tet mesh, no tet example and no tet test in the
@@ -30,7 +36,8 @@
 
     # ----- the meshes are what they claim to be ------------------------------
     @testset "meshes read with the expected element types" begin
-        for (v, etype, p) in (("tet4", "TETRA4", 1), ("tet10", "TETRA10", 2))
+        for (v, etype, p) in (("tet4", "TETRA4", 1), ("tet10", "TETRA10", 2),
+                              ("tet15", "TETRA15", 2))
             m = Carina.FEC.UnstructuredMesh(joinpath(mesh_dir(v), "cube.g"))
             @test m.element_types["cube"] == etype
             # Both meshes carry the same six named sets as the hex cube, so the
@@ -50,6 +57,63 @@
         # ...and the coarse meshes are as weak as the comments say.
         @test interior_node_count(joinpath(mesh_dir("tet4"), "cube.g")) == 1
         @test interior_node_count(joinpath(mesh_dir("tet10"), "cube.g")) == 28
+    end
+
+    # ----- TETRA15 conversion -------------------------------------------------
+    # The shipped cube-tet15 mesh is the converted cube-tet10 mesh; the
+    # conversion must reproduce it, place every face node at the centroid of
+    # its face, extend each node set by the face nodes on it, and yield side
+    # sets whose seven nodes per side are all in range (the Exodus library
+    # leaves the seventh unwritten; FEC fills it from the connectivity).
+    @testset "TETRA15 conversion" begin
+        shipped = Carina.FEC.UnstructuredMesh(joinpath(mesh_dir("tet15"), "cube.g"))
+        mktempdir() do dir
+            out = joinpath(dir, "cube15.g")
+            n = Carina.tetra15_mesh(joinpath(mesh_dir("tet10"), "cube.g"), out)
+            @test n == 297                    # 126 + 122 faces + 49 centroids
+            m = Carina.FEC.UnstructuredMesh(out)
+            @test m.element_types["cube"] == "TETRA15"
+            @test m.element_conns["cube"] == shipped.element_conns["cube"]
+            @test m.nodal_coords.data ≈ shipped.nodal_coords.data
+
+            X = m.nodal_coords
+            c = m.element_conns["cube"]
+            # face node f lies at the centroid of its face; the faces of the
+            # Exodus order are 1-3-2, 2-3-4, 1-4-3, 1-2-4 for nodes 11-14
+            faces = ((1, 3, 2), (2, 3, 4), (1, 4, 3), (1, 2, 4))
+            worst = 0.0
+            for e in axes(c, 2), (f, (a, b, d)) in enumerate(faces)
+                centroid = (X[:, c[a, e]] .+ X[:, c[b, e]] .+ X[:, c[d, e]]) ./ 3
+                worst = max(worst, maximum(abs, X[:, c[10 + f, e]] .- centroid))
+                centroid = sum(X[:, c[i, e]] for i in 1:4) ./ 4
+                worst = max(worst, maximum(abs, X[:, c[15, e]] .- centroid))
+            end
+            @test worst < 1e-14
+            # shared faces share their node
+            @test length(unique(vec(c[11:14, :]))) == 122
+            # node sets: 25 TETRA10 nodes plus the 8 boundary faces of each side
+            for s in ("nsx-", "nsx+", "nsy-", "nsy+", "nsz-", "nsz+")
+                @test length(m.nodeset_nodes[s]) == 33
+            end
+            # side sets: seven nodes per side, all valid, the seventh a face node
+            for s in ("ssx-", "ssx+", "ssy-", "ssy+", "ssz-", "ssz+")
+                @test length(m.sideset_elems[s]) == 8
+                sn = reshape(m.sideset_side_nodes[s], 7, 8)
+                @test all(1 .<= sn .<= 297)
+                @test all(sn[7, :] .> 126)
+                @test length(m.sideset_nodes[s]) == 56
+            end
+            # a face node in a node set is on that face of the cube
+            lo = minimum(X)
+            for node in m.nodeset_nodes["nsx-"]
+                @test abs(X[1, node] - lo) < 1e-12
+            end
+        end
+        # only tetrahedra are converted
+        hex = joinpath(@__DIR__, "..", "examples", "meshes", "cube", "cube.g")
+        mktempdir() do dir
+            @test_throws ErrorException Carina.tetra15_mesh(hex, joinpath(dir, "x.g"))
+        end
     end
 
     # ----- patch test -------------------------------------------------------
@@ -160,7 +224,7 @@ solver:
         # mesh its elements are genuinely distorted -- which is the case a patch
         # test exists to catch, since an element can pass on a regular grid and
         # fail off it.
-        for v in ("hex8", "tet4", "tet4-fine", "tet10")
+        for v in ("hex8", "tet4", "tet4-fine", "tet10", "tet15")
             mktempdir() do dir
                 cp_example(patch_mesh(v), joinpath(dir, "cube.g"))
                 path = joinpath(dir, "patch.yaml")
@@ -187,6 +251,7 @@ solver:
                 #   hex8       1 interior node,   3 unknowns
                 #   tet4       1 interior node,   3 unknowns
                 #   tet10     28 interior nodes, 84 unknowns
+                #   tet15    150 interior nodes, 450 unknowns (28 + 73 faces + 49)
                 #   tet4-fine 988 interior nodes, 2964 unknowns, distorted
                 #
                 # The first two are the classical Irons patch test in its
@@ -209,7 +274,7 @@ solver:
     # the lateral faces are on rollers, so max u_z is exact and the lateral
     # contraction follows Poisson's ratio.
     @testset "quasi-static cube" begin
-        for v in ("tet4", "tet10")
+        for v in ("tet4", "tet10", "tet15")
             example_dir = joinpath(@__DIR__, "..", "examples", "mechanics",
                                    "quasistatic", "cube-$v")
             mktempdir() do dir
@@ -217,7 +282,16 @@ solver:
                 cp_example(joinpath(example_dir, "cube.yaml"), joinpath(dir, "cube.yaml"))
                 sim = Carina.run(joinpath(dir, "cube.yaml"))
                 mx = maximum_components(sim)
-                avg = average_components(sim)
+                # The TETRA15 mesh is the TETRA10 mesh with face and centroid
+                # nodes appended, so the average over its first 126 nodes is
+                # taken over the same points as the TETRA10 average; the added
+                # nodes shift the nodal mean of z from 0.50 to 0.47.
+                avg = if v == "tet15"
+                    u = _field_matrix(sim)
+                    [mean(u[i, 1:126]) for i in 1:3]
+                else
+                    average_components(sim)
+                end
                 # Prescribed on the top face, so this is exact for any element.
                 @test mx[3] ≈ 1.00e-3 rtol=1e-8
                 # Poisson contraction.  Nodal averages are not volume averages
@@ -235,7 +309,10 @@ solver:
     # The row-sum lumped mass rho * int(N_a) is positive for linear elements and
     # negative at the vertices of quadratic ones.  Explicit integration divides
     # by it, so a negative entry silently reverses the acceleration there.
-    # TETRA4 must work; TETRA10 must be refused rather than run.
+    # TETRA4 must work; TETRA10 must be refused rather than run.  TETRA15 in
+    # its nodal basis has positive row sums: on the reference element,
+    # int(N_a) / |T| = 0.0202 at a vertex, 0.0381 at an edge node, 0.0964 at
+    # a face node and 0.3048 at the centroid (14-point rule), so it runs.
     @testset "explicit integration and the lumped mass" begin
         explicit_deck(v) = """
 type: single
@@ -261,14 +338,16 @@ boundary conditions:
       component: z
       function: "0.0"
 """
-        mktempdir() do dir
-            cp_example(joinpath(mesh_dir("tet4"), "cube.g"), joinpath(dir, "cube.g"))
-            path = joinpath(dir, "ex.yaml")
-            open(io -> write(io, explicit_deck("tet4")), path, "w")
-            sim = Carina.run(path)
-            m = adapt(Array, sim.integrator.m_lumped)
-            @test all(>(0.0), m)
-            @test isfinite(sum(m))
+        for v in ("tet4", "tet15")
+            mktempdir() do dir
+                cp_example(joinpath(mesh_dir(v), "cube.g"), joinpath(dir, "cube.g"))
+                path = joinpath(dir, "ex.yaml")
+                open(io -> write(io, explicit_deck(v)), path, "w")
+                sim = Carina.run(path)
+                m = adapt(Array, sim.integrator.m_lumped)
+                @test all(>(0.0), m)
+                @test isfinite(sum(m))
+            end
         end
 
         mktempdir() do dir

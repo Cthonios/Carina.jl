@@ -143,7 +143,7 @@ function create_simulation(dict::Dict{String,Any}, basedir::String="";
     # parsers each read one sub-key, so none of them can own this check.
     _validate_ic_section(dict)
 
-    q_type, q_order = _parse_quadrature(dict)
+    q_type, q_order = _parse_quadrature(dict, values(mesh.element_types))
     V       = @carina_timed "Function space" FEC.FunctionSpace(
                                 mesh, FEC.H1Field, FEC.Lagrange, q_type;
                                 q_degree=q_order)

@@ -100,6 +100,17 @@
 
         # Omitting the section keeps the default rule.
         @test Carina._parse_quadrature(Dict{String,Any}()) == (Carina.RFE.GaussLegendre, 2)
+
+        # A TETRA15 block raises the default to the lowest rank-sufficient
+        # order and refuses a lower one.
+        tet15 = ["TETRA15"]
+        @test Carina._parse_quadrature(Dict{String,Any}(), tet15) == (Carina.RFE.GaussLegendre, 5)
+        @test Carina._parse_quadrature(Dict{String,Any}(
+            "quadrature" => Dict{String,Any}("type" => "gll")), tet15)[2] == 5
+        @test_throws ErrorException Carina._parse_quadrature(Dict{String,Any}(
+            "quadrature" => Dict{String,Any}("order" => 2)), tet15)
+        @test Carina._parse_quadrature(Dict{String,Any}(
+            "quadrature" => Dict{String,Any}("order" => 2)), ["HEX8", "TETRA10"])[2] == 2
     end
 
     # ----- initial conditions -----------------------------------------------

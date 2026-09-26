@@ -117,6 +117,16 @@ convergence.
 ## Input and output
 
 - **Exodus** mesh input and result output, readable by ParaView.
+- **Element types** HEX8, TETRA4, TETRA10 and TETRA15.  TETRA15 is the
+  quadratic tetrahedron with one cubic bubble per face and one quartic
+  interior bubble in a nodal basis; `bin/tetra15 in.g out.g` converts a
+  TETRA4 or TETRA10 mesh to it (faces and centroids get nodes, node sets are
+  extended, side sets are kept).  TETRA15 requires quadrature order 5 (the
+  default when the mesh has such a block).  Its row-sum lumped mass is
+  positive at every node (0.0202 of the element mass at a vertex, 0.0381 at
+  an edge node, 0.0964 at a face node, 0.3048 at the centroid), so the
+  explicit integrator accepts it; TETRA10 is refused there because its
+  vertex masses are negative.
 - **YAML-driven** setup — no recompilation to change a problem.
 - **Selectable output fields:** displacement (always), velocity, acceleration,
   per-quadrature-point stress, deformation gradient, and constitutive state.

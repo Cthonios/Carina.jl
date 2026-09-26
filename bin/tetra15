@@ -1,0 +1,24 @@
+#!/bin/bash
+# Converts a TETRA4 or TETRA10 Exodus mesh to TETRA15.
+#
+# Usage:
+#   tetra15 input.g output.g
+#
+# Runs in the launcher environment in bin/ (bin/Project.toml), like `carina`.
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+
+if [[ $# -ne 2 ]]; then
+    echo "Usage: tetra15 <input.g> <output.g>" >&2
+    exit 1
+fi
+
+if [[ ! -f "$SCRIPT_DIR/Manifest.toml" ]]; then
+    echo "tetra15: first run — instantiating launcher environment (one-time)..." >&2
+    julia --project="$SCRIPT_DIR" -e 'import Pkg; Pkg.instantiate()' || {
+        echo "tetra15: failed to instantiate the launcher environment" >&2
+        exit 1
+    }
+fi
+
+exec julia --project="$SCRIPT_DIR" "$SCRIPT_DIR/tetra15.jl" "$@"

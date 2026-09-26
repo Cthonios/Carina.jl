@@ -396,13 +396,30 @@ end
 
 # ---- quadrature ----
 
-function _parse_quadrature(dict)
+# The lowest quadrature degree at which the stiffness of the TETRA15 element
+# (the quadratic tetrahedron with a face bubble per face and an interior
+# bubble) has full rank: degree 5, the 14-point rule.  The degree-2 and
+# degree-3 rules leave 21 zero-energy modes per element.
+const _TETRA15_MIN_QUADRATURE_ORDER = 5
+
+# `element_types` are the Exodus element names of the mesh blocks; the
+# default order is the lowest one that is rank-sufficient for every block,
+# and an order below that with TETRA15 in the mesh is refused.
+function _parse_quadrature(dict, element_types = String[])
+    has_tet15 = any(uppercase(String(t)) == "TETRA15" for t in element_types)
+    default_order = has_tet15 ? _TETRA15_MIN_QUADRATURE_ORDER : 2
     q_section = get(dict, "quadrature", nothing)
     if q_section === nothing
-        return RFE.GaussLegendre, 2
+        return RFE.GaussLegendre, default_order
     end
     type_str = lowercase(strip(get(q_section, "type", "gauss legendre")))
-    order    = Int(get(q_section, "order", 2))
+    order    = Int(get(q_section, "order", default_order))
+    if has_tet15 && order < _TETRA15_MIN_QUADRATURE_ORDER
+        error("quadrature.order = $order, but the mesh has a TETRA15 block, whose " *
+              "stiffness is rank-deficient below order $_TETRA15_MIN_QUADRATURE_ORDER " *
+              "(21 zero-energy modes per element).  Use order " *
+              "$_TETRA15_MIN_QUADRATURE_ORDER or omit `quadrature.order`.")
+    end
     if type_str in ("gauss legendre", "gl")
         return RFE.GaussLegendre, order
     elseif type_str in ("gauss lobatto legendre", "gll")
@@ -751,6 +768,9 @@ end
 # while computing nothing meaningful.  Measured on the shipped
 # cube-tet10 mesh: 72 of 353 entries non-positive, minimum -25.7.
 #
+# The TETRA15 element (quadratic plus face and interior bubbles, nodal basis)
+# has positive row sums at all fifteen nodes, so it passes this check.
+#
 # The remedy in production codes is HRZ (diagonal-scaling) lumping, which uses
 # the consistent-mass diagonal ρ ∫ N_a² dV -- positive by construction -- and
 # rescales it per element to preserve the element mass.  That needs an
@@ -785,9 +805,7 @@ end
 function _lumped_mass_element_types(asm_cpu)
     try
         ref_fes = FEC.function_space(asm_cpu.dof).ref_fes
-        names = unique(string(nameof(typeof(r).parameters[1].name.wrapper)) *
-                       "{Lagrange, " * string(typeof(r).parameters[1].parameters[2]) * "}"
-                       for r in values(ref_fes))
+        names = unique(string(typeof(r.element)) for r in values(ref_fes))
         return join(sort(names), ", ")
     catch
         return "unknown"

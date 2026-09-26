@@ -37,6 +37,7 @@ include("materials.jl")
 include("input_parsing.jl")
 include("initialization.jl")
 include("io.jl")
+include("mesh_tools.jl")
 include("simulation.jl")
 
 # ---------------------------------------------------------------------------
@@ -65,6 +66,7 @@ export NewmarkIntegrator
 export SingleDomainSimulation
 export TimeController
 export create_simulation
+export tetra15_mesh
 export evolve!
 
 # Entry point
