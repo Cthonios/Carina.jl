@@ -38,7 +38,7 @@
 #
 # Usage (from the Carina root; the threads serve Carina's element loops):
 #   julia -t 12 --project=. benchmark/hw3l/cook/run.jl [--h 8,4] [--cases elastic,plastic]
-#        [--elements tet10,tet15,tet15-p1,tet15-p0,lcm-tet10,lcm-ct] [--stress] [--report]
+#        [--elements tet10,tet15,tet15-p1,tet15-p0,lcm-tet10,lcm-ct] [--stress] [--no-line-search] [--report]
 # Results are appended to results.tsv; --report writes RESULTS.md from it.
 
 using Carina
@@ -80,6 +80,13 @@ const ALBANY_RANKS = Dict("elastic" => parse(Int, get(ENV, "COOK_RANKS_ELASTIC",
 # every tenth of the load; Albany: every continuation step), for the pressure
 # figures.  Off by default: at h = 2 the output grows by gigabytes.
 const STRESS = Ref(false)
+# --no-line-search turns off Carina's backtracking line search.  The line
+# search requires the residual norm to decrease; at ν = 0.4999 a converging
+# Newton step first raises it by about three orders of magnitude (κ times the
+# square of the volume error the step leaves), so the search cuts every step
+# to α ≈ 0.004.  At h = 8 without it: 89 Newton iterations instead of 6366
+# (TETRA10), same result to nine digits; Albany takes full steps as well.
+const LINE_SEARCH = Ref(true)
 const THICKNESS = 10.0
 const STEPS = 10
 
@@ -188,7 +195,7 @@ boundary conditions:
       function: "$(m.q) * t"
 solver:
   type: newton
-  linear solver:
+$(LINE_SEARCH[] ? "" : "  use line search: false\n")  linear solver:
     type: direct
   termination:
     fail when any:
@@ -522,6 +529,8 @@ function main(args)
             report(); return
         elseif args[i] == "--stress"
             STRESS[] = true; i += 1; continue
+        elseif args[i] == "--no-line-search"
+            LINE_SEARCH[] = false; i += 1; continue
         end
         haskey(opts, args[i]) || error("unknown option $(args[i])")
         opts[args[i]] = args[i + 1]; i += 2
