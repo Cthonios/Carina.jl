@@ -1,0 +1,26 @@
+# Cook's membrane in three dimensions: the trapezoid with corners (0, 0),
+# (48, 44), (48, 60), (0, 44) in the x-y plane, extruded by the thickness t
+# in z.  Clamped on the face x = 0, loaded on the face x = 48.
+# Parameters (aprepro): h = element size, t = thickness, out = output file.
+#   cubit -batch -nographics -nojournal -noecho -information off \
+#     "h=4" "t=10" "out='meshes/cook-h4.g'" cook.jou
+reset
+create vertex 0 0 0
+create vertex 48 44 0
+create vertex 48 60 0
+create vertex 0 44 0
+create surface vertex 1 2 3 4
+sweep surface 1 vector 0 0 1 distance {t}
+volume all size {h}
+volume all scheme tetmesh
+mesh volume all
+block 1 volume 1
+block 1 name "membrane"
+block 1 element type TETRA10
+nodeset 1 surface with x_coord < 0.01
+nodeset 1 name "clamp"
+sideset 1 surface with x_coord > 47.99
+sideset 1 name "load"
+nodeset 2 surface with x_coord > 47.99
+nodeset 2 name "load_nodes"
+export mesh "{out}" overwrite
