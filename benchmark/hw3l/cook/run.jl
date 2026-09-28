@@ -51,12 +51,22 @@ const DIR    = @__DIR__
 const MESHES = joinpath(DIR, "meshes")
 const RUNS   = joinpath(DIR, "runs")
 const CUBIT  = "/usr/local/cubit/cubit"
-const ALBANY = expanduser("~/LCM/lcm-build-serial-gcc-release/src/Albany")
+# Host-specific paths and settings; the environment variables override them
+# on another host (Rigel):
+#   COOK_ALBANY         Albany executable
+#   COOK_DECOMP         SEACAS decomp script
+#   COOK_MPI_BIN        directory of mpirun;  COOK_MPI_LIB  its libraries
+#   COOK_RANKS_ELASTIC  MPI ranks for Albany in the elastic case (default 1)
+#   COOK_RANKS_PLASTIC  MPI ranks for Albany in the plastic case (default 12)
+#   COOK_ALBANY_DIRECT  Amesos2 solver type for Albany on any rank count,
+#                       e.g. SuperLU_DIST or MUMPS; without it, one rank uses
+#                       KLU2 and several ranks use GMRES with MueLu
+const ALBANY = expanduser(get(ENV, "COOK_ALBANY", "~/LCM/lcm-build-serial-gcc-release/src/Albany"))
 # SEACAS decomp (nem_slice + nem_spread), built from ~/Repos/seacas without
 # Ioss, and the OpenMPI of the system (module mpi/openmpi-x86_64).
-const DECOMP = expanduser("~/LCM/seacas-tools/bin/decomp")
-const MPI_BIN = "/usr/lib64/openmpi/bin"
-const MPI_LIB = "/usr/lib64/openmpi/lib"
+const DECOMP = expanduser(get(ENV, "COOK_DECOMP", "~/LCM/seacas-tools/bin/decomp"))
+const MPI_BIN = get(ENV, "COOK_MPI_BIN", "/usr/lib64/openmpi/bin")
+const MPI_LIB = get(ENV, "COOK_MPI_LIB", "/usr/lib64/openmpi/lib")
 # MPI ranks for Albany in the plastic case.  The elastic case runs Albany on
 # one rank with the KLU2 direct solver: KLU2 fails on a distributed matrix in
 # this build, and the multigrid-preconditioned GMRES degrades Newton at
@@ -64,7 +74,8 @@ const MPI_LIB = "/usr/lib64/openmpi/lib"
 # ranks are slower than one.  In the plastic case (ν = 0.29) GMRES with the
 # multigrid preconditioner keeps Newton unchanged and eight ranks were six
 # times faster than the serial direct solver.
-const ALBANY_RANKS = Dict("elastic" => 1, "plastic" => 12)
+const ALBANY_RANKS = Dict("elastic" => parse(Int, get(ENV, "COOK_RANKS_ELASTIC", "1")),
+                          "plastic" => parse(Int, get(ENV, "COOK_RANKS_PLASTIC", "12")))
 # --stress writes the Cauchy stress at the quadrature points (Carina: frames
 # every tenth of the load; Albany: every continuation step), for the pressure
 # figures.  Off by default: at h = 2 the output grows by gigabytes.
@@ -243,11 +254,12 @@ end
 # smoothed-aggregation multigrid preconditioner (tolerance 1e-10, at which
 # Newton is unchanged) on several.
 function lcm_linear_solver(np)
-    np == 1 && return """
+    direct = get(ENV, "COOK_ALBANY_DIRECT", np == 1 ? "KLU2" : "")
+    !isempty(direct) && return """
               Linear Solver Type: Amesos2
               Linear Solver Types:
                 Amesos2:
-                  Solver Type: KLU2
+                  Solver Type: $direct
               Preconditioner Type: None
 """
     return """
