@@ -196,6 +196,42 @@ hide them from the lowest three.
 With the base alone fixed the CR pair has none at any `N`. Output kept in
 `plastic_zone_out.txt`.
 
+## `composite_tet.jl` — the composite tetrahedron of Albany-LCM, same measurement
+
+The element as Albany builds it with `Use Composite Tet 10`: ten nodes,
+displacement piecewise linear on twelve subtetrahedra (Intrepid2
+`Basis_HGRAD_TET_COMP12_FEM`, value at the centroid the mean of the six
+midpoint values), and in the constitutive update the L2 projection of that
+piecewise-constant gradient onto linear functions of the element, which is
+what `OPERATOR_GRAD` of that basis returns (the script checks the identity to
+8e-15). Albany evaluates the response at the five points of the Intrepid2
+degree-3 rule, the rule of the Cook runs. Two volumetric variants: (a)
+`Weighted Volume Average J` (Kinematics_Def.hpp), J replaced by its element
+mean, whose constraint as κ → ∞ is a P0 pressure on the projected
+dilatation; (b) J at each point, whose constraint tr ε̃ = 0 at five points is
+tr ε̃ ≡ 0, a P1disc pressure. The deviatoric form uses the projected gradient;
+the H1 seminorm and r_v use the gradient of the displacement field itself,
+because r_v measures the volume change the continuum would charge. With the
+quadratic element substituted the harness reproduces `assemble_all` to 2e-15
+and the `P2/P0` entry of `plastic_out.txt` (0.208, 0.195, 0.218 at `N = 3`).
+
+**Result**, all-Dirichlet cube, β = 1, axial flow direction:
+
+- (a) volume-averaged J: r_v of the three lowest plastic modes 0.22–0.25 at
+  `N = 3, 4, 5`, no decay, 20 of the 20 lowest modes spurious from `N = 4` on;
+  in the confined zones at `N = 5`, 17 (indentation) and 19 (twist). The
+  projected dilatation of these modes is 0.147: nonzero pointwise, zero in
+  the element mean. The element's elastic constant on ker G_h is 0.038 at
+  `N = 5` against 0.5 for the Lagrange pairs, because the projection removes
+  part of the deviatoric energy of the field.
+- (b) pointwise J: ker G_h has dimension 0, 0, 2, 16 at `N = 2..5` (P2/P1disc:
+  12 at `N = 3`, 72 at `N = 4`): the element locks, and its few kernel modes
+  (r_v 0.03–0.05, none above 0.1) are too few for a count to mean anything.
+
+The volume average removes the locking of (b) and admits the spurious
+dilatational modes of a constant pressure, with larger counts than `P2/P0`
+(7 and 15 at `N = 5`). Output kept in `composite_tet_out.txt`.
+
 ## `quadrature.jl` — which rule the enriched element needs
 
 On one element (reference, distorted with `det J` in [0.55, 1.19], and a
@@ -282,5 +318,5 @@ now right.
 
 `beta_out.txt`, `locking_out.txt`, `materials_out.txt`, `checks_out.txt`,
 `softmode_out.txt`, `plastic_out.txt`, `deformed_out.txt`, `plastic_zone_out.txt`,
-`quadrature_out.txt`, `basis_out.txt` are the runs the note's tables were
+`quadrature_out.txt`, `basis_out.txt`, `composite_tet_out.txt` are the runs the note's tables were
 transcribed from.

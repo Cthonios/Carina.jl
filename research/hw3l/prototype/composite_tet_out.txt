@@ -1,0 +1,60 @@
+Check 1: comp12_grad equals the L2 projection of the subtetrahedron gradients
+         onto linear functions; largest difference 7.73e-15
+
+Check 2: with element = :p2 the harness reproduces assemble_all (P2/P0, N = 3)
+         elastic: largest entry difference of Kdev, Kh1, Kdiv, G = 1.55e-15
+         axial, beta = 1: largest entry difference of Kdev, Kh1, Kdiv, G = 1.55e-15
+         P2/P0, N = 3, axial, beta = 1: r_v of the three lowest plastic modes 0.208, 0.195, 0.218 (plastic_out.txt: 0.208, 0.195, 0.218)
+
+Uniform flow, beta = 1, all-Dirichlet Freudenthal cube, mu = 1.  lam_i: i-th
+generalized eigenvalue of the deviatoric form on ker G_h against the H1
+seminorm of the field; r_v: dilatation of the field; r_v~: of the projected
+gradient.  n_spur/20 counts the twenty lowest modes with r_v > 0.1.
+
+flow: axial  n = dev(e3 e3)/|.|
+pair                         N  dim ker lam1 el  lam1 pl  lam2 pl  lam3 pl  r_v pl1  r_v pl2  r_v pl3  r_v~ pl1 n_spur/20
+--------------------------------------------------------------------------------------------------------------------------
+CT, volume-averaged J (P0)   2  37      0.0453   0.0179   0.026    0.0302   0.18     0.0989   0.114    0.112    19
+CT, volume-averaged J (P0)   3  217     0.0408   0.0133   0.0145   0.0146   0.221    0.245    0.217    0.143    16
+CT, volume-averaged J (P0)   4  649     0.0388   0.0119   0.0129   0.0129   0.224    0.26     0.223    0.147    20
+CT, volume-averaged J (P0)   5  1441    0.0378   0.0114   0.012    0.012    0.221    0.254    0.227    0.147    20
+CT, pointwise J (P1disc)     2  0       --       --       --       --       --       --       --       --       0
+CT, pointwise J (P1disc)     3  0       --       --       --       --       --       --       --       --       0
+CT, pointwise J (P1disc)     4  2       0.0557   0.0427   0.0519   --       0.0393   0.02     --       1.64e-17 0
+CT, pointwise J (P1disc)     5  16      0.0538   0.0377   0.0385   0.0433   0.0344   0.0384   0.0465   -2.47e-180
+
+flow: shear  n = sym(e1 e2)/sqrt2
+pair                         N  dim ker lam1 el  lam1 pl  lam2 pl  lam3 pl  r_v pl1  r_v pl2  r_v pl3  r_v~ pl1 n_spur/20
+--------------------------------------------------------------------------------------------------------------------------
+CT, volume-averaged J (P0)   2  37      0.0453   0.0224   0.0258   0.0351   0.131    0.247    0.125    0.0663   16
+CT, volume-averaged J (P0)   3  217     0.0408   0.0146   0.0165   0.0167   0.108    0.143    0.108    0.046    17
+CT, volume-averaged J (P0)   4  649     0.0388   0.00952  0.0106   0.0113   0.0716   0.0843   0.0892   0.0267   8
+CT, volume-averaged J (P0)   5  1441    0.0378   0.00721  0.00724  0.00788  0.0628   0.0577   0.0667   0.0238   1
+CT, pointwise J (P1disc)     2  0       --       --       --       --       --       --       --       --       0
+CT, pointwise J (P1disc)     3  0       --       --       --       --       --       --       --       --       0
+CT, pointwise J (P1disc)     4  2       0.0557   0.0457   0.0585   --       0.0393   0.02     --       1.81e-17 0
+CT, pointwise J (P1disc)     5  16      0.0538   0.0379   0.0418   0.0426   0.0433   0.0419   0.0463   2.05e-18 0
+
+Confined plastic zone with varying flow direction (plastic_zone.jl fields),
+whole boundary fixed.  n_spur/20 as above.
+
+field: punch
+pair                         N  lam1 pl  r_v pl1  r_v pl2  r_v pl3  n_spur/20
+--------------------------------------------------------------------------------
+CT, volume-averaged J (P0)   3  0.0181   0.224    0.137    0.256    20
+CT, volume-averaged J (P0)   4  0.0139   0.166    0.216    0.1      20
+CT, volume-averaged J (P0)   5  0.00943  0.0652   0.0646   0.11     17
+CT, pointwise J (P1disc)     3  --       --       --       --       0
+CT, pointwise J (P1disc)     4  0.0454   0.0393   0.02     --       0
+CT, pointwise J (P1disc)     5  0.0417   0.0378   0.0438   0.0488   0
+
+field: twist 90
+pair                         N  lam1 pl  r_v pl1  r_v pl2  r_v pl3  n_spur/20
+--------------------------------------------------------------------------------
+CT, volume-averaged J (P0)   3  0.0158   0.344    0.33     0.164    20
+CT, volume-averaged J (P0)   4  0.0134   0.392    0.314    0.161    20
+CT, volume-averaged J (P0)   5  0.0103   0.0778   0.353    0.146    19
+CT, pointwise J (P1disc)     3  --       --       --       --       0
+CT, pointwise J (P1disc)     4  0.0453   0.0392   0.0202   --       0
+CT, pointwise J (P1disc)     5  0.0404   0.0376   0.0385   0.0427   0
+
