@@ -17,10 +17,10 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from matplotlib.collections import PolyCollection
 
-ELEMENTS = [("tet10", "TETRA10 (Carina)"), ("lcm-tet10", "TETRA10 (Albany)"),
-            ("tet15", "TETRA15"), ("tet15-p1", "TETRA15, linear projection"),
-            ("tet15-p0", "TETRA15, constant projection"),
-            ("lcm-ct", "Composite tet. (Albany)")]
+ELEMENTS = [("tet10", "TETRA10\n(Carina)"), ("lcm-tet10", "TETRA10\n(Albany)"),
+            ("tet15", "TETRA15\n(pointwise)"), ("tet15-p1", "TETRA15\nlinear projection"),
+            ("tet15-p0", "TETRA15\nconstant projection"),
+            ("lcm-ct", "Composite tetrahedron\n(Albany)")]
 
 
 def read(path, cols):
@@ -62,13 +62,14 @@ def main(case, h, d, out):
         ax.add_collection(pc)
         ax.set_xlim(lo[0], hi[0]); ax.set_ylim(lo[1], hi[1])
         ax.set_aspect("equal"); ax.set_axis_off()
-        ax.set_title(label, fontsize=12)
-        ax.text(0.0, -0.02, f"front face: p from {val.min():.3g} to {val.max():.3g}", transform=ax.transAxes,
-                fontsize=8, color="#555555")
+        ax.set_title(label, fontsize=15)
+        ax.text(0.0, -0.02, f"p: {val.min():.3g} to {val.max():.3g}", transform=ax.transAxes,
+                fontsize=12, color="#555555")
     for ax in axes[n:]:
         ax.set_axis_off()
     cb = fig.colorbar(pc, ax=axes.tolist(), orientation="horizontal", fraction=0.04, pad=0.04, shrink=0.6)
-    cb.set_label("pressure  p = −tr σ / 3  (element mean)", fontsize=11)
+    cb.set_label("pressure  p = −tr σ / 3  (element mean)", fontsize=16)
+    cb.ax.tick_params(labelsize=14)
     fig.savefig(out, bbox_inches="tight", transparent=True)
     print(out, "panels:", n, "color limit:", lim)
 
