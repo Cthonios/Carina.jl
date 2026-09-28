@@ -65,13 +65,19 @@ named in `run.jl`:
   16 threads) and Albany with serial KLU2 on Sirius (26 496 s for TETRA10,
   28 867 s for the composite tetrahedron).  The two TETRA10 results differ
   by 3e-7.
-- Pressure at h = 2: `extract_pressure.jl` writes the element-mean pressure
-  p = −tr σ / 3 at full load, and `render_pressure.py` draws it on the
-  front face of the deformed membrane.  In the elastic case the pointwise
-  TETRA10 and TETRA15 show element-to-element oscillation of p along the
-  clamped edge (front-face range −12.2 to 37.2 and −12.9 to 55.4); the
-  linear and constant projections and the composite tetrahedron do not
-  (−7.43 to 26.8, −7.46 to 21.7, −6.79 to 15.2).
+- Pressure: `extract_pressure.jl` fits a polynomial to the quadrature-point
+  values of p = −tr σ / 3 in each element (quadratic for the 14-point rule of
+  TETRA15, linear for the 4-point rule of TETRA10, weighted by the rule) and
+  writes it at the ten nodes of a quadratic tetrahedron; `render_pressure.py`
+  draws it on the front face of the deformed membrane.  The fit reproduces
+  the linear and constant projections to rounding error and the pointwise
+  TETRA15 pressure to 0.11 of max |p| (h = 2, plastic).  Albany writes one
+  pressure per composite tetrahedron (equal at its five points).  In the
+  elastic case at h = 2 the pointwise TETRA10 and TETRA15 change sign inside
+  elements over the whole membrane (front-face range −226 to 211 and −512 to
+  1010); the linear projection is smooth except in the elements along the
+  clamped edge (−43 to 61), and the constant projection and the composite
+  tetrahedron give −7.5 to 22 and −9.4 to 35.
 - Plastic, traction 0.14: all elements converge to about 0.273; the spread
   shrinks from 2.3% (h = 8) to 0.5% (h = 2), with the projected and composite
   elements closest to the limit on every mesh.  At this load the plastic

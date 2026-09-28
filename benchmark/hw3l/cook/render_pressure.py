@@ -13,7 +13,8 @@ front face it is evaluated at the vertices of 16 subtriangles and interpolated
 linearly between them.  Triangles are drawn at their deformed position.
 <limit> bounds the color scale, symmetric about zero; "auto:<case>" takes the
 99th percentile of |p| over the node values of every run of <case> in
-<data-dir>, so that all figures of one case share one scale.  Color map:
+<data-dir>, and "auto:<case>:<element>,..." over the runs of the elements
+listed, so that all figures of one case share one scale.  Color map:
 ParaView's Rainbow Uniform.
 """
 import csv, glob, os, sys
@@ -142,9 +143,12 @@ def main(d, out, limit, ncol, *specs):
             faces[h] = read(os.path.join(d, f"faces-h{h}.csv"))
         panels.append((lab,) + panel(d, run, faces[h], lam, tris, phi))
     if limit.startswith("auto:"):
-        case = limit[5:]
+        case, _, els = limit[5:].partition(":")
+        pattern = [f"{case}-{e}-h*-pressure_nodes.csv" for e in els.split(",")] if els else \
+                  [f"{case}-*-pressure_nodes.csv"]
+        files = [g for pat in pattern for g in glob.glob(os.path.join(d, pat))]
         vals = np.concatenate([[float(r[f"p{k}"]) for r in read(g) for k in range(1, 11)]
-                               for g in glob.glob(os.path.join(d, f"{case}-*-pressure_nodes.csv"))])
+                               for g in files])
         lim = np.percentile(np.abs(vals), 99)
     else:
         lim = float(limit)
