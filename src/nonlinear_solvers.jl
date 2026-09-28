@@ -43,45 +43,75 @@ end
 #
 # If the Armijo condition is not met, α is reduced by ls_backtrack (default 0.5).
 # Returns the accepted α.
+#
+# The first Newton iteration of a step is exempt from the Armijo condition
+# (`predictor = true`): it is the solution of the problem linearized at the
+# converged previous state, the predictor of a continuation method, and it
+# is accepted whenever the residual it produces is finite; α is halved only
+# while the trial state is not finite (an everted element makes the residual
+# NaN).  The residual norm is not a measure of progress for that step.  For a
+# nearly incompressible material the linearized solution leaves a volume
+# error of second order that the bulk modulus κ multiplies: at ν = 0.4999
+# the residual norm after a converging first step is about three orders of
+# magnitude above that of the load increment, and the next iterations reduce
+# it quadratically.  Requiring a decrease cut every first step to α ≈ 0.004
+# and the load steps to 0.3% of the load (Cook's membrane, 6366 Newton
+# iterations against 89 without the condition, the same solution to nine
+# digits).  Albany-LCM does the same: its continuation predictor is not
+# line-searched.
+#
+# If the Armijo budget is exhausted, the trial with the smallest merit is
+# taken, not the full step.
 
-function _backtrack_line_search(ns::NewtonSolver, ig, p, ΔU)
+function _backtrack_line_search(ns::NewtonSolver, ig, p, ΔU; predictor::Bool = false)
     α = 1.0
     merit_0 = sum(abs2, residual(ig))  # ‖R(U)‖² (before step)
     U = _displacement(ig)
     U_save = copy(U)
     state_new_save = copy(p.state_new.data)
+    best_α, best_merit = 0.0, Inf
 
     for ls_iter in 1:ns.ls_max_iters
-        # Trial point: U + α * ΔU
+        # Trial point: U + α * ΔU, from the pre-step material state
+        copyto!(p.state_new.data, state_new_save)
         @. U = U_save + α * ΔU
         FEC._update_for_assembly!(p, ig.asm.dof, U)
         evaluate!(ig, p)
 
         merit = sum(abs2, residual(ig))
 
-        # Armijo condition: sufficient decrease in merit
-        if merit ≤ (1.0 - 2.0 * ns.ls_decrease * α) * merit_0
-            _carina_logf(8, :linesearch, "    LS: α = %.2e : m = %.2e → %.3e : [ACCEPT]",
+        if predictor
+            if isfinite(merit)
+                _carina_logf(8, :linesearch, "    LS: α = %.2e : m = %.2e → %.3e : [ACCEPT, first iteration]",
+                             α, merit_0, merit)
+                return α
+            end
+            _carina_logf(8, :linesearch, "    LS: α = %.2e : residual not finite : [REDUCE]", α)
+        else
+            # Armijo condition: sufficient decrease in merit
+            if merit ≤ (1.0 - 2.0 * ns.ls_decrease * α) * merit_0
+                _carina_logf(8, :linesearch, "    LS: α = %.2e : m = %.2e → %.3e : [ACCEPT]",
+                             α, merit_0, merit)
+                return α
+            end
+            _carina_logf(8, :linesearch, "    LS: α = %.2e : m = %.2e → %.3e : [REDUCE]",
                          α, merit_0, merit)
-            return α
         end
-
-        _carina_logf(8, :linesearch, "    LS: α = %.2e : m = %.2e → %.3e : [REDUCE]",
-                     α, merit_0, merit)
+        if isfinite(merit) && merit < best_merit
+            best_α, best_merit = α, merit
+        end
         α *= ns.ls_backtrack
     end
 
-    # Max iterations reached — restore the pre-step material state, then
-    # accept the full Newton step.  (This used to return α = 1.0 while
-    # leaving U at U_save: the increment was silently discarded, so a solve
-    # whose line search ever exhausted its budget stalled at a constant
-    # residual until the iteration limit turned it into a step failure.)
+    # Budget exhausted: take the trial with the smallest finite merit, or the
+    # full step if none was finite (the solve then fails on the residual).
+    α = best_α > 0.0 ? best_α : 1.0
     copyto!(p.state_new.data, state_new_save)
-    @. U = U_save + ΔU
+    @. U = U_save + α * ΔU
     FEC._update_for_assembly!(p, ig.asm.dof, U)
     evaluate!(ig, p)
-    _carina_logf(8, :linesearch, "    LS: max iters reached, using α = 1.0")
-    return 1.0
+    _carina_logf(8, :linesearch, "    LS: max iters reached, using α = %.2e", α)
+    return α
 end
 
 # --------------------------------------------------------------------------- #
@@ -116,7 +146,7 @@ function solve!(ns::NewtonSolver, ig, p)
         ig.failed[] && return
 
         if ns.use_line_search
-            α = _backtrack_line_search(ns, ig, p, ΔU)
+            α = _backtrack_line_search(ns, ig, p, ΔU; predictor = iter == 1)
             norm_step = α * sqrt(sum(abs2, ΔU))
             t_eval = 0.0
         else

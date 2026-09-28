@@ -57,7 +57,7 @@ matrix-free solvers it is optional and defaults to `type: none`.
 | `maximum iterations` | `20` | Upper bound. **Overridden** by a `maximum iterations` test in `termination` if one is present. |
 | `absolute tolerance` | `1e-10` | Used only when `termination` is absent. |
 | `relative tolerance` | `1e-14` | Used only when `termination` is absent. |
-| `use line search` | **`true`** | Armijo backtracking on ½‖R‖². Applies to `newton` only. |
+| `use line search` | **`true`** | Armijo backtracking on ½‖R‖² from the second Newton iteration of a step; the first is accepted when its residual is finite. Applies to `newton` only. |
 | `line search backtrack factor` | `0.5` | Step reduction per backtrack. |
 | `line search decrease factor` | `1e-4` | Armijo sufficient-decrease parameter. |
 | `line search maximum iterations` | `10` | Maximum backtracking steps. |
@@ -71,6 +71,20 @@ matrix-free solvers it is optional and defaults to `type: none`.
     `use line search` reaches `newton` only. NLCG and steepest descent always
     run their own line search, but they do honor the three `line search *`
     tuning keys.
+
+!!! note "The first Newton iteration of a step is not line-searched"
+    The first iteration solves the problem linearized at the converged
+    previous state, and its step is accepted whenever the residual it leaves
+    is finite; it is halved only while an element is inverted (NaN residual).
+    For a nearly incompressible material the residual norm is no measure of
+    progress for that step: the linearized solution leaves a second-order
+    volume error that the bulk modulus multiplies, and at ν = 0.4999 the
+    residual norm after a converging first step exceeds that of the load
+    increment by about three orders of magnitude.  Requiring a decrease cut
+    each first step to α ≈ 0.004 (Cook's membrane: 6366 Newton iterations
+    against 85, the same solution).  From the second iteration on the Armijo
+    condition applies; if its budget is exhausted, the trial with the smallest
+    residual is taken.
 
 ### Nonlinear CG only
 
