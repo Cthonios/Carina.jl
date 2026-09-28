@@ -38,7 +38,7 @@
 #
 # Usage (from the Carina root; the threads serve Carina's element loops):
 #   julia -t 12 --project=. benchmark/hw3l/cook/run.jl [--h 8,4] [--cases elastic,plastic]
-#        [--elements tet10,tet15,tet15-p1,tet15-p0,lcm-tet10,lcm-ct] [--report]
+#        [--elements tet10,tet15,tet15-p1,tet15-p0,lcm-tet10,lcm-ct] [--stress] [--report]
 # Results are appended to results.tsv; --report writes RESULTS.md from it.
 
 using Carina
@@ -65,6 +65,10 @@ const MPI_LIB = "/usr/lib64/openmpi/lib"
 # multigrid preconditioner keeps Newton unchanged and eight ranks were six
 # times faster than the serial direct solver.
 const ALBANY_RANKS = Dict("elastic" => 1, "plastic" => 12)
+# --stress writes the Cauchy stress at the quadrature points (Carina: frames
+# every tenth of the load; Albany: every continuation step), for the pressure
+# figures.  Off by default: at h = 2 the output grows by gigabytes.
+const STRESS = Ref(false)
 const THICKNESS = 10.0
 const STEPS = 10
 
@@ -135,8 +139,7 @@ function carina_deck(case, element, mesh_file, out_file)
 type: single
 input mesh file: $mesh_file
 output mesh file: $out_file
-output:
-  stress: false
+$(STRESS[] ? "output interval: 0.1\noutput:\n  stress: true" : "output:\n  stress: false")
 model:
   type: solid mechanics
 $(projection)  material:
@@ -233,7 +236,7 @@ $(block_flags)  Materials:
         Yield Strength Type: Constant
         Value: $(m.σ_y)
       Output eqps: true
-"""
+$(STRESS[] ? "      Output Cauchy Stress: true\n" : "")"""
 end
 
 # Stratimikos block: the KLU2 direct solver on one rank, GMRES with a
@@ -505,6 +508,8 @@ function main(args)
     while i <= length(args)
         if args[i] == "--report"
             report(); return
+        elseif args[i] == "--stress"
+            STRESS[] = true; i += 1; continue
         end
         haskey(opts, args[i]) || error("unknown option $(args[i])")
         opts[args[i]] = args[i + 1]; i += 2
