@@ -55,15 +55,23 @@ named in `run.jl`:
   plastic: 0.26893, 0.27101, 0.27204).  The comparison of the other elements
   rests on this check.
 - Elastic, ν = 0.4999: the pointwise TETRA10 and TETRA15 converge from below
-  (8.196 to 8.324, 8.224 to 8.349 from h = 8 to h = 4) and the constant
-  projection from above (8.572 to 8.518); the linear projection (8.412, 8.455)
-  and the composite tetrahedron (8.460, 8.464) are within 0.5% of each other
-  on both meshes and change least with refinement, so the limit lies near
-  8.46.  The elastic row stops at h = 4: at ν = 0.4999 every element needs
-  load steps of about 0.3% of the load in both codes (the residual grows
-  with κ times the square of a step's volumetric strain), and the h = 2 runs
-  were projected at 10 to 30 hours each for a third point on a trend that
-  two points fix.
+  (TETRA10 8.196, 8.324, 8.420 and TETRA15 8.224, 8.349, 8.430 at h = 8, 4,
+  2) and the constant projection from above (8.572, 8.518, 8.500).  The
+  linear projection (8.412, 8.455, 8.472) and the composite tetrahedron
+  (8.460, 8.464, 8.477) are within 0.6% of each other on every mesh and
+  change least with refinement; the limit lies between 8.477 and 8.500.
+  The h = 2 runs (2026-09-28) used Carina b1d9ca4 with `--no-line-search`
+  on Rigel (1099 s for TETRA10, 3214 to 3639 s for the TETRA15 variants,
+  16 threads) and Albany with serial KLU2 on Sirius (26 496 s for TETRA10,
+  28 867 s for the composite tetrahedron).  The two TETRA10 results differ
+  by 3e-7.
+- Pressure at h = 2: `extract_pressure.jl` writes the element-mean pressure
+  p = −tr σ / 3 at full load, and `render_pressure.py` draws it on the
+  front face of the deformed membrane.  In the elastic case the pointwise
+  TETRA10 and TETRA15 show element-to-element oscillation of p along the
+  clamped edge (front-face range −12.2 to 37.2 and −12.9 to 55.4); the
+  linear and constant projections and the composite tetrahedron do not
+  (−7.43 to 26.8, −7.46 to 21.7, −6.79 to 15.2).
 - Plastic, traction 0.14: all elements converge to about 0.273; the spread
   shrinks from 2.3% (h = 8) to 0.5% (h = 2), with the projected and composite
   elements closest to the limit on every mesh.  At this load the plastic
