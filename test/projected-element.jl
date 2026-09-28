@@ -102,7 +102,7 @@ solver:
             ph = first(values(sim.params_cpu.physics))
             @test ph isa Carina.ProjectedSolidMechanics
             @test Carina.projection_degree(ph) == 1
-            @test FEC.assembles_by_element(ph)
+            @test FEC.assembly_granularity(ph) == FEC.ByElement()
         end
         mktempdir() do dir
             sim0 = build(dir, deck("constant"))

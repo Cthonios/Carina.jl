@@ -10,7 +10,7 @@ TETRA15 element (`Tet{EnrichedLagrange, 2}` of ReferenceFiniteElements,
 `bin/tetra15` converts TETRA4 and TETRA10 meshes), with the Simo--Hughes J2
 model of ConstitutiveModels through its volumetric--isochoric split
 (θ = J − 1).  The element-level assembly it needs is in
-FiniteElementContainers (`assembles_by_element`).  `test/projected-element.jl`
+FiniteElementContainers (`assembly_granularity`).  `test/projected-element.jl`
 checks energy, residual and tangent against each other, the matrix-free
 action and the diagonal kernels against the assembled matrices, and the
 affine patch test.  The nonlinear measurements of the note's "Summary of the

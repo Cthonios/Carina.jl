@@ -52,7 +52,8 @@ element-wise polynomials of degree `degree` (0 or 1) in the reference
 coordinates, and the volumetric energy κ/2 θ² is evaluated at the projected
 strain.  `cm` must have the volumetric-isochoric split
 (`ConstitutiveModels.has_volumetric_isochoric_split`).  The kernels are
-assembled by element (`FiniteElementContainers.assembles_by_element`), since
+assembled by element (`FiniteElementContainers.assembly_granularity` is
+`ByElement()`), since
 the projection couples the quadrature points of an element.
 """
 struct ProjectedSolidMechanics{Model <: CM.AbstractConstitutiveModel, NP, NS, PD} <: FEC.AbstractPhysics{3, NP, NS}
@@ -72,7 +73,7 @@ function ProjectedSolidMechanics(cm::CM.AbstractConstitutiveModel, degree::Int)
     return ProjectedSolidMechanics{typeof(cm), NP, NS, degree}(cm)
 end
 
-FEC.assembles_by_element(::ProjectedSolidMechanics) = true
+FEC.assembly_granularity(::ProjectedSolidMechanics) = FEC.ByElement()
 
 projection_degree(::ProjectedSolidMechanics{Model, NP, NS, PD}) where {Model, NP, NS, PD} = PD
 
