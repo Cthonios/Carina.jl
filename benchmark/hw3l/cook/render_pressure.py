@@ -1,23 +1,28 @@
-"""Pressure on the front face of the deformed Cook's membrane, one panel per
-element, for one case and mesh size.
+"""Pressure on the front face (z = t) of the deformed Cook's membrane.
 
-    python3 benchmark/hw3l/cook/render_pressure.py <case> <h> <data-dir> <out.png>
+    python3 benchmark/hw3l/cook/render_pressure.py <data-dir> <out.png> <limit> <ncol> \
+        <label>=<case>-<element>-h<h> ...
 
-<data-dir> holds faces-h<h>.csv (surface_faces.jl) and, for each element,
-<case>-<element>-h<h>-pressure.csv and -displacement.csv (extract_pressure.jl).
-Each triangle of the front face is colored by the mean pressure of the
-element it belongs to and drawn at its deformed position.  One color scale
-(ParaView's Rainbow Uniform)
-serves all panels: symmetric about zero, bounded by the 99th percentile of
-|p| over all elements of all panels.
+One panel per argument <label>=<run> (split at the last "="), in the order given, <ncol> panels per
+row; "\n" in a label breaks the line.  <data-dir> holds faces-h<h>.csv
+(surface_faces.jl) and, per run, <run>-pressure_nodes.csv and
+<run>-displacement.csv (extract_pressure.jl).  The pressure inside each
+element is the polynomial fitted to its quadrature-point values, given by its
+values at the ten nodes of a quadratic tetrahedron; on each triangle of the
+front face it is evaluated at the vertices of 16 subtriangles and interpolated
+linearly between them.  Triangles are drawn at their deformed position.
+<limit> bounds the color scale, symmetric about zero; "auto:<case>" takes the
+99th percentile of |p| over the node values of every run of <case> in
+<data-dir>, so that all figures of one case share one scale.  Color map:
+ParaView's Rainbow Uniform.
 """
-import csv, os, sys
+import csv, glob, os, sys
 import numpy as np
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-from matplotlib.collections import PolyCollection
 from matplotlib.colors import LinearSegmentedColormap
+from matplotlib.tri import Triangulation
 
 # ParaView's "Rainbow Uniform" preset: (position, r, g, b), exported with
 # pvpython (ApplyPreset on a color transfer function, RGBPoints normalized).
@@ -67,58 +72,101 @@ RAINBOW_UNIFORM = LinearSegmentedColormap.from_list("rainbow_uniform", [(x, (r, 
     (1.0000, 0.6837, 0.0500, 0.4139)
 ]])
 
-ELEMENTS = [("tet10", "TETRA10\n(Carina)"), ("lcm-tet10", "TETRA10\n(Albany)"),
-            ("tet15", "TETRA15\n(pointwise)"), ("tet15-p1", "TETRA15\nlinear projection"),
-            ("tet15-p0", "TETRA15\nconstant projection"),
-            ("lcm-ct", "Composite tetrahedron\n(Albany)")]
+# Local node of the quadratic tetrahedron at the midpoint of each edge.
+MID = {(1, 2): 5, (2, 3): 6, (3, 1): 7, (1, 4): 8, (2, 4): 9, (3, 4): 10}
+MID.update({(b, a): k for (a, b), k in list(MID.items())})
+N_SUB = 4
 
 
-def read(path, cols):
+def read(path):
     with open(path) as f:
-        r = csv.DictReader(f)
-        return [{k: row[k] for k in cols} for row in r]
+        return list(csv.DictReader(f))
 
 
-def main(case, h, d, out):
-    faces = read(os.path.join(d, f"faces-h{h}.csv"),
-                 ["element", "n1", "n2", "n3", "x1", "y1", "x2", "y2", "x3", "y3"])
-    fe = np.array([int(r["element"]) for r in faces])
-    fn = np.array([[int(r["n1"]), int(r["n2"]), int(r["n3"])] for r in faces])
-    fx = np.array([[[float(r["x1"]), float(r["y1"])], [float(r["x2"]), float(r["y2"])],
-                    [float(r["x3"]), float(r["y3"])]] for r in faces])
+def subdivision(n):
+    """Barycentric points (λ1, λ2, λ3) of the n-fold subdivision of a triangle,
+    and its subtriangles as index triples."""
+    idx, pts = {}, []
+    for i in range(n + 1):
+        for j in range(n + 1 - i):
+            idx[(i, j)] = len(pts)
+            pts.append(((n - i - j) / n, i / n, j / n))
+    tris = []
+    for i in range(n):
+        for j in range(n - i):
+            tris.append((idx[(i, j)], idx[(i + 1, j)], idx[(i, j + 1)]))
+            if i + j < n - 1:
+                tris.append((idx[(i + 1, j)], idx[(i + 1, j + 1)], idx[(i, j + 1)]))
+    return np.array(pts), np.array(tris)
+
+
+def quadratic_on_triangle(lam):
+    """Quadratic Lagrange basis of a triangle at barycentric points: vertex
+    functions 1-3, then edge midpoints 1-2, 2-3, 3-1."""
+    l1, l2, l3 = lam.T
+    return np.stack([l1 * (2 * l1 - 1), l2 * (2 * l2 - 1), l3 * (2 * l3 - 1),
+                     4 * l1 * l2, 4 * l2 * l3, 4 * l3 * l1], axis=1)
+
+
+def panel(d, run, faces, lam, tris, phi):
+    nodes = {int(r["element"]): ([int(r[f"n{k}"]) for k in range(1, 5)],
+                                 [float(r[f"p{k}"]) for k in range(1, 11)])
+             for r in read(os.path.join(d, f"{run}-pressure_nodes.csv"))}
+    u = {int(r["node"]): (float(r["ux"]), float(r["uy"]))
+         for r in read(os.path.join(d, f"{run}-displacement.csv"))}
+    xs, vs, ts = [], [], []
+    for f in faces:
+        e = int(f["element"])
+        ids, p = nodes[e]
+        loc = [ids.index(int(f[f"n{k}"])) + 1 for k in (1, 2, 3)]
+        six = [p[loc[0] - 1], p[loc[1] - 1], p[loc[2] - 1],
+               p[MID[(loc[0], loc[1])] - 1], p[MID[(loc[1], loc[2])] - 1],
+               p[MID[(loc[2], loc[0])] - 1]]
+        X = np.array([[float(f[f"x{k}"]) + u[int(f[f"n{k}"])][0],
+                       float(f[f"y{k}"]) + u[int(f[f"n{k}"])][1]] for k in (1, 2, 3)])
+        ts.append(tris + len(xs) * len(lam))
+        xs.append(lam @ X)
+        vs.append(phi @ np.array(six))
+    return np.vstack(xs), np.concatenate(vs), np.vstack(ts)
+
+
+def main(d, out, limit, ncol, *specs):
+    lam, tris = subdivision(N_SUB)
+    phi = quadratic_on_triangle(lam)
+    runs = [(lab.replace("\\n", "\n"), run) for lab, run in (s.rsplit("=", 1) for s in specs)]
+    faces = {}
     panels = []
-    for key, label in ELEMENTS:
-        pf = os.path.join(d, f"{case}-{key}-h{h}-pressure.csv")
-        uf = os.path.join(d, f"{case}-{key}-h{h}-displacement.csv")
-        if not (os.path.exists(pf) and os.path.exists(uf)):
-            continue
-        p = {int(r["element"]): float(r["p"]) for r in read(pf, ["element", "p"])}
-        u = {int(r["node"]): (float(r["ux"]), float(r["uy"])) for r in read(uf, ["node", "ux", "uy"])}
-        pos = fx + np.array([[u[n] for n in tri] for tri in fn])
-        val = np.array([p[e] for e in fe])
-        panels.append((label, pos, val))
-    allv = np.concatenate([v for _, _, v in panels])
-    lim = np.percentile(np.abs(allv), 99)
-    allx = np.concatenate([q.reshape(-1, 2) for _, q, _ in panels])
+    for lab, run in runs:
+        h = run.rsplit("-h", 1)[1]
+        if h not in faces:
+            faces[h] = read(os.path.join(d, f"faces-h{h}.csv"))
+        panels.append((lab,) + panel(d, run, faces[h], lam, tris, phi))
+    if limit.startswith("auto:"):
+        case = limit[5:]
+        vals = np.concatenate([[float(r[f"p{k}"]) for r in read(g) for k in range(1, 11)]
+                               for g in glob.glob(os.path.join(d, f"{case}-*-pressure_nodes.csv"))])
+        lim = np.percentile(np.abs(vals), 99)
+    else:
+        lim = float(limit)
+    ncol = int(ncol)
+    allx = np.vstack([x for _, x, _, _ in panels])
     lo, hi = allx.min(axis=0) - 1, allx.max(axis=0) + 1
     n = len(panels)
-    ncol = 3
     nrow = (n + ncol - 1) // ncol
-    fig, axes = plt.subplots(nrow, ncol, figsize=(3.3 * ncol, 3.3 * (hi[1] - lo[1]) / (hi[0] - lo[0]) * nrow + 1.0), dpi=200)
+    w = 3.3 if ncol >= 3 else 4.5
+    fig, axes = plt.subplots(nrow, ncol, figsize=(w * ncol, w * (hi[1] - lo[1]) / (hi[0] - lo[0]) * nrow + 1.0), dpi=200)
     axes = np.atleast_1d(axes).ravel()
-    for ax, (label, pos, val) in zip(axes, panels):
-        pc = PolyCollection(pos, array=val, cmap=RAINBOW_UNIFORM, edgecolors="none")
-        pc.set_clim(-lim, lim)
-        ax.add_collection(pc)
+    for ax, (lab, x, v, t) in zip(axes, panels):
+        tc = ax.tripcolor(Triangulation(x[:, 0], x[:, 1], t), v, shading="gouraud",
+                          cmap=RAINBOW_UNIFORM, vmin=-lim, vmax=lim)
         ax.set_xlim(lo[0], hi[0]); ax.set_ylim(lo[1], hi[1])
         ax.set_aspect("equal"); ax.set_axis_off()
-        ax.set_title(label, fontsize=15)
-        ax.text(0.0, -0.02, f"p: {val.min():.3g} to {val.max():.3g}", transform=ax.transAxes,
-                fontsize=12, color="#555555")
+        ax.set_title(lab, fontsize=15)
+        print(f"  {lab!r}: front face p from {v.min():.4g} to {v.max():.4g}")
     for ax in axes[n:]:
         ax.set_axis_off()
-    cb = fig.colorbar(pc, ax=axes.tolist(), orientation="horizontal", fraction=0.04, pad=0.04, shrink=0.6)
-    cb.set_label("pressure  p = −tr σ / 3  (element mean)", fontsize=16)
+    cb = fig.colorbar(tc, ax=axes.tolist(), orientation="horizontal", fraction=0.04, pad=0.04, shrink=0.6)
+    cb.set_label("pressure  p = −tr σ / 3", fontsize=16)
     cb.ax.tick_params(labelsize=14)
     fig.savefig(out, bbox_inches="tight", transparent=True)
     print(out, "panels:", n, "color limit:", lim)
