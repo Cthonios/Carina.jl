@@ -60,6 +60,15 @@
             M   = 1000.0 * (1 - 0.25) / ((1 + 0.25) * (1 - 2 * 0.25))
             c_p = sqrt(M / 1000.0)
             @test dt ≈ CFL * 0.5 / c_p rtol = 1e-6
+
+            # At a displacement u = -X/2 every element length is halved, so
+            # the stable step measured at that displacement is halved.  The
+            # cube is free, so every dof is unknown.
+            asm = sim.integrator.asm
+            @test length(asm.dof.unknown_dofs) == length(asm.dof)
+            X = vec(adapt(Array, sim.params_cpu.coords.data))
+            dt_half = Carina._compute_stable_dt(asm, sim.params, CFL, -0.5 .* X[asm.dof.unknown_dofs])
+            @test dt_half ≈ dt / 2 rtol = 1e-10
         end
     end
 

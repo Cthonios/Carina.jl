@@ -917,7 +917,11 @@ end
 # Stable time step estimate for explicit dynamics (GPU-native).
 # Uses FEC's quadrature assembly to compute per-element characteristic length
 # on the device, then takes minimum over all blocks.
-function _compute_stable_dt(asm, p, CFL)
+# `U` is the free-DOF displacement at which the element lengths are measured:
+# the current one during a run, since the lengths of a strongly deformed mesh
+# (the elements of an impacted bar reach aspect ratios near 120) are much
+# smaller than those of the reference mesh.  Absent, the reference mesh.
+function _compute_stable_dt(asm, p, CFL, U = nothing)
     fspace = FEC.function_space(asm.dof)
 
     # Pre-allocate per-block storage for element char lengths (nq × nelem)
@@ -930,11 +934,11 @@ function _compute_stable_dt(asm, p, CFL)
     char_len_storage = NamedTuple{keys(fspace.ref_fes)}(char_len_storage)
 
     # Assemble per-element char lengths on device
-    U_zeros = zeros(Float64, length(asm.dof.unknown_dofs))
+    U_at = U === nothing ? zeros(Float64, length(asm.dof.unknown_dofs)) : U
     FEC.assemble_quadrature_quantity!(
         char_len_storage, nothing, asm.dof,
         element_char_length,
-        U_zeros, p
+        U_at, p
     )
 
     # Min-reduction over all blocks

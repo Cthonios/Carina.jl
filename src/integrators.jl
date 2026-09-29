@@ -741,6 +741,6 @@ function _pre_step_hook!(ig::CentralDifferenceIntegrator, sim)
     ig.stable_dt_counter += 1
     ig.stable_dt_counter < ig.stable_dt_interval && return
     ig.stable_dt_counter = 0
-    stable_dt = _compute_stable_dt(ig.asm, sim.params, ig.CFL)
+    stable_dt = _compute_stable_dt(ig.asm, sim.params, ig.CFL, ig.U[ig.asm.dof.unknown_dofs])
     ig.time_step = min(stable_dt, ig.max_time_step)
 end
