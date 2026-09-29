@@ -1,0 +1,47 @@
+# Taylor bar: a circular cylinder of radius 3.2 mm and length 32.4 mm, axis
+# along z, impact face at z = 0 (Foulk et al. 2021, Sec. 4.4; Simo 1992,
+# Sec. 7.2).  Units: mm.  Four-node tetrahedra, for the smoothing of Norma,
+# which accepts TETRA4 only; convert.jl adds the edge and face nodes.
+# Parameters (aprepro): h = element size, quarter = 1 for the quarter bar
+# x >= 0, y >= 0 (the two finest meshes of the paper), out = output file.
+#   cubit -batch -nographics -nojournal -noecho -information off \
+#     "h=0.75" "quarter=0" "out='meshes/taylor-h0.75-tet4.g'" taylor.jou
+reset
+create cylinder height 32.4 radius 3.2
+move volume 1 z 16.2 include_merged
+{if(quarter)}
+webcut volume all with plane xplane offset 0
+webcut volume all with plane yplane offset 0
+delete volume with x_coord < 0
+delete volume with y_coord < 0
+{endif}
+volume all size {h}
+volume all scheme tetmesh
+mesh volume all
+block 1 volume all
+block 1 name "bar"
+block 1 element type TETRA4
+nodeset 1 volume all
+nodeset 1 name "all"
+nodeset 2 surface with z_coord < 1.0e-6
+nodeset 2 name "impact"
+sideset 1 surface with z_coord < 1.0e-6
+sideset 1 name "impact"
+sideset 2 surface with z_coord > 32.4 - 1.0e-6
+sideset 2 name "free"
+{if(quarter)}
+sideset 3 surface with z_coord > 1.0e-6 and z_coord < 32.4 - 1.0e-6 and x_coord > 1.0e-6 and y_coord > 1.0e-6
+nodeset 3 surface with x_coord < 1.0e-6 and z_coord > 1.0e-6 and z_coord < 32.4 - 1.0e-6
+nodeset 3 name "symx"
+nodeset 4 surface with y_coord < 1.0e-6 and z_coord > 1.0e-6 and z_coord < 32.4 - 1.0e-6
+nodeset 4 name "symy"
+sideset 4 surface with x_coord < 1.0e-6 and z_coord > 1.0e-6 and z_coord < 32.4 - 1.0e-6
+sideset 4 name "symx"
+sideset 5 surface with y_coord < 1.0e-6 and z_coord > 1.0e-6 and z_coord < 32.4 - 1.0e-6
+sideset 5 name "symy"
+{else}
+sideset 3 surface with z_coord > 1.0e-6 and z_coord < 32.4 - 1.0e-6
+{endif}
+sideset 3 name "lateral"
+set large exodus file on
+export mesh "{out}" overwrite
