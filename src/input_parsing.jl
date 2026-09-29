@@ -223,7 +223,7 @@ const _MODEL_KEYS = Set(["type", "material", "volumetric projection"])
 
 # `model.volumetric projection` selects the mean-dilatation formulation, in
 # which the volumetric strain of the constitutive model is replaced by its L²
-# projection onto element-wise polynomials (research/hw3l/note.tex).  The
+# projection onto element-wise polynomials (research/tet15-p1/note.tex).  The
 # value is the projection space; absent means the pointwise formulation.
 const _VOLUMETRIC_PROJECTIONS = Dict{String, Int}("constant" => 0, "linear" => 1)
 

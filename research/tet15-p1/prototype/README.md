@@ -1,4 +1,4 @@
-# HW3L prototype
+# TET15-P1 prototype
 
 Numerical experiments for the formulation in `../note.tex`. Each script is
 standalone and prints a verdict.
@@ -6,7 +6,7 @@ standalone and prints a verdict.
 Run from the repository root, which has the dependencies:
 
 ```
-julia --project=. research/hw3l/prototype/softmode.jl
+julia --project=. research/tet15-p1/prototype/softmode.jl
 ```
 
 ## `softmode.jl` — spurious-mode census
@@ -269,7 +269,7 @@ in `basis_out.txt`.
 ## `materials.jl` — what the materials satisfy (needs Norma)
 
 ```
-julia --project=/path/to/Norma.jl research/hw3l/prototype/materials.jl
+julia --project=/path/to/Norma.jl research/tet15-p1/prototype/materials.jl
 ```
 
 Three measurements behind §2.5 of the note: the split test

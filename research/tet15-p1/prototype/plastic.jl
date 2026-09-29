@@ -38,7 +38,7 @@
 # modes is O(h^2) for the stable pair with a linear discontinuous pressure and
 # O(1) for a constant pressure.
 #
-#   julia --project=. research/hw3l/prototype/plastic.jl
+#   julia --project=. research/tet15-p1/prototype/plastic.jl
 
 include("common.jl")
 

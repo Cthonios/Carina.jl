@@ -21,7 +21,7 @@
 # K), dt = 2 / omega_max, reported as the Courant number c_p dt / h with h
 # the element's edge length and c_p = sqrt((kappa + 4mu/3) / rho).
 #
-#   julia --project=. research/hw3l/prototype/basis.jl
+#   julia --project=. research/tet15-p1/prototype/basis.jl
 
 include("element.jl")
 

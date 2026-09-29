@@ -48,7 +48,7 @@
 \theoremstyle{plain}
 \newtheorem{proposition}{Proposition}
 
-\title{\textbf{HW3L}\\[0.3em]
+\title{\textbf{TET15-P1}\\[0.3em]
   \large A Three-Field Hu--Washizu Tetrahedron\\[0.2em]
   \normalsize Research note}
 \author{Alejandro Mota}
@@ -59,7 +59,7 @@
 
 \begin{abstract}
 \noindent
-HW3L is a tetrahedral finite
+TET15-P1 is a tetrahedral finite
 element for the large-deformation plasticity of nearly incompressible
 materials: materials whose bulk modulus $\kappa$, the resistance to a change
 of volume, is much larger than their shear modulus $\mu$, the resistance to a
@@ -90,9 +90,10 @@ implemented. The discrete spaces are the
 three-dimensional Crouzeix--Raviart pair: the quadratic tetrahedron enriched
 with four cubic face bubbles and one quartic interior bubble, polynomials
 that vanish on a prescribed part of the element boundary, carried by a nodal
-basis on fifteen nodes (the \code{TETRA15} element), over a pressure that is
+basis on fifteen nodes (the TET15 displacement element), over a pressure that is
 linear in the reference coordinates of each element and discontinuous
-between elements. Volumetric locking, the excess stiffness of a
+between elements; the name of the element states the two spaces, fifteen
+nodes for the displacement and a linear ($P_1$) pressure. Volumetric locking, the excess stiffness of a
 discretization as $\kappa/\mu$ grows, and spurious soft modes, discrete
 displacements of vanishing energy, are failures of the two hypotheses of
 Brezzi's theorem for the pair of discrete spaces: the inf-sup condition,
@@ -112,7 +113,7 @@ size $h$ for the Crouzeix--Raviart pair, which in a confined plastic zone has
 no spurious mode among its twenty softest where the constant-pressure
 elements retain between five and nineteen. On Cook's membrane in three
 dimensions at Poisson's ratio $0.4999$, on three meshes of $327$ to $14\,475$
-elements, the element with the linear projection and the composite
+elements, TET15-P1 and the composite
 tetrahedron agree in the tip displacement within $0.6\%$ on every mesh, and
 their pressure fields are smooth away from the singular clamped edge, where
 the pressure of the quadratic tetrahedron without projection changes sign
@@ -1274,7 +1275,7 @@ coordinates of the tetrahedron, the fifteen nodes are the four vertices
 that order, which is the side-node convention of the Exodus library (node
 14 on side 1, node 12 on side 2, node 13 on side 3, node 11 on side 4); and
 the centroid (node 15). The first ten are the nodes of the quadratic
-tetrahedron \code{TETRA10} in the same order, so a \code{TETRA10} mesh is
+tetrahedron TET10 in the same order, so a \code{TETRA10} mesh is
 converted by adding one node at the centroid of every face and of every
 element; for a mesh with straight edges the added nodes are the averages of
 the face and element vertices. Each face is a seven-node triangle: three
@@ -1298,7 +1299,7 @@ contains the complete quadratic polynomials, so the element is conforming
 and its interpolation error is that of the quadratic tetrahedron.
 
 \paragraph{The nodal basis.} The functions of \eqref{eq:space} in the order
-listed --- the ten Lagrange functions of \code{TETRA10}, then $b_{F_1},
+listed --- the ten Lagrange functions of TET10, then $b_{F_1},
 \dots, b_{F_4}$ in the face order of the nodes, then $b_K$ --- form the
 hierarchical basis $\{\hat N_j\}$, so called because the functions of the
 lower-degree element remain in it and the bubbles are appended. It is not
@@ -1348,7 +1349,7 @@ a partition of unity with positive integrals: as fractions of the element
 mass they are $0.020$ at each vertex, $0.038$ at each edge midpoint, $0.096$
 at each face centroid and $0.305$ at the centroid. The row-sum lumped mass
 is therefore admissible for explicit time integration (\S\ref{sec:dynamics}),
-which it is not for \code{TETRA10}, whose vertex row sums are negative.
+which it is not for TET10, whose vertex row sums are negative.
 
 \subsection{Element algorithm}
 \label{sec:algorithm}
@@ -1357,7 +1358,7 @@ This section states what an implementation computes on one element, with
 the nodal displacements $~u_a$ of its fifteen nodes given. The pressure
 space $Q_h$ on the element is spanned by $\chi_m(~\xi)$, $m = 1, \dots, 4$,
 with $\chi = (1, \xi_1, \xi_2, \xi_3)$ in the reference coordinates
-$~\xi$ of the element; the constant projection, which \S\ref{sec:cook} also
+$~\xi$ of the element; the constant projection, the element TET15-P0, which \S\ref{sec:cook} also
 measures, has $\chi = (1)$. The mass matrix of the projection is taken with
 the reference-configuration volume element, so it does not change with the
 deformation. Two passes over the quadrature points $~\xi_q$, with weights
@@ -1459,7 +1460,7 @@ implicit and the explicit integrators of the code without change.
 An implementation of \S\ref{sec:algorithm} is verified by the following
 checks, which the implementation in Carina passes
 (\code{test/projected-element.jl}, forty-six checks) on a cube of
-\code{TETRA15} elements with the $J_2$ model in its elastic range at a
+TET15 elements with the $J_2$ model in its elastic range at a
 converged nonlinear state, so that the geometric and coupling terms of the
 tangent are nonzero, for both the linear and the constant projection:
 the residual equals the derivative of the assembled energy by central
@@ -1677,7 +1678,7 @@ every lumped mass must be positive. Row-sum lumping assigns to each node
 the row sum of the consistent mass matrix, $m_a = \rho \int N_a \diff V$,
 which for a basis whose functions sum to one adds up to the element mass.
 On the quadratic tetrahedron
-\code{TETRA10} the vertex functions have negative integrals, so the
+TET10 the vertex functions have negative integrals, so the
 row-sum mass is negative at the vertices and cannot be used. In the nodal
 basis of the enriched element (\S\ref{sec:element}) every row sum is
 positive: $0.020$ of the element mass at each vertex, $0.038$ at each edge
@@ -1700,7 +1701,7 @@ $\kappa/\mu = 2$ (\S\ref{sec:basis}), the Courant number $c_p\,\Delta t/h$,
 with $c_p = \sqrt{(\kappa + 4\mu/3)/\rho}$ the dilatational wave speed,
 $\rho$ the density, $\Delta t$ the stable step and $h$ the element edge
 length, is given in Table~\ref{tab:basis} for the four-node linear
-tetrahedron (\code{TETRA4}), for \code{TETRA10} under HRZ, and for the
+tetrahedron (TET4), for TET10 under HRZ, and for the
 enriched element in both bases. The quadratic element reduces the stable step
 by a factor of $2.4$ against the linear one on the same mesh, and the
 enrichment a further $1.4$ with the nodal basis; the ordering is the same on
@@ -2557,8 +2558,8 @@ $51\%$ of the momentum of a rigid translation unless the normalization runs
 over the Lagrange functions alone (\S\ref{sec:dynamics}); the nodal basis conserves it without
 qualification, and its lumped masses are positive on every element
 measured. The explicit stable step from the element bound, as the Courant
-number $c_p\Delta t/h$, is $0.476$ for \code{TETRA4}, $0.197$ for
-\code{TETRA10} under HRZ, $0.145$ for the enriched element in the nodal
+number $c_p\Delta t/h$, is $0.476$ for TET4, $0.197$ for
+TET10 under HRZ, $0.145$ for the enriched element in the nodal
 basis under HRZ, and $0.114$ in the hierarchical basis under Lagrange-only
 HRZ, with the same ordering on the distorted and Kuhn elements. The nodal
 basis is used: every unknown is attached to a node, so no unknown of a new
@@ -2584,9 +2585,9 @@ hierarchical, HRZ over Lagrange 10  & --- & --- & 0.028  & 1.000 & 0.114 \\
 nodal, consistent                   & 559 & 94  & ---    & ---   & 0.092 \\
 nodal, HRZ                          & --- & --- & 0.021  & 1.000 & 0.145 \\
 nodal, row sum                      & --- & --- & 0.020  & 1.000 & --- \\
-\code{TETRA10}, HRZ                 & --- & --- & 0.028  & 1.000 & 0.197 \\
-\code{TETRA10}, row sum             & --- & --- & $-0.050$ & 1.000 & --- \\
-\code{TETRA4}, row sum              & --- & --- & 0.250  & 1.000 & 0.476 \\
+TET10, HRZ                 & --- & --- & 0.028  & 1.000 & 0.197 \\
+TET10, row sum             & --- & --- & $-0.050$ & 1.000 & --- \\
+TET4, row sum              & --- & --- & 0.250  & 1.000 & 0.476 \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -2626,10 +2627,10 @@ full load.
 size $h = 8$, $4$ and $2$ ($327$, $1860$ and $14\,475$ elements) are
 generated by Cubit and used by both codes; the \code{TETRA15} meshes are
 their conversions (\S\ref{sec:element}). Six elements are compared. In
-Carina: \code{TETRA10} with the volumetric response evaluated at each
-quadrature point (pointwise); \code{TETRA15} pointwise; \code{TETRA15}
-with the linear projection, the element of this note; and \code{TETRA15}
-with the constant projection. In Albany-LCM: \code{TETRA10} pointwise,
+Carina: TET10 with the volumetric response evaluated at each
+quadrature point (pointwise); TET15 pointwise; TET15-P1, the element of
+this note, with the linear projection; and TET15-P0, the same displacement
+element with the constant projection. In Albany-LCM: TET10 pointwise,
 which serves as the cross-code control; and the composite tetrahedron with
 the volume-averaged $J$ and pressure. The displacement unknowns are $1941$,
 $9624$ and $66\,177$ on the \code{TETRA10} meshes and $5163$, $27\,381$ and
@@ -2638,7 +2639,7 @@ to a residual norm of $10^{-6}$ absolute or $10^{-8}$ relative with a
 direct linear solver; both halve a load step whose Newton iteration fails
 and grow it back after successful steps.
 
-\paragraph{Cross-code control.} The pointwise \code{TETRA10} gives the same
+\paragraph{Cross-code control.} The pointwise TET10 gives the same
 tip displacement in Carina and in Albany to six digits on every mesh and in
 both cases ($8.19605$ elastic at $h = 8$; $8.4202946$ and $8.4202943$ at
 $h = 2$; $0.27204$ plastic at $h = 2$), although the two codes take the
@@ -2652,12 +2653,12 @@ between the other elements rests on this check.
 element size $h$ with the element count. Elastic case: $E = 240.565$,
 $\nu = 0.4999$, $q = 6.25$. Plastic case: $E = 206.9$, $\nu = 0.29$,
 $\sigma_y = 0.45$, $K = 0.12924$, $q = 0.14$. Driver:
-\code{benchmark/hw3l/cook/run.jl}; records in \code{results.tsv}.}
+\code{benchmark/tet15-p1/cook/run.jl}; records in \code{results.tsv}.}
 \label{tab:cook}
 \begin{tabular}{@{}lrrrrrr@{}}
 \toprule
-& \code{TETRA10} & \code{TETRA15} & \code{TETRA15} & \code{TETRA15} & \code{TETRA10} & composite \\
-$h$ (elements) & pointwise & pointwise & linear proj. & constant proj. & Albany & tet. (Albany) \\
+& TET10 & TET15 & TET15-P1 & TET15-P0 & TET10 & composite \\
+$h$ (elements) & pointwise & pointwise & & & Albany & tet. (Albany) \\
 \midrule
 \multicolumn{7}{@{}l}{elastic} \\
 $8$ ($327$)      & 8.1960 & 8.2235 & 8.4122 & 8.5720 & 8.1960 & 8.4596 \\
@@ -2674,20 +2675,20 @@ $2$ ($14\,475$)  & 0.2720 & 0.2723 & 0.2724 & 0.2734 & 0.2720 & 0.2728 \\
 
 \paragraph{Tip displacement.} Table~\ref{tab:cook} gives the results. In
 the elastic case the pointwise elements converge from below, $8.196$,
-$8.324$, $8.420$ for \code{TETRA10} and $8.224$, $8.349$, $8.430$ for
-\code{TETRA15}, and the constant projection from above, $8.572$, $8.518$,
-$8.500$. The linear projection, $8.412$, $8.455$, $8.472$, and the
+$8.324$, $8.420$ for TET10 and $8.224$, $8.349$, $8.430$ for
+TET15, and TET15-P0 from above, $8.572$, $8.518$,
+$8.500$. TET15-P1, $8.412$, $8.455$, $8.472$, and the
 composite tetrahedron, $8.460$, $8.464$, $8.477$, are within $0.6\%$ of
 each other on every mesh and change least with refinement; the limit lies
 between $8.477$ and $8.500$. On the coarsest mesh the pointwise
-\code{TETRA10} is $3\%$ below the limit and the linear projection $0.8\%$
+TET10 is $3\%$ below the limit and TET15-P1 $0.8\%$
 below it. In the plastic case every element converges to about $0.273$,
 with the spread between elements shrinking from $2.3\%$ at $h = 8$ to
 $0.5\%$ at $h = 2$, and the projected and composite elements closest to
 the limit on every mesh; at $\nu = 0.29$ and this load the plastic zone
 does not lock the quadratic elements. On the finest mesh the elastic runs
-took $1099$~s for \code{TETRA10} and $3214$ to $3639$~s for the
-\code{TETRA15} variants in Carina on $16$ threads of one host, and $26\,496$
+took $1099$~s for TET10 and $3214$ to $3639$~s for the
+TET15 variants in Carina on $16$ threads of one host, and $26\,496$
 and $28\,867$~s in Albany with a serial direct solver; at $\nu = 0.4999$
 the residual grows with $\kappa$ times the square of the volumetric strain
 of a Newton step, so every element needs load steps of a fraction of a
@@ -2699,8 +2700,8 @@ percent of the load in both codes.
 \caption{Elastic case, $h = 2$: pressure $p = -\trace~\sigma/3$ on the
 face $z = 10$ of the deformed membrane at full load, for the six elements.
 One color scale for all panels, symmetric about zero and bounded by the
-$99$th percentile of $\lvert p \rvert$ over the linear projection, the
-constant projection and the composite tetrahedron; values beyond the scale
+$99$th percentile of $\lvert p \rvert$ over TET15-P1, TET15-P0
+and the composite tetrahedron; values beyond the scale
 saturate. Inside each element the pressure drawn is the polynomial fitted to
 the quadrature-point values (text).}
 \label{fig:elastic-h2}
@@ -2722,8 +2723,8 @@ as in Figure~\ref{fig:elastic-h2}.}
 \includegraphics[width=0.48\textwidth]{figures/plastic-lcm-ct-refine.png}
 \caption{Pressure on the face $z = 10$ under mesh refinement, $h = 8$, $4$,
 $2$ from left to right in each panel, with the color scale of the case.
-Top: \code{TETRA15} with the linear projection, elastic (left) and plastic
-(right). Bottom left: \code{TETRA10} pointwise, elastic. Bottom right: the
+Top: TET15-P1, elastic (left) and plastic
+(right). Bottom left: TET10 pointwise, elastic. Bottom right: the
 composite tetrahedron, plastic.}
 \label{fig:refine}
 \end{figure}
@@ -2734,24 +2735,24 @@ element at full load and drawn on the face $z = 10$ of the deformed
 membrane (Figures~\ref{fig:elastic-h2}--\ref{fig:refine}). Inside each
 element the field drawn is the polynomial fitted to the quadrature-point
 values in the least-squares sense with the weights of the rule: quadratic
-for the fourteen-point rule of \code{TETRA15}, which reproduces the linear
+for the fourteen-point rule of TET15, which reproduces the linear
 and the constant projection to rounding error and the pointwise
-\code{TETRA15} pressure, of higher degree, to $0.11$ of its largest value;
-linear for the four-point rule of \code{TETRA10}, which interpolates; and
+TET15 pressure, of higher degree, to $0.11$ of its largest value;
+linear for the four-point rule of TET10, which interpolates; and
 the single value Albany writes per composite tetrahedron. In the elastic
-case the pointwise \code{TETRA10} and \code{TETRA15} give a pressure that
+case the pointwise TET10 and TET15 give a pressure that
 changes sign inside elements over the whole membrane, on every mesh, with
 a range on the face of $-226$ to $211$ and $-512$ to $1010$ at $h = 2$.
-The linear projection is smooth except in the layer of elements along the
-clamped edge, with a range of $-43$ to $61$; the constant projection and
+TET15-P1 is smooth except in the layer of elements along the
+clamped edge, with a range of $-43$ to $61$; TET15-P0 and
 the composite tetrahedron are smooth and piecewise constant, with ranges of
 $-7.5$ to $22$ and $-9.4$ to $35$. The clamped edge is a singular line of
 the continuum solution: where a clamped face meets a free face the stress is
-unbounded, and it grows faster as $\nu \to 1/2$. The jumps of the linear
-projection between neighboring elements confirm that the discontinuities
+unbounded, and it grows faster as $\nu \to 1/2$. The jumps of TET15-P1
+between neighboring elements confirm that the discontinuities
 are the element's error at that line and nothing else: at every $h$ the
 six largest jumps on the face lie within one element layer of the clamped
-edge, the largest $\lvert p \rvert$ of the linear projection on the face
+edge, the largest $\lvert p \rvert$ of TET15-P1 on the face
 grows from $22$ to $35$ to $61$ over the three meshes as an unbounded field
 requires, and away from that layer and from the loaded corner the median
 jump falls from $3.9\%$ to $0.35\%$ of the color limit from $h = 8$ to
@@ -2759,10 +2760,10 @@ $h = 2$, faster than $h$, whereas for the two piecewise constant elements
 it is $12$ to $15\%$ of the color limit at $h = 2$, in proportion to $h$.
 In the plastic case no element oscillates, the six fields agree away from
 the upper corner of the clamped edge, and the largest pressure on the face
-at $h = 2$ is $0.715$ for \code{TETRA10}, $1.15$ for \code{TETRA15}
-pointwise, $0.519$ for the linear projection, $0.292$ for the constant
-projection and $0.407$ for the composite tetrahedron. Scripts:
-\code{benchmark/hw3l/cook/extract\_pressure.jl} and
+at $h = 2$ is $0.715$ for TET10, $1.15$ for TET15
+pointwise, $0.519$ for TET15-P1, $0.292$ for TET15-P0
+and $0.407$ for the composite tetrahedron. Scripts:
+\code{benchmark/tet15-p1/cook/extract\_pressure.jl} and
 \code{render\_pressure.py}.
 
 \paragraph{What the benchmark establishes.} The element of this note does
@@ -2835,7 +2836,7 @@ displacement unknowns, $2.6$ times those of $P_2/P_0$ at $N = 12$
 rule keeps six zero-energy modes and the assembled constant within $1\%$; the
 nodal basis has a positive row-sum lumped mass that conserves the momentum
 of a rigid translation, and a Courant number of $0.145$ under HRZ lumping
-against $0.476$ for \code{TETRA4}.
+against $0.476$ for TET4.
 
 \paragraph{Open measurements.} Three remain. An unstructured mesh sequence
 for the negative stability results, which are established here on the
@@ -2873,13 +2874,13 @@ is with the composite tetrahedron.
 \paragraph{Operations per element.} With the $14$-point rule of
 \S\ref{sec:basis} the enriched element evaluates the constitutive law at $14$
 points on $45$ displacement degrees of freedom, against $4$ or $5$ points on
-$30$ for \code{TETRA10} and one on $12$ for \code{TETRA4}. The number of
+$30$ for TET10 and one on $12$ for TET4. The number of
 elements a quadratic tetrahedron needs for a given accuracy in this problem
 class is not measured.
 
 \paragraph{The explicit stable step.} Row-sum lumping in the nodal basis gives
 positive masses and conserves momentum, and the stable step is $3.3$ times
-smaller than \code{TETRA4}'s on the same element, of which a factor of $2.4$
+smaller than TET4's on the same element, of which a factor of $2.4$
 is the quadratic element and $1.4$ the enrichment (\S\ref{sec:basis}). The comparison at equal accuracy, on the coarser mesh a
 quadratic element allows, is not measured; if weak shocks are run with the
 implicit integrator the factor does not apply.

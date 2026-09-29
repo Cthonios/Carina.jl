@@ -19,7 +19,7 @@
 # beta_h and the spurious-mode count under the uniaxial plastic tangent, are
 # repeated with the reduced rules.
 #
-#   julia --project=. research/hw3l/prototype/quadrature.jl
+#   julia --project=. research/tet15-p1/prototype/quadrature.jl
 
 include("element.jl")
 

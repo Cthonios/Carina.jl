@@ -1,5 +1,5 @@
 # Solid mechanics with a projected volumetric strain (the mean-dilatation
-# formulation of research/hw3l/note.tex, section "Reduction to the
+# formulation of research/tet15-p1/note.tex, section "Reduction to the
 # mean-dilatation formulation").
 #
 # For a material whose stored energy splits exactly as

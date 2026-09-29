@@ -32,7 +32,7 @@
 # measures the volume change a continuum would charge with κ, which is the
 # question.  r_v of the projected gradient is printed next to it.
 #
-#   julia --project=. research/hw3l/prototype/composite_tet.jl
+#   julia --project=. research/tet15-p1/prototype/composite_tet.jl
 
 include("common.jl")
 

@@ -1,6 +1,6 @@
 """Pressure on the front face (z = t) of the deformed Cook's membrane.
 
-    python3 benchmark/hw3l/cook/render_pressure.py <data-dir> <out.png> <limit> <ncol> \
+    python3 benchmark/tet15-p1/cook/render_pressure.py <data-dir> <out.png> <limit> <ncol> \
         <label>=<case>-<element>-h<h> ...
 
 One panel per argument <label>=<run> (split at the last "="), in the order given, <ncol> panels per

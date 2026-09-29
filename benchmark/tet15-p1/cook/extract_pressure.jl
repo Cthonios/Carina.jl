@@ -2,7 +2,7 @@
 # compact form for the figures (the Exodus files of the h = 2 runs with
 # --stress are 100 MB and more).
 #
-#   julia --project=. benchmark/hw3l/cook/extract_pressure.jl runs/<case>-<element>-h<h> ...
+#   julia --project=. benchmark/tet15-p1/cook/extract_pressure.jl runs/<case>-<element>-h<h> ...
 #
 # For each run directory, reads the last frame of the output (cook.e, or the
 # per-rank files cook.e.<np>.<k> of a parallel Albany run) and writes

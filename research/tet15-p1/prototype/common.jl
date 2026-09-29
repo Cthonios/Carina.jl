@@ -1,4 +1,4 @@
-# Shared mesh generation and assembly for the HW3L prototypes.
+# Shared mesh generation and assembly for the TET15-P1 prototypes.
 #
 # Meshes are generated rather than read, so a refinement sequence is exact and
 # needs no mesher.  Everything here is small-strain and linear: the questions

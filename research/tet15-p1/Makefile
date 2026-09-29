@@ -1,4 +1,4 @@
-# HW3L research note.
+# TET15-P1 research note.
 #
 #   make          build note.pdf
 #   make watch    rebuild continuously on save

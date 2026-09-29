@@ -14,7 +14,7 @@
 # eigenvalues of the deviatoric form on ker G_h against the H1 seminorm and
 # the dilatation r_v each mode carries.  The prediction is unchanged.
 #
-#   julia --project=. research/hw3l/prototype/plastic_zone.jl
+#   julia --project=. research/tet15-p1/prototype/plastic_zone.jl
 
 include("common.jl")
 

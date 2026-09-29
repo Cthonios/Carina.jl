@@ -28,16 +28,15 @@
 # Elements:
 #   tet10        Carina, TETRA10, pointwise (locks)
 #   tet15        Carina, TETRA15, pointwise
-#   tet15-p1     Carina, TETRA15, volumetric projection linear (the HW3L
-#                reduction with the Crouzeix-Raviart pair)
-#   tet15-p0     Carina, TETRA15, volumetric projection constant
+#   tet15-p1     Carina, TET15-P1: TETRA15 mesh, volumetric projection linear
+#   tet15-p0     Carina, TET15-P0: TETRA15 mesh, volumetric projection constant
 #   lcm-tet10    Albany-LCM, TETRA10, pointwise
 #   lcm-ct       Albany-LCM, composite tetrahedron with volume-averaged J and
 #                pressure (Use Composite Tet 10, Weighted Volume Average J,
 #                Volume Average Pressure)
 #
 # Usage (from the Carina root; the threads serve Carina's element loops):
-#   julia -t 12 --project=. benchmark/hw3l/cook/run.jl [--h 8,4] [--cases elastic,plastic]
+#   julia -t 12 --project=. benchmark/tet15-p1/cook/run.jl [--h 8,4] [--cases elastic,plastic]
 #        [--elements tet10,tet15,tet15-p1,tet15-p0,lcm-tet10,lcm-ct] [--stress] [--no-line-search] [--report]
 # Results are appended to results.tsv; --report writes RESULTS.md from it.
 

@@ -1,13 +1,14 @@
-# Cook's membrane: projected TETRA15 against the composite tetrahedron
+# Cook's membrane: TET15-P1 against the composite tetrahedron
 
 This benchmark measures volumetric locking and its remedies on Cook's
 membrane in three dimensions, with the same TETRA10 meshes in two codes:
-Carina, for the TETRA10 and TETRA15 elements with and without the projected
-volumetric strain (`model.volumetric projection`, the mean-dilatation
-reduction of `research/hw3l/note.tex`), and Albany-LCM, for the composite
+Carina, for TET10 and TET15 with the volumetric response at each quadrature
+point (pointwise) and for TET15-P1 and TET15-P0, the fifteen-node element
+with the linear and the constant projection of the volumetric strain
+(`model.volumetric projection`, `research/tet15-p1/note.tex`), and Albany-LCM, for the composite
 tetrahedron with volume-averaged J and pressure (`Use Composite Tet 10`,
 `Weighted Volume Average J`, `Volume Average Pressure`) and for the pointwise
-TETRA10 as the cross-code control.
+TET10 as the cross-code control.
 
 ## Problem
 
@@ -27,7 +28,7 @@ benchmark, with q = F/16 for the force F = 100 per unit thickness.  The
 plastic case has the material of the elastoplastic membrane of Simo and
 Armero (1992); their load F = 1.8, q = 0.1125, leaves the three-dimensional
 membrane with free faces almost elastic (tip displacement 0.21 with no
-difference between elements), the pointwise TETRA10 collapses between
+difference between elements), the pointwise TET10 collapses between
 q = 0.16 and q = 0.20 (the hardening modulus is 0.06% of E), and Albany's
 Newton on the composite tetrahedron stops converging at q = 0.158 on the
 h = 4 mesh (the residual stagnates at 2e-4 with the line search collapsing,
@@ -35,7 +36,7 @@ which indicates a tangent inconsistent with the residual in the plastic
 regime), so the traction is 0.14.  The
 two codes differ in the volumetric law of the J2 model: κ(J − 1) in Carina,
 κ(J − 1/J)/2 in Albany; at ν = 0.4999 the response is set by the deviatoric
-part and the two pointwise TETRA10 runs agree to 0.2% in the tip
+part and the two pointwise TET10 runs agree to 0.2% in the tip
 displacement on the coarsest mesh.
 
 The measured quantity is the displacement u_y over the nodes of the loaded
@@ -50,33 +51,33 @@ node maps of both files.
 wall time).  Findings, 2026-09-27, Carina 68c135e with the local branches
 named in `run.jl`:
 
-- The pointwise TETRA10 agrees between the two codes to six digits on every
+- The pointwise TET10 agrees between the two codes to six digits on every
   mesh and in both cases (elastic: 8.19605 at h = 8, 8.32411 at h = 4;
   plastic: 0.26893, 0.27101, 0.27204).  The comparison of the other elements
   rests on this check.
-- Elastic, ν = 0.4999: the pointwise TETRA10 and TETRA15 converge from below
-  (TETRA10 8.196, 8.324, 8.420 and TETRA15 8.224, 8.349, 8.430 at h = 8, 4,
-  2) and the constant projection from above (8.572, 8.518, 8.500).  The
-  linear projection (8.412, 8.455, 8.472) and the composite tetrahedron
+- Elastic, ν = 0.4999: the pointwise TET10 and TET15 converge from below
+  (TET10 8.196, 8.324, 8.420 and TET15 8.224, 8.349, 8.430 at h = 8, 4,
+  2) and TET15-P0 from above (8.572, 8.518, 8.500).  TET15-P1 (8.412,
+  8.455, 8.472) and the composite tetrahedron
   (8.460, 8.464, 8.477) are within 0.6% of each other on every mesh and
   change least with refinement; the limit lies between 8.477 and 8.500.
   The h = 2 runs (2026-09-28) used Carina b1d9ca4 with `--no-line-search`
-  on Rigel (1099 s for TETRA10, 3214 to 3639 s for the TETRA15 variants,
-  16 threads) and Albany with serial KLU2 on Sirius (26 496 s for TETRA10,
-  28 867 s for the composite tetrahedron).  The two TETRA10 results differ
+  on Rigel (1099 s for TET10, 3214 to 3639 s for TET15, TET15-P1 and TET15-P0,
+  16 threads) and Albany with serial KLU2 on Sirius (26 496 s for TET10,
+  28 867 s for the composite tetrahedron).  The two TET10 results differ
   by 3e-7.
 - Pressure: `extract_pressure.jl` fits a polynomial to the quadrature-point
   values of p = −tr σ / 3 in each element (quadratic for the 14-point rule of
-  TETRA15, linear for the 4-point rule of TETRA10, weighted by the rule) and
+  TET15, linear for the 4-point rule of TET10, weighted by the rule) and
   writes it at the ten nodes of a quadratic tetrahedron; `render_pressure.py`
   draws it on the front face of the deformed membrane.  The fit reproduces
-  the linear and constant projections to rounding error and the pointwise
-  TETRA15 pressure to 0.11 of max |p| (h = 2, plastic).  Albany writes one
+  TET15-P1 and TET15-P0 to rounding error and the pointwise
+  TET15 pressure to 0.11 of max |p| (h = 2, plastic).  Albany writes one
   pressure per composite tetrahedron (equal at its five points).  In the
-  elastic case at h = 2 the pointwise TETRA10 and TETRA15 change sign inside
+  elastic case at h = 2 the pointwise TET10 and TET15 change sign inside
   elements over the whole membrane (front-face range −226 to 211 and −512 to
-  1010); the linear projection is smooth except in the elements along the
-  clamped edge (−43 to 61), and the constant projection and the composite
+  1010); TET15-P1 is smooth except in the elements along the
+  clamped edge (−43 to 61), and TET15-P0 and the composite
   tetrahedron give −7.5 to 22 and −9.4 to 35.
 - Plastic, traction 0.14: all elements converge to about 0.273; the spread
   shrinks from 2.3% (h = 8) to 0.5% (h = 2), with the projected and composite
@@ -91,8 +92,8 @@ From the Carina root, with Cubit at `/usr/local/cubit/cubit` and Albany at
 `~/LCM/lcm-build-serial-gcc-release/src/Albany`:
 
 ```
-julia -t 12 --project=. benchmark/hw3l/cook/run.jl --h 8,4 --cases elastic,plastic
-julia -t 12 --project=. benchmark/hw3l/cook/run.jl --report
+julia -t 12 --project=. benchmark/tet15-p1/cook/run.jl --h 8,4 --cases elastic,plastic
+julia -t 12 --project=. benchmark/tet15-p1/cook/run.jl --report
 ```
 
 The threads serve Carina's element loops.  Albany runs on twelve MPI ranks in
@@ -111,7 +112,7 @@ a subprocess, appends one line per run to `results.tsv`, and writes
 Near incompressibility makes the residual grow with the square of the
 volumetric strain of a Newton step, scaled by κ, so Carina's load steps are
 halved on a failed solve (to 1/1000 of the nominal step at least) and grown
-back by 1.5 after a successful one; the pointwise TETRA10 at ν = 0.4999
+back by 1.5 after a successful one; the pointwise TET10 at ν = 0.4999
 needs about one hundred steps on the coarsest mesh.  With κ of order 1e5 the
 assembled residual has a rounding floor near 1e-8, so both codes converge on
 a residual norm of 1e-6 absolute or 1e-8 relative.  Carina uses the SparseArrays direct factorization.  Albany

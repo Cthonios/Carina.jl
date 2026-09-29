@@ -1,7 +1,10 @@
-# HW3L
+# TET15-P1
 
-**A Three-Field Hu–Washizu Tetrahedron.** Research
-note (`note.tex`, `note.pdf`).
+**A Three-Field Hu–Washizu Tetrahedron.** Research note (`note.tex`,
+`note.pdf`). The name states the two discrete spaces: a fifteen-node
+displacement element (TET15, the TETRA15 node layout of the Exodus format)
+over a linear pressure ($P_1$), discontinuous between elements. TET15-P0 is
+the same displacement element with a constant pressure.
 
 ## What the note contains
 
@@ -47,7 +50,7 @@ element of ReferenceFiniteElements (`Tet{EnrichedLagrange, 2}`;
 model of ConstitutiveModels through its volumetric–isochoric split
 interface, and with the element-level assembly of FiniteElementContainers
 (`assembly_granularity`). `test/projected-element.jl` holds the consistency
-checks. The Cook benchmark is `benchmark/hw3l/cook/`.
+checks. The Cook benchmark is `benchmark/tet15-p1/cook/`.
 
 ## Prototype scripts
 

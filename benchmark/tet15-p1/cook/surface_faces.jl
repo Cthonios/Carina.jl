@@ -2,7 +2,7 @@
 # the pressure figures: one row per triangle, with the id of the element it
 # belongs to and the ids and reference x, y of its three vertices.
 #
-#   julia --project=. benchmark/hw3l/cook/surface_faces.jl meshes/cook-h2.g faces-h2.csv
+#   julia --project=. benchmark/tet15-p1/cook/surface_faces.jl meshes/cook-h2.g faces-h2.csv
 
 using Exodus
 using Printf

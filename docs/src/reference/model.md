@@ -55,7 +55,7 @@ With this key the volumetric strain θ(J) of the constitutive model is replaced,
 element by element, by its L² projection onto polynomials of degree 0
 (`constant`) or 1 (`linear`) in the reference coordinates, and the volumetric
 energy κ/2 θ² is evaluated at the projected strain.  This is the
-mean-dilatation formulation of `research/hw3l/note.tex`, the reduction of the
+mean-dilatation formulation of `research/tet15-p1/note.tex`, the reduction of the
 three-field functional in the motion, the volumetric strain and the pressure
 with the two auxiliary fields in one discontinuous space.  The isochoric
 response and the internal variables are evaluated at the quadrature points

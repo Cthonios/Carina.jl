@@ -23,7 +23,7 @@
 #   compress         x3 = 0.5 X3, affine, J = 0.5 (a control: an affine map
 #                    changes beta_h only through the aspect ratio)
 #
-#   julia --project=. research/hw3l/prototype/deformed.jl
+#   julia --project=. research/tet15-p1/prototype/deformed.jl
 
 include("common.jl")
 
