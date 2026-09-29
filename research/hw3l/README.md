@@ -1,110 +1,83 @@
 # HW3L
 
-**A Three-Field Hu–Washizu Tetrahedron in Logarithmic Strain.** Research note.
+**A Three-Field Hu–Washizu Tetrahedron in Logarithmic Strain.** Research
+note (`note.tex`, `note.pdf`).
 
-Status: **the claim is stated as a prediction about the linearized plastic
-operator and is supported by `prototype/plastic.jl`; the formulation is
-implemented in Carina** as the mean-dilatation reduction of the note
-(`src/projected_physics.jl`, input key `model.volumetric projection`), on the
-TETRA15 element (`Tet{EnrichedLagrange, 2}` of ReferenceFiniteElements,
-`bin/tetra15` converts TETRA4 and TETRA10 meshes), with the Simo--Hughes J2
-model of ConstitutiveModels through its volumetric--isochoric split
-(θ = J − 1).  The element-level assembly it needs is in
-FiniteElementContainers (`assembly_granularity`).  `test/projected-element.jl`
-checks energy, residual and tangent against each other, the matrix-free
-action and the diagonal kernels against the assembled matrices, and the
-affine patch test.  The nonlinear measurements of the note's "Summary of the
-evidence and open measurements" are not yet made.  Norma carries an
-element-level prototype (`src/three_field.jl`) of the two unenriched pairs
-this note rules out.
+## What the note contains
 
-## Building
+The note defines and documents a tetrahedral finite element for the
+large-deformation plasticity of nearly incompressible materials, in the form
+an implementation in another code needs:
+
+- the continuum formulation: a three-field Hu–Washizu functional in the
+  motion, a scalar volumetric strain θ(J) and a pressure, and its exact
+  reduction to a displacement functional in which θ is replaced element by
+  element by its L² projection (mean dilatation); the requirements on the
+  material (an exact volumetric–isochoric split with a volumetric energy
+  quadratic in θ); the two instances θ = log J (Hencky) and θ = J − 1
+  (Simo–Hughes J2, the instance implemented);
+- a self-contained account of volumetric locking, the mixed problem, the
+  inf-sup condition, Brezzi's theorem and the construction by which bubble
+  functions satisfy the inf-sup condition;
+- the element: the three-dimensional Crouzeix–Raviart pair, quadratic
+  displacement with four cubic face bubbles and one quartic interior bubble
+  over a linear discontinuous pressure, carried by a nodal basis on fifteen
+  nodes (TETRA15, Exodus node order), with the nodal transform, the
+  fourteen-point quadrature rule of Keast with its points and weights, and
+  the row-sum lumped mass;
+- the element algorithm: the two passes over the quadrature points, the
+  residual, the tangent with its coupling term, what the material must
+  supply, and the consistency checks an implementation must pass;
+- the measurements on the linearized operator: inf-sup constants over a
+  mesh sequence for seven pairs against the Taylor–Hood control, locking
+  counts, stability on deformed configurations, the dilatation of the soft
+  modes under a plastic tangent (the composite tetrahedron of Albany-LCM
+  included), quadrature and basis;
+- the nonlinear results on Cook's membrane in three dimensions, elastic at
+  ν = 0.4999 and elastoplastic, on three meshes, against the composite
+  tetrahedron of Albany-LCM: tip displacements and pressure fields;
+- the open measurements and the limitations.
+
+## Implementation
+
+The formulation is implemented in Carina (`src/projected_physics.jl`, input
+key `model.volumetric projection: linear | constant`), on the TETRA15
+element of ReferenceFiniteElements (`Tet{EnrichedLagrange, 2}`;
+`bin/tetra15` converts TETRA4 and TETRA10 meshes), with the Simo–Hughes J2
+model of ConstitutiveModels through its volumetric–isochoric split
+interface, and with the element-level assembly of FiniteElementContainers
+(`assembly_granularity`). `test/projected-element.jl` holds the consistency
+checks. The Cook benchmark is `benchmark/hw3l/cook/`.
+
+## Prototype scripts
+
+`prototype/` holds the Julia scripts that produce the measurements on the
+linearized operator; `prototype/README.md` documents each script and its
+output.
+
+## Building the note
 
 ```
-make          # -> note.pdf   (24 pages)
+make          # -> note.pdf
 make watch    # rebuild continuously on save
 make clean    # remove auxiliary files, keep the PDF
 make purge    # remove auxiliary files and the PDF
 ```
 
-Requires `pdflatex`, `bibtex`, `latexmk`, and the LaTeX packages `boldtensors`,
-`booktabs`, `microtype`, `natbib`. On Fedora:
+Requires `pdflatex`, `bibtex`, `latexmk`, and the LaTeX packages
+`boldtensors`, `booktabs`, `graphicx`, `microtype`, `natbib`. On Fedora:
 
 ```
 sudo dnf install texlive-boldtensors texlive-booktabs texlive-microtype \
                  texlive-natbib latexmk
 ```
 
-The PDF is checked in so the document can be read without a TeX
+The PDF is tracked so that the document can be read without a TeX
 installation. It is a build product of the source beside it: rebuild it with
-`make` and commit it together with any change to the source.
-
-## The claim in one paragraph
-
-Volumetric locking and spurious soft modes are failures of the two hypotheses
-of Brezzi's theorem. The inf-sup condition is a property of the pair and is
-settled: the three-dimensional Crouzeix–Raviart pair, $P_2$ with face and
-interior bubbles over a linear discontinuous pressure, is stable at
-$\beta_h = 0.2968$, and every other element-local pair decays. Coercivity of
-the deviatoric form on the discretely isochoric subspace holds in elasticity
-for every pair, and an identity bounds its constant below by $(1-\beta)/2$
-under a plastic tangent for every pair as well, so that constant cannot
-distinguish pairs. What does is whether the soft modes are isochoric. Under a
-plastic tangent with a uniaxial flow direction, the softest modes of a
-constant-pressure element carry a dilatation of 0.20–0.27 that does not decay
-under refinement and that the continuum would resist with $\kappa$; those of
-the stable pair carry one that decays as $h^2$; those of Taylor–Hood are
-dilatation almost entirely. In a confined plastic zone with a varying flow
-direction the stable pair has no spurious mode among its twenty softest from
-$N = 4$ on, and the constant-pressure pairs retain between four and fifteen.
-On deformed configurations the inf-sup constant decreases with the shear of
-the deformation (0.30 → 0.20 at a 90° twist, 0.12 at 180°) and is unchanged
-by its volume change. No stabilization is needed where the spurious modes
-are absent. The composite tetrahedron relieves locking with a constant
-pressure and removes the resulting soft modes with a penalty; variational-multiscale
-methods add a time-step-dependent subgrid term that reaches the plastic return
-map. Neither is needed with a pair inside the admissible window.
-
-## The formulation
-
-Three fields — motion, volumetric log-strain $\bar\theta$, pressure $\bar p$ —
-in a Hu–Washizu functional over Hencky strain. Because $\theta = \log J$
-exactly, the field that must be treated mixedly is a *scalar* in closed form,
-orthogonal to the deviatoric measure that carries the plasticity.
-
-Properties that motivated the choices:
-
-- **No stabilization exists to tune.** Nothing of subgrid or penalty type
-  appears anywhere, so nothing can contaminate the deviator.
-- **The constitutive law is untouched.** All finite-deformation content lives in
-  two material-*independent* geometric transforms; between them sits an
-  unmodified small-strain algorithm. Any small-strain model ports without
-  reformulation.
-- **Strain and stress never cross discretizations.** Both are evaluated at the
-  same quadrature point of the same element.
-- **Elimination is element-local.** Both auxiliary fields are discontinuous, so
-  the tangent keeps displacement-mesh sparsity — the property that keeps the
-  composite tetrahedron's tangent as sparse as a displacement element's.
-
-## What would kill it
-
-The note ends with five falsifiable claims and the benchmark set. The ones most
-likely to fail:
-
-- The recommended pair needs **bubble enrichment** — plain $P_2/P_1^{\rm disc}$
-  is *not* inf-sup stable on tetrahedra, only in 2D. Taylor–Hood
-  $P_2/P_1$-continuous is a fallback for elasticity only: under a plastic
-  tangent its softest modes are almost pure dilatation, and local
-  elimination is lost with it.
-- **Explicit dynamics is the weakest part.** HRZ lumping gives strictly
-  positive masses for $P_2$ (row-sum does not, and cannot be used), but the
-  critical time step is smaller than for linear elements. Whether fewer, larger
-  elements repay that is unmeasured.
-- Nothing here is novel in its parts. The contribution, if any, is that
-  combining them correctly makes the stabilization unnecessary — worth exactly
-  what the numerical evidence turns out to be worth.
+`make` and commit it together with any change to the source. The figures
+of the Cook benchmark are in `figures/`.
 
 ## Relationship to the rest of the repository
 
-Independent of `../sec5l/`. The two are separate attacks on the same problem and
-share no machinery.
+`../sec5l/` is an independent formulation of the same problem; the two share
+no code.
