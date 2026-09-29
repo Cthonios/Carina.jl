@@ -658,19 +658,25 @@ end
     # Element mass matrix in interleaved DOF ordering:
     #   M_el[3*(n-1)+d, 3*(m-1)+d'] = δ(d,d') * N[n] * N[m]   (= kron(N*N', I₃))
     # The FEC assembly infrastructure expects rows/cols in the same interleaved
-    # order as discrete_gradient.  Built directly as an SMatrix via a
-    # column-major generator: the previous element-wise `setindex` on an
-    # immutable SVector was O(NDOF⁴) — each `setindex` rebuilds the whole array
-    # — and on its own dominated whole-simulation setup time.
-    ρ       = props_el[1]
-    ET      = eltype(N)
-    N_nodes = size(N, 1)
-    NDOF    = 3 * N_nodes
-    NN      = N * N'                        # NN[n,m] = N[n] * N[m]
-    M_el = SMatrix{NDOF, NDOF, ET}(
-        (((r - 1) % 3 == (c - 1) % 3) ? NN[(r - 1) ÷ 3 + 1, (c - 1) ÷ 3 + 1] : zero(ET))
-        for r in 1:NDOF, c in 1:NDOF)
-    return JxW * ρ * M_el
+    # order as discrete_gradient, which is kron(N*N', I₃).
+    return _expand_mass((JxW * props_el[1]) * (N * N'))
+end
+
+# kron(NN, I₃) as an SMatrix: entry (3(n-1)+d, 3(m-1)+d') is NN[n,m] δ_dd'.
+# Built from an `ntuple` of the entries in column-major order.  The
+# generator form `SMatrix{NDOF,NDOF}(f(r, c) for r in .., c in ..)` took
+# 305 s and 18.6 GB of memory to compile for the 45 × 45 matrix of TETRA15,
+# against about one second for this form; `kron` of static matrices returns
+# a heap-allocated SizedMatrix above a size limit, which the assembly does
+# not accept; and an element-wise `setindex` on an immutable array is
+# O(NDOF⁴) at run time.
+@inline function _expand_mass(NN::SMatrix{N, N, T}) where {N, T}
+    NDOF = 3 * N
+    return SMatrix{NDOF, NDOF, T}(ntuple(Val(NDOF * NDOF)) do lin
+        r = (lin - 1) % NDOF + 1
+        c = (lin - 1) ÷ NDOF + 1
+        (r - 1) % 3 == (c - 1) % 3 ? NN[(r - 1) ÷ 3 + 1, (c - 1) ÷ 3 + 1] : zero(T)
+    end)
 end
 
 # --------------------------------------------------------------------------- #

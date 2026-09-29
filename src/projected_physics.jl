@@ -453,7 +453,22 @@ end
     return acc
 end
 
-for kernel in (:mass, :lumped_mass)
+# The consistent mass: the scalar matrix ρ N Nᵀ summed over the quadrature
+# points, expanded to the three components once.
+@inline function FEC.mass(
+    physics::ProjectedSolidMechanics, ref_fe, x_el, t, dt, u_el, u_el_old,
+    states::FEC.ElementState, props_el,
+)
+    cell = FEC.map_interpolants(FEC._cell_interpolants(ref_fe, 1), x_el)
+    NN = (cell.JxW * props_el[1]) * (cell.N * cell.N')
+    for q in 2:RFE.num_cell_quadrature_points(ref_fe)
+        cell = FEC.map_interpolants(FEC._cell_interpolants(ref_fe, q), x_el)
+        NN = NN + (cell.JxW * props_el[1]) * (cell.N * cell.N')
+    end
+    return _expand_mass(NN)
+end
+
+for kernel in (:lumped_mass,)
     @eval @inline function FEC.$kernel(
         physics::ProjectedSolidMechanics, ref_fe, x_el, t, dt, u_el, u_el_old,
         states::FEC.ElementState, props_el,
