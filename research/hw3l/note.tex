@@ -49,7 +49,7 @@
 \newtheorem{proposition}{Proposition}
 
 \title{\textbf{HW3L}\\[0.3em]
-  \large A Three-Field Hu--Washizu Tetrahedron in Logarithmic Strain\\[0.2em]
+  \large A Three-Field Hu--Washizu Tetrahedron\\[0.2em]
   \normalsize Research note}
 \author{Alejandro Mota}
 \date{\today}
@@ -59,7 +59,7 @@
 
 \begin{abstract}
 \noindent
-HW3L (Hu--Washizu, three fields, logarithmic strain) is a tetrahedral finite
+HW3L is a tetrahedral finite
 element for the large-deformation plasticity of nearly incompressible
 materials: materials whose bulk modulus $\kappa$, the resistance to a change
 of volume, is much larger than their shear modulus $\mu$, the resistance to a
@@ -75,13 +75,18 @@ projection onto that space (mean dilatation), and the auxiliary fields are
 eliminated element by element. The deviatoric (shape-changing) response is
 evaluated at the quadrature points, so the constitutive law and its return
 map, the algorithm that projects a trial stress onto the yield surface, run
-unchanged, and no quantity other than $\theta$ is projected. The material
-must have a stored energy that splits exactly into a volumetric part,
-quadratic in $\theta$, and an isochoric (volume-preserving) part; the choice
-of $\theta(J)$ is a parameter of the formulation, and two instances are
-developed, $\theta = \log J$ with the Hencky material, from which the name
-derives, and $\theta = J - 1$ with the $J_2$ plasticity model of Simo and
-Hughes, which is the instance implemented. The discrete spaces are the
+unchanged, and no quantity other than $\theta$ is projected. In its general
+form the element calls the material at a modified deformation gradient
+whose volume is the projected one, and needs nothing of the material beyond
+its stress and tangent; when the stored energy splits exactly into a
+volumetric part quadratic in $\theta$ and an isochoric (volume-preserving)
+part, the pressure equals $\kappa$ times the projected strain at every
+point and the element needs one projection and one material call per
+quadrature point, which is the form implemented. The choice of $\theta(J)$
+is a parameter of the formulation, and two instances of the split form are
+developed, $\theta = \log J$ with the Hencky material and $\theta = J - 1$
+with the $J_2$ plasticity model of Simo and Hughes, the instance
+implemented. The discrete spaces are the
 three-dimensional Crouzeix--Raviart pair: the quadratic tetrahedron enriched
 with four cubic face bubbles and one quartic interior bubble, polynomials
 that vanish on a prescribed part of the element boundary, carried by a nodal
@@ -546,10 +551,16 @@ $Q_h$, which \S\ref{sec:fe-spaces} selects and \S\ref{sec:results} measures.
 
 This section states what each half of \eqref{eq:energy} requires of the
 material, together with a third condition that is not a requirement of this
-section, and reports which materials meet them.
+section, and reports which materials meet them. The two conditions are
+those of the form of the element implemented, in which the material is
+called once per quadrature point and the pressure equals $\kappa\bar\theta$
+at every point; \S\ref{sec:general} gives the form of the element for a
+material that satisfies neither, at the price of one projection and one
+pass more.
 
 \paragraph{An exact volumetric--isochoric split.} This condition is
-structural. The
+the one that lets the element call the material at the pointwise
+deformation. The
 element evaluates $W$ at the pointwise deformation, subtracts the pointwise
 volumetric energy and adds it back at the projected strain, so the subtraction
 must leave no volumetric remainder:
@@ -636,31 +647,236 @@ the other material. \S\ref{sec:instances} develops both.
 
 The three remaining split materials --- neo-Hookean, its reciprocal, and
 Seth--Hill --- are admissible with one projection more
-(Remark~\ref{rem:nonquadratic}) and are not developed here. What the
-formulation requires of a material is the split, and five of the seven have
-it.
+(\S\ref{sec:general}) and are not developed further.
 
-\begin{remark}[Extending to a non-quadratic $W\supvol$]
-\label{rem:nonquadratic}
-Neither \S\ref{sec:hw} nor \S\ref{sec:meandilatation} is affected, and no
-local Newton iteration is introduced. Two things change.
+\subsection{General materials}
+\label{sec:general}
 
-First, \eqref{eq:projection} acquires a second projection: $\bar\theta =
-\mathcal{P}_h\theta$ from one mass-matrix solve as before, then $\bar p = \mathcal{P}_h
-W\supvol{}'(\bar\theta)$ from a second solve with the same factorization and a
-nonlinear integrand. The tangent contribution is
-$\int W\supvol{}''(\bar\theta)\,\mathcal{P}_h(D\theta[\delta\disp])\,
-\mathcal{P}_h(D\theta[\testd])\diff V$, a weighted integral against the same constant
-mass matrix, and the factorization is reused across Newton iterations exactly
-as in the quadratic case.
+This section gives the element for a material that does not satisfy the
+conditions of \S\ref{sec:matreq}. Two cases are distinguished by what the
+material exposes. In the first the split \eqref{eq:matsplit} exists and is
+accessible, and only the volumetric energy $W\supvol(\theta)$ is not
+quadratic. In the second nothing is accessible beyond what every
+finite-element code obtains from a material model: the stored energy
+$W(\F)$, the first Piola--Kirchhoff stress $\P(\F) = \partial W/\partial\F$
+and the tangent $\mathbb{A}(\F) = \partial^2 W/\partial\F\partial\F$, with
+the internal variables the model carries. The second case is the general
+one: it applies to a code whose material models cannot be modified, and it
+contains the first and the implemented form as special cases.
 
-Second, the choice of volumetric variable is not determined by the material.
-For a quadratic $W\supvol$ the variable is whichever one makes it quadratic,
-and Table~\ref{tab:split} settles it. For a non-quadratic $W\supvol$ any
-monotone $\theta(J)$ satisfying \eqref{eq:thetadef} is admissible, and by
-Remark~\ref{rem:thetachoice} the choice of $\theta$ changes the discrete
-element.
-\end{remark}
+\paragraph{Case 1: an accessible split with a non-quadratic volumetric
+energy.} Nothing in \S\ref{sec:hw} changes. With $\bar\theta$ and $\bar p$
+in one space $Q_h$, stationarity in $\bar p$ gives $\bar\theta =
+\mathcal{P}_h\theta$ as before, and stationarity in $\bar\theta$ gives
+\begin{equation}
+  \label{eq:pbar-nonquadratic}
+  \int_\Omega \big( W\supvol{}'(\bar\theta) - \bar p \big)\, q \diff V = 0
+  \text{ for all } q \in Q_h,
+  \qquad\text{that is}\qquad
+  \bar p = \mathcal{P}_h\, W\supvol{}'(\bar\theta) ,
+\end{equation}
+the projection of a known function of the already computed $\bar\theta$.
+The constraint term of \eqref{eq:hw} vanishes as in
+\eqref{eq:constraint-vanishes}, because $\bar p$ lies in $Q_h$ and
+$\theta - \mathcal{P}_h\theta$ is orthogonal to it, so the functional
+reduces to
+\begin{equation}
+  \label{eq:collapsed-general}
+  \Pi[\disp] = \int_\Omega W\supiso\!\left(\bar{\F}(\disp)\right) \diff V
+             + \int_\Omega W\supvol\!\left(\mathcal{P}_h \theta\right) \diff V ,
+\end{equation}
+whose derivative reproduces \eqref{eq:pbar-nonquadratic}, since
+$\mathcal{P}_h$ is self-adjoint in $L^2$: $\int W\supvol{}'(\bar\theta)\,
+\mathcal{P}_h(\delta\theta) \diff V = \int \mathcal{P}_h W\supvol{}'(\bar\theta)\,
+\delta\theta \diff V$. The stress at a quadrature point is
+\eqref{eq:pass2} with this $\bar p$. Four things follow.
+\begin{enumerate}
+\item With the constant projection nothing changes: $\bar\theta$ is
+  constant on the element, so $W\supvol{}'(\bar\theta)$ is constant and the
+  projection in \eqref{eq:pbar-nonquadratic} is the identity. This is the
+  mean-dilatation element of \citet{SimoTaylorPister:1985}, which was
+  formulated for a general $W\supvol$.
+\item With the linear projection the pressure is projected twice, and
+  $\bar p(~\xi_q) \ne W\supvol{}'(\bar\theta(~\xi_q))$: the pressure at a
+  quadrature point is not the constitutive response of the projected
+  strain at that point. Using $W\supvol{}'(\bar\theta(~\xi_q))$ there
+  instead is not the derivative of any functional, gives an unsymmetric
+  tangent and fails the consistency checks of \S\ref{sec:checks}; it is
+  not admissible.
+\item The tangent replaces the constant matrix $\kappa ~D ~M^{-1}
+  \transpose{~D}$ of \S\ref{sec:algorithm} by $~D ~M^{-1} \tilde{~U}
+  ~M^{-1} \transpose{~D}$ with $\tilde U_{mn} = \sum_q w_q j_q\,
+  W\supvol{}''(\bar\theta_q)\, \chi_m(~\xi_q) \chi_n(~\xi_q)$, a weighted
+  mass matrix assembled at every iteration, and the volumetric stress
+  $\bar p_q\,\partial ~g/\partial\F$ of \eqref{eq:tangent} uses the
+  projected $\bar p_q$; the tangent stays symmetric. In the linearized
+  problem of \S\ref{sec:mixed} the compressibility term $-(1/\kappa)(p,q)$
+  becomes a term weighted by $1/W\supvol{}''(\bar\theta)$, which varies
+  inside the element and with the deformation; the inf-sup constant
+  $\beta_h$ is unchanged, since it depends only on the spaces and on the
+  constraint operator, and the constants of Brezzi's theorem then involve
+  the smallest and largest values of $W\supvol{}''$ over the body, which
+  must be positive: $W\supvol$ must be convex in $\theta$ over the range of
+  $\bar\theta$ reached.
+\item The second projection can be avoided by a change of variable. Any
+  $W\supvol(J)$ with a single minimum at $J = 1$ and $W\supvol{}''(1) =
+  \kappa > 0$ is quadratic in
+  \begin{equation}
+    \label{eq:thetafromU}
+    \theta(J) := \operatorname{sign}(J - 1)\, \sqrt{2 W\supvol(J)/\kappa} ,
+  \end{equation}
+  which satisfies \eqref{eq:thetadef} with $\theta = J - 1 + O((J-1)^2)$
+  and is convex-admissible wherever $W\supvol$ is. The element of
+  \S\ref{sec:algorithm} then applies unchanged with this $\theta$. For the
+  volumetric law $W\supvol = \tfrac{\kappa}{4}(J^2 - 1 - 2\log J)$ of
+  Albany-LCM, for example, $\theta^2 = (J^2 - 1 - 2\log J)/2$. What
+  distinguishes this choice from a non-quadratic $W\supvol$ in the variable
+  $J - 1$ is the quantity averaged over the element, $\mathcal{P}_h\theta$
+  against $\theta(\mathcal{P}_h(J - 1))$; by Remark~\ref{rem:thetachoice}
+  the two are different elements that converge to the same solution.
+\end{enumerate}
+
+\paragraph{Case 2: a material without an accessible split.} The element
+calls the material at a modified deformation gradient whose volume is the
+projected one. With $J$ the pointwise Jacobian and
+\begin{equation}
+  \label{eq:Ftilde}
+  \tilde J := \theta^{-1}\!\big(\mathcal{P}_h\theta(J)\big),
+  \qquad
+  s := (\tilde J / J)^{1/3},
+  \qquad
+  \tilde{\F} := s\,\F,
+  \qquad \det\tilde{\F} = \tilde J ,
+\end{equation}
+the element is the stationarity of
+\begin{equation}
+  \label{eq:Pi-general}
+  \Pi[\disp] = \int_\Omega W\big(\tilde{\F}(\disp)\big) \diff V - \Pi_{\mathrm{ext}} .
+\end{equation}
+Here $\theta^{-1}$ is the inverse of the strictly increasing
+$\theta(J)$; for $\theta = J - 1$, $\tilde J = 1 + \mathcal{P}_h(J - 1) =
+\mathcal{P}_h J$, and for $\theta = \log J$, $\tilde J = \exp(\mathcal{P}_h
+\log J)$. The isochoric part of $\tilde{\F}$ is that of $\F$, since
+$\tilde J^{-1/3}\tilde{\F} = J^{-1/3}\F$, so the material is evaluated at
+the pointwise shape change and the projected volume change.
+Equation~\eqref{eq:Pi-general} is a functional of the motion alone for
+every material, whether or not its energy splits; it is the mean-dilatation
+construction of \citet{SimoTaylorPister:1985} with the projection
+$\mathcal{P}_h$ in place of the element mean, and with the constant
+projection and $\theta = J - 1$ it is that construction, in which the
+$\bar F$ element of \citet{deSouzaNeto.etal:1996} replaces the element mean
+of $J$ by its value at the centroid. For a material with the split
+\eqref{eq:matsplit}, $W(\tilde{\F}) = W\supvol(\theta(\tilde J)) +
+W\supiso(\bar{\F}) = W\supvol(\mathcal{P}_h\theta) + W\supiso(\bar{\F})$,
+so \eqref{eq:Pi-general} is \eqref{eq:collapsed-general}, and with a
+quadratic $W\supvol$ it is \eqref{eq:collapsed}: the general element
+contains both.
+
+\paragraph{The residual of case 2.} Let $\tilde{\P} := \P(\tilde{\F})$ be
+the stress the material returns at $\tilde{\F}$, with its internal
+variables updated there, and let
+\begin{equation}
+  \label{eq:ptilde}
+  \tilde p := \frac{1}{3\tilde J}\, \tilde{\P} : \tilde{\F} = \tfrac13 \trace \tilde{~\sigma}
+\end{equation}
+be the mean Cauchy stress at $\tilde{\F}$, positive in expansion. The
+variation of \eqref{eq:Ftilde} is $\delta\tilde{\F} = s\,\delta\F +
+\delta s\,\F$ with $\delta s = \tfrac{s}{3}\,(\delta\tilde J/\tilde J -
+\delta J/J)$, $\delta J = J\,\F^{-\mathsf T} : \delta\F$ and
+$\delta\tilde J = \delta\bar\theta / \theta'(\tilde J)$, $\delta\bar\theta =
+\mathcal{P}_h\big(\theta'(J)\,\delta J\big)$. Substituting into $\delta\Pi
+= \int \tilde{\P} : \delta\tilde{\F} \diff V$, using $\tilde{\P} :
+\tilde{\F} = 3\tilde J \tilde p$ and moving the projection onto the other
+factor by self-adjointness gives the stress that multiplies $\Grad\testd$
+at a quadrature point,
+\begin{equation}
+  \label{eq:P-general-material}
+  \P_q = s_q\, \tilde{\P}_q
+       - \tilde p_q\, \tilde J_q\, \F_q^{-\mathsf T}
+       + \bar p_q\, \theta'(J_q)\, J_q\, \F_q^{-\mathsf T},
+  \qquad
+  \bar p := \mathcal{P}_h\!\left( \frac{\tilde p}{\theta'(\tilde J)} \right) ,
+\end{equation}
+and $~R_a = \sum_q w_q j_q\, \P_q \Grad N_a(~\xi_q)$ as in
+\eqref{eq:pass2}. The first term is the material's stress scaled to the
+pointwise volume, the second removes its mean part, and the third puts back
+the projected mean stress with the pointwise volumetric kinematics. For a
+material with the split, $\tilde{\P} = \P\supiso(\bar{\F})\,s^{-1} +
+W\supvol{}'(\bar\theta)\,\theta'(\tilde J)\,\tilde J\,\tilde{\F}^{-\mathsf T}$,
+the isochoric stress does no work on $\tilde{\F}$, and
+\eqref{eq:P-general-material} reduces to \eqref{eq:pass2} with $\bar p =
+\mathcal{P}_h W\supvol{}'(\bar\theta)$; with a quadratic $W\supvol$ the
+projection is the identity and $\bar p = \kappa\bar\theta$. For
+$\theta = J - 1$ and the constant projection, $\bar p = \tilde p$ on the
+element and \eqref{eq:P-general-material} is $\P_q = s_q \tilde{\P}_q +
+\tilde p\,(J_q - \tilde J)\,\F_q^{-\mathsf T}$.
+
+\paragraph{The passes of case 2.} Three passes over the quadrature points
+replace the two of \S\ref{sec:algorithm}. The first computes $\bar\theta$
+by \eqref{eq:pass1} and, from it, $\tilde J_q$ and $s_q$. The second forms
+$\tilde{\F}_q$, calls the material once at each point, stores
+$\tilde{\P}_q$ and $\tilde p_q$, and accumulates $\bar b_m = \sum_q w_q
+j_q\, \chi_m(~\xi_q)\, \tilde p_q / \theta'(\tilde J_q)$, from which $\bar p
+= ~M^{-1}\bar{~b}$ with the mass matrix of \eqref{eq:pass1}. The third
+assembles the residual from the stored $\tilde{\P}_q$ and
+\eqref{eq:P-general-material}. The storage is one stress tensor per
+quadrature point of the element; the material is called once per point per
+residual, as in the implemented form. Where the split is accessible the
+second projection is still exact but the third pass is unnecessary, since
+$\bar p$ follows from $\bar\theta$ alone.
+
+\paragraph{The tangent of case 2.} The tangent is the second derivative of
+\eqref{eq:Pi-general}. Along two increments with gradients $\delta_1\F$ and
+$\delta_2\F$ at the quadrature points,
+\begin{equation}
+  \label{eq:tangent-general}
+  D^2\Pi[\delta_1\disp, \delta_2\disp]
+  = \sum_q w_q j_q \Big[ \delta_1\tilde{\F}_q : \mathbb{A}_q : \delta_2\tilde{\F}_q
+    + \tilde{\P}_q : \big( \delta_1 s_q\, \delta_2\F_q + \delta_2 s_q\, \delta_1\F_q
+    + \delta_1\delta_2 s_q\, \F_q \big) \Big] ,
+\end{equation}
+with $\mathbb{A}_q$ the material tangent at $\tilde{\F}_q$, the variations
+$\delta\tilde{\F}$ and $\delta s$ as above, and
+\begin{equation}
+  \label{eq:d2s}
+  \begin{aligned}
+  \delta_1\delta_2 s &= \frac{\delta_1 s}{3}\Big(\frac{\delta_2\tilde J}{\tilde J} - \frac{\delta_2 J}{J}\Big)
+   + \frac{s}{3}\Big( \frac{\delta_1\delta_2\tilde J}{\tilde J} - \frac{\delta_1\tilde J\,\delta_2\tilde J}{\tilde J^2}
+   - \frac{\delta_1\delta_2 J}{J} + \frac{\delta_1 J\,\delta_2 J}{J^2} \Big), \\
+  \delta_1\delta_2 J &= J\,(\F^{-\mathsf T} : \delta_1\F)(\F^{-\mathsf T} : \delta_2\F)
+   - J\,\trace\big(\F^{-1}\delta_1\F\,\F^{-1}\delta_2\F\big), \\
+  \delta_1\delta_2\tilde J &= \frac{\mathcal{P}_h\big(\theta''(J)\,\delta_1 J\,\delta_2 J + \theta'(J)\,\delta_1\delta_2 J\big)}{\theta'(\tilde J)}
+   - \frac{\theta''(\tilde J)}{\theta'(\tilde J)}\, \delta_1\tilde J\, \delta_2\tilde J .
+  \end{aligned}
+\end{equation}
+The projection in $\delta\tilde J$ couples the quadrature points of the
+element, as $\delta\bar\theta$ does in \eqref{eq:tangent}: in matrix form
+the tangent is the sum of the quadrature-point blocks and of terms of the
+form $~D ~M^{-1} (\cdot) ~M^{-1} \transpose{~D}$ and $~D ~M^{-1}(\cdot)$
+with the matrix $~D$ of \S\ref{sec:algorithm}. The tangent is symmetric,
+and an implementation is verified by the difference checks of
+\S\ref{sec:checks}: the residual against the energy \eqref{eq:Pi-general}
+and the tangent against the residual, which detect any omitted term.
+
+\paragraph{What the general element changes.} The requirements of
+\S\ref{sec:matreq} disappear: the material supplies $W$, $\P$ and
+$\mathbb{A}$ and nothing else, and the choice of $\theta(J)$ is free
+within \eqref{eq:thetadef}. The return map runs at $\tilde{\F}_q$, and
+the internal variables are updated there, so strain and stress are
+evaluated at the same point and the same deformation, as
+\S\ref{sec:plasticity} requires. For a material whose isochoric response
+depends on $J$, a material without the split, that response is evaluated
+at $\tilde J$ instead of $J$; the difference is of the order of $\theta -
+\mathcal{P}_h\theta$ and vanishes under refinement. The pressure entering
+the residual is the projection of the material's own mean stress at
+$\tilde{\F}$, with the pointwise relation between pressure and projected
+strain recovered only when $W\supvol$ is quadratic in $\theta$. The
+inf-sup constant of the pair is unchanged. Coercivity of the linearized
+operator requires the material's volumetric tangent, $\partial\tilde
+p/\partial\tilde J$ at fixed shape, to be positive over the states reached.
+The element needs the element-level assembly of \S\ref{sec:algorithm} and
+one pass more, and its cost per element is one material call per
+quadrature point plus the two $4 \times 4$ solves.
 
 \begin{remark}[The volumetric variable is a modeling choice]
 \label{rem:thetachoice}
@@ -1027,7 +1243,7 @@ $\theta = J - 1$ for the Simo--Hughes one (Table~\ref{tab:instances}). The secon
 relation in \eqref{eq:projection} holds pointwise, rather than only
 after projection, precisely because $W\supvol$ is quadratic; for a material
 where it is not, it is replaced by a second projection with the same
-factorization (Remark~\ref{rem:nonquadratic}). Substituting $\bar p(\disp)$ into
+factorization (\S\ref{sec:general}). Substituting $\bar p(\disp)$ into
 \eqref{eq:variations}$_1$ leaves a displacement-sized nonlinear problem whose
 tangent retains the sparsity of the displacement mesh --- the auxiliary fields
 never couple two elements. This is the property that keeps the composite
@@ -1225,6 +1441,9 @@ $\theta = J - 1$, $\theta' = 1$, $\theta'' = 0$, $\kappa = \lambda +
 those of BOX~9.1 of \citet{SimoHughes:1998} with the volumetric term
 omitted; the return map on $\bar{~b}^{\mathrm e}$ and the internal
 variables $\F^{\mathrm p}$ and $\bar\epsilon^{\mathrm p}$ are unchanged.
+For a material without an accessible split, the passes and the stress are
+those of \S\ref{sec:general}, with the material called at the modified
+deformation gradient \eqref{eq:Ftilde}.
 
 \paragraph{Assembly.} Because the first pass needs every quadrature point
 of the element before the second can begin, the element is assembled as a
@@ -2665,15 +2884,17 @@ is the quadratic element and $1.4$ the enrichment (\S\ref{sec:basis}). The compa
 quadratic element allows, is not measured; if weak shocks are run with the
 implicit integrator the factor does not apply.
 
-\paragraph{The material.} \S\ref{sec:matreq} requires an exact
-volumetric--isochoric split. Of the seven material models of
-Table~\ref{tab:split}, five satisfy it; linear elasticity and Saint-Venant--Kirchhoff do not, and
-are not finite-deformation models in the sense of \S\ref{sec:problem}. The
-three with a volumetric energy that is not quadratic require one projection
-more (Remark~\ref{rem:nonquadratic}). Anisotropic or non-separable response
-is outside the split and would need the five-field variant of
-\S\ref{sec:fivefield} or a different treatment. The $\bar F$ family of
-elements carries no such requirement.
+\paragraph{The material.} The form implemented calls the material through
+the split of \S\ref{sec:matreq}, which of the seven material models of
+Table~\ref{tab:split} five have; linear elasticity and
+Saint-Venant--Kirchhoff do not, and are not finite-deformation models in
+the sense of \S\ref{sec:problem}. The three with a volumetric energy that
+is not quadratic need the second projection of \S\ref{sec:general}, and a
+material without an accessible split, or with an anisotropic or
+non-separable response, needs the general form of \S\ref{sec:general},
+which calls the material at the modified deformation gradient
+\eqref{eq:Ftilde} with one pass more; that form is not implemented in
+Carina, and its consistency checks are those of \S\ref{sec:checks}.
 
 \paragraph{The parts.} Mixed volumetric treatment
 \citep{SimoTaylorPister:1985}, logarithmic-strain plasticity

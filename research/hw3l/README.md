@@ -1,6 +1,6 @@
 # HW3L
 
-**A Three-Field Hu–Washizu Tetrahedron in Logarithmic Strain.** Research
+**A Three-Field Hu–Washizu Tetrahedron.** Research
 note (`note.tex`, `note.pdf`).
 
 ## What the note contains
