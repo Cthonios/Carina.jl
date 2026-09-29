@@ -109,6 +109,32 @@
                 @test abs(X[1, node] - lo) < 1e-12
             end
         end
+        # A node set covering the whole mesh must gain every new node, the
+        # element centroids included (an initial velocity on such a set would
+        # otherwise leave the centroid nodes, 0.305 of the element mass, at
+        # rest); a node set on one face gains its edge and face nodes and no
+        # centroid.  Two TETRA4 sharing the face 1-2-3.
+        Exodus = Carina.Exodus
+        mktempdir() do dir
+            tet4 = joinpath(dir, "two.g")
+            X = [0.0 1.0 0.0 0.0 0.4; 0.0 0.0 1.0 0.0 0.4; 0.0 0.0 0.0 1.0 -1.0]
+            init = Exodus.Initialization{Int32}(3, 5, 2, 1, 2, 0)
+            o = Exodus.ExodusDatabase{Int32, Int32, Int32, Float64}(tet4, "w", init)
+            Exodus.write_coordinates(o, X)
+            Exodus.write_block(o, 1, "TETRA4", Int32[1 1; 2 3; 3 2; 4 5])
+            Exodus.write_names(o, Exodus.Block, ["two"])
+            Exodus.write_set(o, Exodus.NodeSet(Int32(1), Int32[1, 2, 3, 4, 5]))
+            Exodus.write_set(o, Exodus.NodeSet(Int32(2), Int32[1, 2, 3]))
+            Exodus.write_names(o, Exodus.NodeSet, ["all", "face"])
+            Exodus.close(o)
+            out = joinpath(dir, "two15.g")
+            n = Carina.tetra15_mesh(tet4, out)
+            @test n == 5 + 9 + 7 + 2
+            m = Carina.FEC.UnstructuredMesh(out)
+            @test sort(m.nodeset_nodes["all"]) == collect(1:n)
+            @test length(m.nodeset_nodes["face"]) == 3 + 3 + 1
+            @test isempty(intersect(m.nodeset_nodes["face"], m.element_conns["two"][15, :]))
+        end
         # only tetrahedra are converted
         hex = joinpath(@__DIR__, "..", "examples", "meshes", "cube", "cube.g")
         mktempdir() do dir

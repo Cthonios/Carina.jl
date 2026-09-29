@@ -154,6 +154,12 @@ function _tetra15_mesh(exo, output::AbstractString)
             all(k -> k in members || k in added, mids) || continue
             push!(added, n)
         end
+        # The centroid node joins when the other fourteen nodes of its
+        # element are in the set, as for a set covering a whole volume
+        # (for example the node set of an initial velocity).
+        for c15 in new_conns, e in axes(c15, 2)
+            all(k -> c15[k, e] in members || c15[k, e] in added, 1:14) && push!(added, c15[15, e])
+        end
         new_nsets[i] = vcat(Int.(ns.nodes), sort!(collect(added)))
     end
 
