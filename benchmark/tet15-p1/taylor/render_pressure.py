@@ -39,6 +39,8 @@ lut.RescaleTransferFunction(lo, hi)
 lut.AutomaticRescaleRangeMode = "Never"
 ds.SetScalarBarVisibility(view, False)
 ds.Specular = 0.2
+ds.Ambient = 0.35
+ds.Diffuse = 0.75
 
 de = Show(edges, view)
 de.ColorArrayName = ["POINTS", ""]
