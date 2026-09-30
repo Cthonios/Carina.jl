@@ -33,12 +33,14 @@
 # Usage (from the Carina root):
 #   julia -t 16 --project=. benchmark/tet15-p1/taylor/run.jl --h 1.5,0.75
 #        [--stages mesh,smooth,convert,run] [--elements tet15-p1,tet15-p0]
-#        [--final-time 8.0e-5] [--cfl 0.8] [--internal-variables]
+#        [--final-time 8.0e-5] [--cfl 0.8] [--internal-variables] [--stress]
 # Environment: TAYLOR_CUBIT (default /usr/local/cubit/cubit), TAYLOR_NORMA
 # (default ~/Repos/Norma.jl/bin/norma), TAYLOR_NORMA_THREADS (default 8).
 # --internal-variables also writes the internal variables (eqps) at every
 # quadrature point and output time: 844 MB per run at h = 1.5 mm, about
 # 370 GB at h = 0.19 mm; without it the output holds the displacement.
+# --stress also writes the Cauchy stress at every quadrature point, into the
+# run directory <element>-h<h>-stress, for the pressure figures (pressure.jl).
 
 using Carina
 using Exodus
@@ -62,6 +64,7 @@ const LEVELS = Dict(1.5 => (false, 3_495), 0.75 => (false, 24_739),
 const FINAL_TIME = Ref(8.0e-5)
 const CFL = Ref(0.8)
 const INTERNAL = Ref(false)
+const STRESS = Ref(false)
 
 tag(h) = "h$(h)"
 tet4_file(h)  = joinpath(MESHES, "taylor-$(tag(h))-tet4.g")
@@ -176,7 +179,7 @@ input mesh file: $(tet15_file(h))
 output mesh file: $out_file
 output interval: 1.0e-6
 output:
-  stress: false
+  stress: $(STRESS[])
   internal variables: $(INTERNAL[])
 model:
   type: solid mechanics
@@ -215,7 +218,7 @@ end
 include(joinpath(@__DIR__, "history.jl"))
 
 function run_carina(element, h)
-    dir = joinpath(RUNS, "$element-$(tag(h))")
+    dir = joinpath(RUNS, "$element-$(tag(h))" * (STRESS[] ? "-stress" : ""))
     mkpath(dir)
     out_file = joinpath(dir, "taylor.e")
     deck = joinpath(dir, "taylor.yaml")
@@ -247,6 +250,9 @@ function main(args)
     while i <= length(args)
         if args[i] == "--internal-variables"
             INTERNAL[] = true; i += 1; continue
+        end
+        if args[i] == "--stress"
+            STRESS[] = true; i += 1; continue
         end
         haskey(opts, args[i]) || error("unknown option $(args[i])")
         opts[args[i]] = args[i + 1]; i += 2
