@@ -1172,8 +1172,23 @@ for accuracy, run time and memory, and observe on some manufactured
 solutions a larger pressure error than that of Taylor--Hood, which they
 attribute to a smaller inf-sup constant of the richer pressure space (the
 constants measured in \S\ref{sec:beta} are $0.2968$ for this pair and $0.2216$
-for Taylor--Hood on the Freudenthal meshes).  No use of the pair in
-finite-deformation plasticity is known to the author.
+for Taylor--Hood on the Freudenthal meshes). Their formulation is the
+two-field displacement--pressure form, whose pressure equation
+$\int_{\Omega_0} (J - 1)\, q \diff V - \int_{\Omega_0} \kappa^{-1} p\, q
+\diff V = 0$ for all $q$ in the discontinuous space $Q_h$ gives $p =
+\kappa\, \mathcal{P}_h(J - 1)$ element by element; in elasticity their
+element is therefore the element of this note with $\theta = J - 1$ and a
+volumetric energy quadratic in $\theta$. They also report that on meshes
+of curved elements a pressure linear in the coordinates of the physical
+element is more accurate than one linear in the coordinates of the parent
+element. The element of this note takes the pressure linear in the
+parent coordinates $~\xi$ (\S\ref{sec:algorithm}); on an element with
+straight edges these are affine functions of the reference coordinates
+$\bX$ and the two choices coincide, and they differ only on elements with
+curved edges, such as those on the lateral surface of the Taylor bar
+(\S\ref{sec:taylor}). The effect of that choice on the element of this
+note is not measured. No use of the pair in finite-deformation plasticity
+is known to the author.
 
 Stability of a pair depends on the spatial dimension. The conforming Crouzeix--Raviart pair \citep{CrouzeixRaviart:1973} is, in two
 dimensions, $P_2$ enriched with a cubic interior bubble over
@@ -2985,12 +3000,48 @@ $8.4$ in wall time, on $25\,029$ elements against $1\,521\,212$. At equal
 mesh the composite tetrahedron takes $3.6$ times less time to $80~\mu$s on
 $16$ cores, with an error $16$ times larger.
 
+\paragraph{Pressure field.} Figure~\ref{fig:taylorpressure} shows the
+pressure $p = -\tfrac13\trace ~\sigma$, positive in compression, on the impact
+face at $t = 12~\mu$s, the time of Figure~12 of \citet{Foulk.etal:2021},
+for both elements on the same meshes. The composite tetrahedron has one
+value per element, the element mean of the stress that Sierra/SM writes;
+for TET15-P1 the pressure in each element is the quadratic fitted to its
+fourteen quadrature-point values, as in \S\ref{sec:cook}. The largest
+pressure on the impact end is $0.33$, $0.48$, $1.37$ and $1.59$~GPa for the
+composite tetrahedron at $h = 1.5$, $0.75$, $0.38$ and $0.19$~mm, and
+$1.67$, $1.58$ and $1.56$~GPa for TET15-P1 at $h = 1.5$, $0.75$ and
+$0.38$~mm, within $5\%$ of the composite tetrahedron's value on its finest
+mesh. On the two coarser meshes the pressure of the composite tetrahedron
+varies from element to element without a maximum on the axis; TET15-P1
+gives the maximum on the axis on every mesh. The radius of the impact face
+at $12~\mu$s is $5.4944$, $5.4957$, $5.4750$ and $5.4661$~mm for the
+composite tetrahedron and $5.4517$, $5.4507$ and $5.4533$~mm for TET15-P1.
+\citet{Foulk.etal:2021} plot the $L^2$ projection of the composite
+tetrahedron's pressure onto a continuous field, and the range of their color
+scale, $-1.2$ to $0.32$~GPa, indicates the mean stress $\tfrac13\trace ~\sigma
+= -p$. Scripts: \code{benchmark/tet15-p1/taylor/pressure.jl},
+\code{render\_pressure.py} and \code{compose\_pressure.py}.
+
+\begin{figure}[tbp]
+\centering
+\includegraphics[width=\textwidth]{figures/taylor-pressure-face.png}
+\caption{Taylor bar, pressure $p = -\tfrac13\trace ~\sigma$ on the impact face
+at $t = 12~\mu$s, seen along the axis, on the same meshes for both
+elements; one color scale, values beyond it saturate. Top: composite
+tetrahedron (Sierra/SM, $\alpha = 0.1$, exponent $0$), one value per
+element. Bottom: TET15-P1, the quadratic fitted in each element; not run at
+$h = 0.19$~mm.}
+\label{fig:taylorpressure}
+\end{figure}
+
 \paragraph{What the benchmark establishes.} In explicit dynamics with plastic
 strains above $3$, TET15-P1 gives the final radius of the Taylor bar within
 $0.05\%$ of the converged value on a mesh of $25\,029$ elements, where the
 composite tetrahedron needs $1.5$ million elements to reach $0.09\%$, and
 the constant-pressure variant on the same displacement space is $2.1$ to
-$3.4\%$ from it. Its time per element and step is $1.40$ times
+$3.4\%$ from it. On $3522$ elements its largest pressure on the impact
+face at $12~\mu$s is within $5\%$ of that of the composite tetrahedron on
+$1.5$ million. Its time per element and step is $1.40$ times
 that of the composite tetrahedron on one core. The element estimate of the
 stable step used by Carina is not a bound on distorted elements; the
 eigenvalue estimate replaces it. The equivalent plastic strain was not
