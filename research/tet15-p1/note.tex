@@ -3009,13 +3009,14 @@ for TET15-P1 the pressure in each element is the quadratic fitted to its
 fourteen quadrature-point values, as in \S\ref{sec:cook}. The largest
 pressure on the impact end is $0.33$, $0.48$, $1.37$ and $1.59$~GPa for the
 composite tetrahedron at $h = 1.5$, $0.75$, $0.38$ and $0.19$~mm, and
-$1.67$, $1.58$ and $1.56$~GPa for TET15-P1 at $h = 1.5$, $0.75$ and
-$0.38$~mm, within $5\%$ of the composite tetrahedron's value on its finest
-mesh. On the two coarser meshes the pressure of the composite tetrahedron
+$1.67$, $1.58$, $1.56$ and $1.54$~GPa for TET15-P1, between $3\%$ below
+and $5.2\%$ above the composite tetrahedron's value on its finest mesh at
+every level; on that mesh the two differ by $3\%$. On the two coarser meshes the pressure of the composite tetrahedron
 varies from element to element without a maximum on the axis; TET15-P1
 gives the maximum on the axis on every mesh. The radius of the impact face
 at $12~\mu$s is $5.4944$, $5.4957$, $5.4750$ and $5.4661$~mm for the
-composite tetrahedron and $5.4517$, $5.4507$ and $5.4533$~mm for TET15-P1.
+composite tetrahedron and $5.4517$, $5.4507$, $5.4533$ and $5.4570$~mm for
+TET15-P1.
 \citet{Foulk.etal:2021} plot the $L^2$ projection of the composite
 tetrahedron's pressure onto a continuous field, and the range of their color
 scale, $-1.2$ to $0.32$~GPa, indicates the mean stress $\tfrac13\trace ~\sigma
@@ -3029,8 +3030,7 @@ scale, $-1.2$ to $0.32$~GPa, indicates the mean stress $\tfrac13\trace ~\sigma
 at $t = 12~\mu$s, seen along the axis, on the same meshes for both
 elements; one color scale, values beyond it saturate. Top: composite
 tetrahedron (Sierra/SM, $\alpha = 0.1$, exponent $0$), one value per
-element. Bottom: TET15-P1, the quadratic fitted in each element; not run at
-$h = 0.19$~mm.}
+element. Bottom: TET15-P1, the quadratic fitted in each element.}
 \label{fig:taylorpressure}
 \end{figure}
 
@@ -3040,8 +3040,8 @@ $0.05\%$ of the converged value on a mesh of $25\,029$ elements, where the
 composite tetrahedron needs $1.5$ million elements to reach $0.09\%$, and
 the constant-pressure variant on the same displacement space is $2.1$ to
 $3.4\%$ from it. On $3522$ elements its largest pressure on the impact
-face at $12~\mu$s is within $5\%$ of that of the composite tetrahedron on
-$1.5$ million. Its time per element and step is $1.40$ times
+face at $12~\mu$s is $5.2\%$ above that of the composite tetrahedron on
+$1.5$ million, and on $1.5$ million elements the two differ by $3\%$. Its time per element and step is $1.40$ times
 that of the composite tetrahedron on one core. The element estimate of the
 stable step used by Carina is not a bound on distorted elements; the
 eigenvalue estimate replaces it. The equivalent plastic strain was not
