@@ -921,20 +921,23 @@ end
 # the current one during a run, since the lengths of a strongly deformed mesh
 # (the elements of an impacted bar reach aspect ratios near 120) are much
 # smaller than those of the reference mesh.  Absent, the reference mesh.
-function _compute_stable_dt(asm, p, CFL, U = nothing)
+# Per-block storage for the element lengths (nq × nelem), on the device of U.
+# The integrator allocates it once and passes it to every recomputation.
+function _stable_dt_storage(asm, U)
     fspace = FEC.function_space(asm.dof)
-
-    # Pre-allocate per-block storage for element char lengths (nq × nelem)
-    char_len_storage = []
-    for (b, ref_fe) in enumerate(fspace.ref_fes)
-        nquad = RFE.num_cell_quadrature_points(ref_fe)
-        nelem = FEC.num_elements(fspace, b)
-        push!(char_len_storage, zeros(Float64, nquad, nelem))
+    storage = map(keys(fspace.ref_fes)) do b
+        nquad = RFE.num_cell_quadrature_points(getfield(fspace.ref_fes, b))
+        nelem = FEC.num_elements(fspace, findfirst(==(b), keys(fspace.ref_fes)))
+        fill!(similar(U, Float64, nquad, nelem), 0.0)
     end
-    char_len_storage = NamedTuple{keys(fspace.ref_fes)}(char_len_storage)
+    return NamedTuple{keys(fspace.ref_fes)}(storage)
+end
+
+function _compute_stable_dt(asm, p, CFL, U = nothing; storage = nothing)
+    U_at = U === nothing ? zeros(Float64, length(asm.dof.unknown_dofs)) : U
+    char_len_storage = storage === nothing ? _stable_dt_storage(asm, U_at) : storage
 
     # Assemble per-element char lengths on device
-    U_at = U === nothing ? zeros(Float64, length(asm.dof.unknown_dofs)) : U
     FEC.assemble_quadrature_quantity!(
         char_len_storage, nothing, asm.dof,
         element_char_length,

@@ -248,6 +248,8 @@ mutable struct CentralDifferenceIntegrator{Asm, Vec}
     CFL                ::Float64
     stable_dt_interval ::Int      # steps between recomputation (0 = init only)
     stable_dt_counter  ::Int      # steps since last recomputation
+    stable_dt_U        ::Vec      # free-DOF displacement for the recomputation
+    stable_dt_storage  ::Any      # element lengths, allocated on first use
     failed             ::Base.RefValue{Bool}
     # Rollback state (full-DOF)
     U_save::Vec; V_save::Vec; A_save::Vec
@@ -271,7 +273,7 @@ function CentralDifferenceIntegrator(γ::Float64, asm, m_lumped::Vec;
     return CentralDifferenceIntegrator(
         γ, asm, U, V, A, m_lumped, R_eff,
         time_step, min_time_step, max_time_step, decrease_factor, increase_factor,
-        CFL, stable_dt_interval, 0,
+        CFL, stable_dt_interval, 0, mk_free(), nothing,
         Ref(false),
         U_save, V_save, A_save,
     )
@@ -741,6 +743,10 @@ function _pre_step_hook!(ig::CentralDifferenceIntegrator, sim)
     ig.stable_dt_counter += 1
     ig.stable_dt_counter < ig.stable_dt_interval && return
     ig.stable_dt_counter = 0
-    stable_dt = _compute_stable_dt(ig.asm, sim.params, ig.CFL, ig.U[ig.asm.dof.unknown_dofs])
+    copyto!(ig.stable_dt_U, view(ig.U, ig.asm.dof.unknown_dofs))
+    ig.stable_dt_storage === nothing &&
+        (ig.stable_dt_storage = _stable_dt_storage(ig.asm, ig.stable_dt_U))
+    stable_dt = _compute_stable_dt(ig.asm, sim.params, ig.CFL, ig.stable_dt_U;
+                                   storage = ig.stable_dt_storage)
     ig.time_step = min(stable_dt, ig.max_time_step)
 end
