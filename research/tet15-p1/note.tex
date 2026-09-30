@@ -395,7 +395,9 @@ zero mean on the element and does no work on a constant pressure
 (Remark~\ref{rem:whyface}). The displacement space with both enrichments
 over the linear discontinuous pressure is the three-dimensional
 Crouzeix--Raviart pair \citep{CrouzeixRaviart:1973},
-\citep[Example~8.7.2]{BoffiBrezziFortin:2013}, and the construction above is
+\citep[Example~8.7.2]{BoffiBrezziFortin:2013}, whose stability in three
+dimensions, for the whole family of Crouzeix--Raviart elements, is also
+proved by \citet{SauterTorres:2022}, and the construction above is
 the proof of its stability on any shape-regular family of meshes.
 \S\ref{sec:beta} measures its constant and confirms that neither enrichment
 alone suffices.
@@ -1153,6 +1155,18 @@ is the condition on the pair. The admissible pairs are therefore those for
 which $\beta_h$ in \eqref{eq:infsup} is bounded below uniformly in $h$, and
 stability must also hold on the target range of $\kappa/\mu$
 \citep{BoffiBrezziFortin:2013}.
+
+The pair has been used before in large-deformation hyperelasticity:
+\citet{ChamberlandFortinFortin:2010}, comparing discretizations of a
+nearly incompressible Mooney--Rivlin material against manufactured
+solutions on tetrahedral and hexahedral meshes, recommend it and its
+hexahedral counterpart for nearly incompressible large-deformation problems
+for accuracy, run time and memory, and observe on some manufactured
+solutions a larger pressure error than that of Taylor--Hood, which they
+attribute to a smaller inf-sup constant of the richer pressure space (the
+constants measured in \S\ref{sec:beta} are $0.2968$ for this pair and $0.2216$
+for Taylor--Hood on the Freudenthal meshes).  No use of the pair in
+finite-deformation plasticity is known to the author.
 
 Stability of a pair depends on the spatial dimension. The conforming Crouzeix--Raviart pair \citep{CrouzeixRaviart:1973} is, in two
 dimensions, $P_2$ enriched with a cubic interior bubble over
@@ -2215,7 +2229,17 @@ Every measurement above is at $\F = \Id$. At a finite deformation the
 pairing is $\int \varpi\,\mathrm{div}_{\bx}\testd \diff V$ (\S\ref{sec:fe-spaces}),
 the divergence pairing on the deformed configuration with the pressure scaled
 by $1/J$, and whether $\beta_h$ stays bounded below under a large non-affine
-deformation is what the regime of \S\ref{sec:problem} requires. The operators
+deformation is what the regime of \S\ref{sec:problem} requires.
+\citet{Auricchio.etal:2005} show, on a two-dimensional finite-strain problem
+with a loading parameter, that mixed elements stable in linear elasticity
+(the MINI triangle, a mixed-enhanced quadrilateral and the quadrilateral
+$Q_2/P_1^{\mathrm{disc}}$) fail to reproduce the range of the parameter over
+which the continuum problem is stable: the discrete problem becomes unstable
+where the continuum one is stable, or stays stable where it is not; and
+\citet{Auricchio.etal:2013} conclude that for such pairs in finite elasticity
+the causes are identified but a general remedy is still missing.  This
+section measures the constant of the pair on deformed configurations for
+that reason. The operators
 \eqref{eq:infsup-ops} are assembled on the isoparametric image of the
 quadratic mesh under a prescribed map, with the derivatives, the divergence
 and the volume taken on the image and the pressure basis on the reference
@@ -2900,15 +2924,25 @@ Carina, and its consistency checks are those of \S\ref{sec:checks}.
 \paragraph{The parts.} Mixed volumetric treatment
 \citep{SimoTaylorPister:1985}, logarithmic-strain plasticity
 \citep{Miehe.Apel.Lambrecht:2002} and displacement--pressure pairs satisfying
-\eqref{eq:infsup} uniformly \citep{BoffiBrezziFortin:2013} are established.
-The contribution is their combination: an element-local pair satisfying
+\eqref{eq:infsup} uniformly \citep{BoffiBrezziFortin:2013} are established,
+and the pair itself has been used in large-deformation hyperelasticity
+\citep{ChamberlandFortinFortin:2010}. The contribution is their combination
+for finite-deformation plasticity: an element-local pair satisfying
 \eqref{eq:infsup} uniformly, a projected volumetric strain, and a deviatoric
 law evaluated pointwise, which removes the stabilization that the
-composite-tetrahedron and variational-multiscale methods carry. The evidence
-is that of \S\ref{sec:results}; the nonlinear confirmation is the open
-measurement of \S\ref{sec:verify}. Methods with unknowns on element faces and
-element interiors coupled only through the faces \citep{AbbasErnPignet:2019}
-are the alternative should that measurement not confirm it.
+composite-tetrahedron and variational-multiscale methods carry; together
+with the measurements that support it, of the dilatation of the soft modes
+under a plastic tangent (\S\ref{sec:plastic}), of the inf-sup constant on
+deformed configurations (\S\ref{sec:deformed}), and of the nonlinear
+response (\S\ref{sec:cook}). The evidence is that of \S\ref{sec:results}
+and \S\ref{sec:cook}; the smoothness of the equivalent plastic strain is the
+open measurement of \S\ref{sec:verify}. Hybrid high-order methods, with
+unknowns on element faces and element interiors coupled only through the
+faces, are locking-free and eliminate their interior unknowns element by
+element, and exist for small-deformation plasticity
+\citep{AbbasErnPignet:2019} and for finite plasticity in logarithmic strain
+\citep{AbbasErnPignet:2019b}; they are the alternative, at the price of
+face unknowns that are not the nodal displacements of a standard element.
 
 \bibliographystyle{plainnat}
 \bibliography{references}
