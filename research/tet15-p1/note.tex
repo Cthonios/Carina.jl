@@ -122,7 +122,12 @@ ratio $0.29$ every element converges to the same tip displacement within
 $0.5\%$ on the finest mesh. A fourteen-point quadrature rule exact to degree
 five is the smallest that leaves the element its six rigid-body modes, the
 row-sum lumped mass of the nodal basis is positive, and the explicit stable
-step is $3.3$ times smaller than that of the linear tetrahedron. The
+step is $3.3$ times smaller than that of the linear tetrahedron. On the
+Taylor bar impact in explicit dynamics, with plastic strains above $3$,
+TET15-P1 gives the final radius within $0.05\%$ of the converged value on
+$25\,029$ elements, where the composite tetrahedron needs $1.5$ million
+elements for $0.09\%$, at $1/67$ of its core-seconds on the same machine;
+per element and time step on one core it takes $1.40$ times as long. The
 smoothness of the equivalent plastic strain, the accumulated norm of the
 plastic strain increments, in problems with localized plastic flow is not
 measured here.
@@ -211,7 +216,8 @@ an implementation needs. \S\ref{sec:plasticity} gives the plasticity model.
 tangent, \S\ref{sec:dynamics} the explicit time integration, and
 \S\ref{sec:fivefield} an optional extension. \S\ref{sec:results} reports the
 measurements on the linearized operator, \S\ref{sec:cook} the nonlinear
-results on Cook's membrane, and \S\ref{sec:verify} and \S\ref{sec:risks}
+results on Cook's membrane, \S\ref{sec:taylor} the Taylor bar impact in
+explicit dynamics, and \S\ref{sec:verify} and \S\ref{sec:risks}
 summarize the evidence, the open measurements and the limitations.
 
 \section{Background: locking, the mixed problem and the inf-sup condition}
@@ -1721,8 +1727,11 @@ by a factor of $2.4$ against the linear one on the same mesh, and the
 enrichment a further $1.4$ with the nodal basis; the ordering is the same on
 the distorted element and on a Kuhn tetrahedron of the Freudenthal mesh
 (\S\ref{sec:method}). A $P_2$ mesh resolves a given feature with fewer
-elements; whether the smaller element count compensates for the smaller step
-depends on the problem and is not measured here.
+elements; on the Taylor bar (\S\ref{sec:taylor}) the smaller element count
+more than compensates for the smaller step. These Courant numbers hold on
+the undeformed element: on a deformed mesh the smallest distance between
+two nodes does not bound the critical step, which is then computed from
+the largest eigenvalue of $M_L^{-1}K$ (\S\ref{sec:taylor}).
 
 \section{Optional five-field variant}
 \label{sec:fivefield}
@@ -2804,10 +2813,192 @@ not measured here: at $q = 0.14$ the plastic zone of the membrane does not
 lock any of the quadratic elements, so the membrane does not separate them
 on that quantity.
 
+\section{Explicit dynamics: the Taylor bar impact}
+\label{sec:taylor}
+
+This section measures the element in explicit dynamics with plastic
+strains above $3$, against the composite tetrahedron of Sierra/SM, the code
+of \citet{Foulk.etal:2021}, on the same meshes. The quantity measured is
+the final radius of the impact face, for which a converged reference value
+exists; the equivalent plastic strain is not measured.
+
+\paragraph{Problem.} A copper bar of length $32.4$~mm and radius $3.2$~mm,
+with its axis along $z$, strikes a rigid frictionless wall at $z = 0$ with
+velocity $227$~m/s \citep{WilkinsGuinan:1973,Simo:1992,Foulk.etal:2021}.
+The material has density $\rho = 8930$~kg/m$^3$, Young's modulus
+$E = 117$~GPa, Poisson's ratio $\nu = 0.35$ ($\kappa/\mu = 3.0$; the
+plastic flow is isochoric, so the response in the plastic zone is nearly
+incompressible), yield
+stress $400$~MPa and a linear isotropic hardening modulus of $100$~MPa; the
+Simo--Hughes $J_2$ model (Remark~\ref{rem:whichj2}) in Carina and the
+finite-deformation $J_2$ model of the Sierra material library, with the
+same constants. The wall is the condition $u_z = 0$ on the impact face,
+which is in contact at $t = 0$ and remains in contact while the bar moves
+toward the wall. The equations are integrated by central differences with
+the row-sum lumped mass of \S\ref{sec:dynamics} to $t = 80~\mu$s, without
+artificial bulk viscosity. The measured quantities are the radius of the
+impact face, the largest distance of its nodes from the axis, and the
+length of the bar, the largest $z$ of its free end, at every microsecond.
+\citet{Foulk.etal:2021} give $7.22$~mm for the final radius of the
+eight-node hexahedron with constant pressure (Q1/P0) on their finest mesh,
+$h = 0.047$~mm, which is the reference here; \citet{Simo:1992} gives
+$7.12$~mm and \citet{ZienkiewiczEtAl:1998} $7.11$~mm on coarser meshes.
+
+\paragraph{Meshes and elements.} Four levels, $h = 1.5$, $0.75$, $0.38$ and
+$0.19$~mm, of the full bar are meshed by Cubit with four-node tetrahedra,
+the Cubit size being adjusted until the element count is within $3\%$ of
+that of \citet[Figure~14]{Foulk.etal:2021}: $3522$, $25\,029$,
+$190\,727$ and $1\,521\,212$ elements. Each mesh is smoothed by the
+energetic mesh smoothing of Norma, which minimizes a strain energy of the
+mesh over the positions of its nodes with every boundary node held on its
+surface; this raises the smallest shape quality
+$q = 12\,(3V)^{2/3} / \sum_{e} l_e^2$, with $V$ the volume and $l_e$ the
+six edge lengths, from $0.58$--$0.65$ to $0.69$--$0.71$ at every level. The
+edge midpoints are added with those on the lateral surface projected onto
+the cylinder (\code{TETRA10}, the mesh of the composite tetrahedron), and
+the face and interior nodes are added by the conversion of
+\S\ref{sec:element} (\code{TETRA15}). Three elements are compared:
+TET15-P1 and TET15-P0 in Carina, and the composite tetrahedron in Sierra/SM
+with its stabilization parameter $\alpha = 0.1$ and the stabilization
+exponent $0$ of \citet{Foulk.etal:2021}. The displacement unknowns of
+TET15 are $49\,761$, $339\,993$ and $2\,536\,719$ on the first three
+levels; those of the composite tetrahedron are $109\,998$, $801\,450$ and
+$6\,249\,960$ on the second to fourth.
+
+\paragraph{Stable time step.} The step of central differences is stable
+when $\Delta t \le 2/\sqrt{\lambda_{\max}}$, with $\lambda_{\max}$ the
+largest eigenvalue of $M_L^{-1} K$, $M_L$ the lumped mass and $K$ the
+tangent stiffness. The runs of Table~\ref{tab:taylor} set the step to a
+Courant number of $0.25$ times an element estimate, the smallest distance
+between two nodes of an element divided by the dilatational wave speed
+$c_p$, recomputed every ten steps on the current configuration. That
+estimate is not a bound: $\lambda_{\max}$ computed by power iteration on
+the TET15-P1 run at $h = 0.75$~mm gives a ratio of the critical step to the
+element estimate of $1.14$ at $1~\mu$s, $1.02$ at $10~\mu$s, $0.69$ at
+$20~\mu$s, $0.42$ at $28~\mu$s, $0.31$ at $40~\mu$s and $0.29$ at $60$ and
+$80~\mu$s. At a Courant number of $0.5$ the run stopped with a non-finite
+residual at $28~\mu$s; at $0.25$ it reached $80~\mu$s with a step $0.82$
+times the critical one at $40~\mu$s; TET15-P0 at $h = 0.38$~mm stopped at
+$78.7~\mu$s, and its radius at $78~\mu$s is reported, the radius being
+constant within $0.06\%$ after $50~\mu$s for every element
+(Figure~\ref{fig:taylor}). Carina
+also offers the step $0.8 \cdot 2/\sqrt{\lambda_{\max}}$, with
+$\lambda_{\max}$ computed every $200$ steps and the element estimate scaled
+by the ratio of the two in between; on the same run it takes $43\,863$
+steps against about $54\,000$ at the Courant number $0.25$, and the final
+radius differs by $0.0007$~mm.
+
+\begin{table}[tbp]
+\centering
+\caption{Taylor bar, final radius of the impact face and final length of
+the bar in mm at $80~\mu$s, per element and mesh level $h$ in mm with its
+element count. Reference: $7.22$ for the converged Q1/P0 hexahedron
+\citep{Foulk.etal:2021}. TET15-P0 at $h = 0.38$ stopped at $78.7~\mu$s;
+its values at $78~\mu$s. The composite tetrahedron at $h = 1.5$ ended at
+$41.6~\mu$s. Driver: \code{benchmark/tet15-p1/taylor/run.jl}; histories in
+\code{benchmark/tet15-p1/taylor/data}.}
+\label{tab:taylor}
+\begin{tabular}{rr cc cc cc}
+\toprule
+ & & \multicolumn{2}{c}{TET15-P1} & \multicolumn{2}{c}{TET15-P0}
+ & \multicolumn{2}{c}{composite tet.} \\
+$h$ & elements & radius & length & radius & length & radius & length \\
+\midrule
+$1.5$  & $3522$          & $7.2399$ & $21.4250$ & $7.4415$ & $21.5507$ & --- & --- \\
+$0.75$ & $25\,029$       & $7.2225$ & $21.4206$ & $7.4747$ & $21.5329$ & $7.2820$ & $21.4760$ \\
+$0.38$ & $190\,727$      & $7.2255$ & $21.4202$ & $7.3785$ & $21.4763$ & $7.2453$ & $21.4395$ \\
+$0.19$ & $1\,521\,212$   & --- & --- & --- & --- & $7.2326$ & $21.4304$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[tbp]
+\centering
+\includegraphics[width=0.49\textwidth]{figures/taylor-convergence.png}\hfill
+\includegraphics[width=0.49\textwidth]{figures/taylor-history.png}
+\caption{Taylor bar. Left: final radius of the impact face against the
+number of elements; the open square is TET15-P0 at $78~\mu$s. Right: radius
+of the impact face against time for TET15-P1 and TET15-P0 at
+$h = 0.38$~mm and the composite tetrahedron at $h = 0.38$ and $0.19$~mm.
+Dashed gray: the converged Q1/P0 hexahedron of \citet{Foulk.etal:2021}.
+Script: \code{benchmark/tet15-p1/taylor/plot.py}.}
+\label{fig:taylor}
+\end{figure}
+
+\paragraph{Accuracy.} Table~\ref{tab:taylor} and Figure~\ref{fig:taylor}.
+The composite tetrahedron converges from above: its differences between
+successive levels are $0.0367$ and $0.0127$~mm, a ratio of $2.89$, which
+corresponds to an order of $1.53$ in $h$; the extrapolation of its three
+levels by that ratio gives $7.2259$~mm. TET15-P1 is at $7.2225$ and
+$7.2255$~mm at $h = 0.75$ and $0.38$, within $0.05\%$ of that value, and
+at $7.2399$ on the coarsest mesh, where the composite tetrahedron did not
+reach $80~\mu$s. The composite tetrahedron is $0.78\%$, $0.27\%$ and
+$0.09\%$ from the extrapolated value at $h = 0.75$, $0.38$ and $0.19$. Both
+elements approach the reference within $0.1\%$ in the limit. TET15-P0 is
+$3.4\%$ above the extrapolated value at $h = 0.75$ and $2.1\%$ at
+$h = 0.38$; it differs from TET15-P1 only in the constant pressure.
+
+\paragraph{Operations.} The two codes were run on the same machine, a
+two-socket AMD EPYC 9634 with $168$ cores, one run at a time with no other
+job, at $h = 0.75$~mm (Table~\ref{tab:taylorcost}). Per element and time
+step on one core, TET15-P1 takes $1.40$ times the time of the composite
+tetrahedron; per element degree of freedom, $45$ against $30$, it takes
+$0.93$ times as long. On $16$ cores the ratio per element and step is
+$3.0$, because Carina's time per step decreases by a factor of $6.5$ from
+$1$ to $16$ threads, a parallel efficiency of $0.40$, against $0.88$ for
+Sierra/SM on $16$ processes; the difference is in the implementation of the
+time step in Carina, not in the element. The time step of TET15-P1 at $t = 0$ is
+$3.86 \times 10^{-9}$~s under the element estimate at the Courant number
+$0.25$, and its critical step is $1.77 \times 10^{-8}$~s; that of the
+composite tetrahedron is $2.44 \times 10^{-8}$~s.
+
+\begin{table}[tbp]
+\centering
+\caption{Taylor bar at $h = 0.75$~mm ($25\,029$ elements), both codes on
+the same two-socket AMD EPYC 9634, each run alone. One-core figures from
+runs to $5~\mu$s. Core-$\mu$s: wall time times the number of cores.
+Memory of Sierra/SM: the largest of its processes.}
+\label{tab:taylorcost}
+\small
+\begin{tabular}{lcc}
+\toprule
+ & TET15-P1 (Carina) & composite tet.\ (Sierra/SM) \\
+\midrule
+per element and step, 1 core ($\mu$s)          & $6.27$ & $4.47$ \\
+per element and step, 16 cores (core-$\mu$s)   & $15.5$ & $5.09$ \\
+steps to $80~\mu$s                              & $52\,100$ & $44\,260$ \\
+time stepping to $80~\mu$s on 16 cores (s)     & $1265$ & $352$ \\
+largest resident memory (GB)                    & $1.63$ & $0.27$ \\
+final radius (mm)                               & $7.2225$ & $7.2820$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{Comparison at equal accuracy.} TET15-P1 at $h = 0.75$~mm is
+closer to the extrapolated radius ($0.05\%$) than the composite
+tetrahedron at $h = 0.19$~mm ($0.09\%$). On the machine above, each run
+alone, the first takes $1303$~s on $16$ cores, $2.1 \times 10^{4}$
+core-seconds, and the second $10\,983$~s on $128$ processes,
+$1.41 \times 10^{6}$ core-seconds: a factor of $67$ in core-seconds and of
+$8.4$ in wall time, on $25\,029$ elements against $1\,521\,212$. At equal
+mesh the composite tetrahedron takes $3.6$ times less time to $80~\mu$s on
+$16$ cores, with an error $16$ times larger.
+
+\paragraph{What the benchmark establishes.} In explicit dynamics with plastic
+strains above $3$, TET15-P1 gives the final radius of the Taylor bar within
+$0.05\%$ of the converged value on a mesh of $25\,029$ elements, where the
+composite tetrahedron needs $1.5$ million elements to reach $0.09\%$, and
+the constant-pressure variant on the same displacement space is $2.1$ to
+$3.4\%$ from it. Its time per element and step is $1.40$ times
+that of the composite tetrahedron on one core. The element estimate of the
+stable step used by Carina is not a bound on distorted elements; the
+eigenvalue estimate replaces it. The equivalent plastic strain was not
+written in these runs and is not compared.
+
 \section{Summary of the evidence and open measurements}
 \label{sec:verify}
 
-The formulation rests on five claims. For each, the section that establishes
+The formulation rests on six claims. For each, the section that establishes
 it and the number that carries it are given; the measurements that remain are
 listed at the end.
 
@@ -2850,6 +3041,12 @@ $14\,475$ elements, and its pressure is smooth away from the singular
 clamped edge, where the quadratic tetrahedron without projection oscillates
 in sign inside every element.
 
+\paragraph{Accuracy in explicit dynamics.} \S\ref{sec:taylor}: on the
+Taylor bar the final radius is within $0.05\%$ of the converged value on
+$25\,029$ elements, against $0.09\%$ for the composite tetrahedron on
+$1\,521\,212$, at $1/67$ of its core-seconds on the same machine; the
+constant-pressure variant is $2.1$ to $3.4\%$ from it.
+
 \paragraph{Element-local elimination.} \S\ref{sec:local}: the pressure is
 discontinuous, so its elimination is element by element and the tangent has
 the sparsity of the displacement mesh; the face bubbles add global
@@ -2871,9 +3068,12 @@ benchmark set on which the composite tetrahedron performs poorly
 and a weak shock in a material of high $\kappa/\mu$, measured with the
 implemented Simo--Hughes instance (Remark~\ref{rem:whichj2}) against the
 composite tetrahedron on the same meshes; Cook's membrane at the load of
-\S\ref{sec:cook} does not separate the elements on that quantity. And the
-comparison at equal accuracy, which sets the number of unknowns and the run
-time against the composite tetrahedron (\S\ref{sec:risks}).
+\S\ref{sec:cook} does not separate the elements on that quantity, and
+the Taylor bar runs of \S\ref{sec:taylor} did not write it. The comparison
+at equal accuracy against the composite tetrahedron has been made on one
+problem, the Taylor bar (\S\ref{sec:taylor}); a problem that the
+quadratic element does not resolve on a coarser mesh would give a
+different result.
 
 \section{Limitations}
 \label{sec:risks}
@@ -2888,8 +3088,11 @@ against $36{,}501$ for $P_2/P_0$ and for the composite tetrahedron on the
 same mesh, a factor of $2.6$, and $2.5$ times Taylor--Hood's $38{,}698$
 (\S\ref{sec:infsup}); the implementation does not condense the interior
 bubble, and on the Cook meshes of \S\ref{sec:cook} the factor is $3.0$.
-Whether the accuracy of a stable pair on coarser meshes
-compensates for that factor is not established; for elasticity that is the
+On the Taylor bar (\S\ref{sec:taylor}) the accuracy on a coarser mesh
+more than compensates for that factor: the final radius within $0.05\%$ on
+$25\,029$ elements, against $1.5$ million elements for the composite
+tetrahedron at $0.09\%$. On other problems it is not established; for
+elasticity that is the
 comparison with Taylor--Hood, whose pressure is global and whose displacement
 space is $2.5$ times smaller, and for plasticity Taylor--Hood's softest modes
 are dilatation almost entirely (\S\ref{sec:plastic}), so the comparison there
@@ -2898,16 +3101,20 @@ is with the composite tetrahedron.
 \paragraph{Operations per element.} With the $14$-point rule of
 \S\ref{sec:basis} the enriched element evaluates the constitutive law at $14$
 points on $45$ displacement degrees of freedom, against $4$ or $5$ points on
-$30$ for TET10 and one on $12$ for TET4. The number of
-elements a quadratic tetrahedron needs for a given accuracy in this problem
-class is not measured.
+$30$ for TET10 and one on $12$ for TET4. On the Taylor bar the time per
+element and explicit step on one core is $1.40$ times that of the composite
+tetrahedron in Sierra/SM (\S\ref{sec:taylor}).
 
 \paragraph{The explicit stable step.} Row-sum lumping in the nodal basis gives
 positive masses and conserves momentum, and the stable step is $3.3$ times
 smaller than TET4's on the same element, of which a factor of $2.4$
-is the quadratic element and $1.4$ the enrichment (\S\ref{sec:basis}). The comparison at equal accuracy, on the coarser mesh a
-quadratic element allows, is not measured; if weak shocks are run with the
-implicit integrator the factor does not apply.
+is the quadratic element and $1.4$ the enrichment (\S\ref{sec:basis}). On the Taylor bar at equal accuracy the smaller
+element count outweighs the smaller step (\S\ref{sec:taylor}). On a
+deformed mesh an element estimate from node distances does not bound the
+critical step; a step of $0.8$ times $2/\sqrt{\lambda_{\max}}$, with
+$\lambda_{\max}$ the largest eigenvalue of $M_L^{-1}K$, stays below it at
+$17\%$ more time per step. If weak shocks are run with the implicit
+integrator the factor does not apply.
 
 \paragraph{The material.} The form implemented calls the material through
 the split of \S\ref{sec:matreq}, which of the seven material models of
@@ -2934,8 +3141,8 @@ composite-tetrahedron and variational-multiscale methods carry; together
 with the measurements that support it, of the dilatation of the soft modes
 under a plastic tangent (\S\ref{sec:plastic}), of the inf-sup constant on
 deformed configurations (\S\ref{sec:deformed}), and of the nonlinear
-response (\S\ref{sec:cook}). The evidence is that of \S\ref{sec:results}
-and \S\ref{sec:cook}; the smoothness of the equivalent plastic strain is the
+response (\S\ref{sec:cook}, \S\ref{sec:taylor}). The evidence is that of \S\ref{sec:results},
+\S\ref{sec:cook} and \S\ref{sec:taylor}; the smoothness of the equivalent plastic strain is the
 open measurement of \S\ref{sec:verify}. Hybrid high-order methods, with
 unknowns on element faces and element interiors coupled only through the
 faces, are locking-free and eliminate their interior unknowns element by

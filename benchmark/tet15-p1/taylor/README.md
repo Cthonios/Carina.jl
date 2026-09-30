@@ -100,3 +100,13 @@ stabilization α = 0.1, the J2 model with linear hardening of the same
 constants, the initial velocity on node set `all`, u_z = 0 on node set
 `impact`, the symmetry conditions on the quarter bar, output every 1 μs to
 80 μs.  The same `history.tsv` is extracted from its output.
+
+## Results
+
+`data/` holds the histories (time, radius, length in m) of every run of the
+study and of the cost comparison, and `taylor-results.tsv`, the record of the
+Carina runs; the Carina runs at h = 0.38 and the Sierra/SM runs were made on
+a two-socket AMD EPYC 9634.  `plot.py` draws the final radius against the
+number of elements and the radius against time from them.  The results and
+the cost comparison are in Sec. "Explicit dynamics: the Taylor bar impact" of
+`research/tet15-p1/note.pdf`.
