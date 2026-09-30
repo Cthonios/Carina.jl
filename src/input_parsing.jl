@@ -151,7 +151,8 @@ const _TI_TYPE_KEYS = Dict{String, Set{String}}(
     "quasi static"       => Set(["initial equilibrium"]),
     "newmark"            => Set(["alpha", "beta", "gamma", "β", "γ"]),
     "central difference" => Set(["gamma", "γ", "CFL", "cfl",
-                                 "stable time step interval"]),
+                                 "stable time step interval", "stable time step method",
+                                 "stable time step eigenvalue interval"]),
 )
 
 const _TI_TYPE_ALIASES = Dict{String, String}(
@@ -697,6 +698,19 @@ function _parse_integrator(dict, asm, asm_cpu, p_cpu, controller, backend=KA.CPU
         min_dt, max_dt, dec, inc = _parse_adaptive_stepping(ti_dict, dt)
         CFL_val = Float64(get(ti_dict, "CFL", get(ti_dict, "cfl", 0.0)))
         stable_dt_interval = Int(get(ti_dict, "stable time step interval", 0))
+        method_str = lowercase(strip(string(get(ti_dict, "stable time step method", "element"))))
+        method_str in ("element", "global") ||
+            error("Unknown time integrator.stable time step method = \"$method_str\". " *
+                  "Supported: \"element\" (element lengths and the dilatational wave " *
+                  "speed), \"global\" (largest eigenvalue of M⁻¹K).")
+        method_str == "global" && (CFL_val <= 0.0 || stable_dt_interval <= 0) &&
+            error("stable time step method = \"global\" requires cfl > 0 and " *
+                  "stable time step interval > 0.")
+        eig_interval = Int(get(ti_dict, "stable time step eigenvalue interval",
+                               20 * stable_dt_interval))
+        method_str == "global" && eig_interval < stable_dt_interval &&
+            error("stable time step eigenvalue interval = $eig_interval is smaller than " *
+                  "stable time step interval = $stable_dt_interval.")
 
         m_lumped = _compute_lumped_mass(asm_cpu, p_cpu, template)
 
@@ -707,7 +721,9 @@ function _parse_integrator(dict, asm, asm_cpu, p_cpu, controller, backend=KA.CPU
                                           decrease_factor=dec,
                                           increase_factor=inc,
                                           CFL=CFL_val,
-                                          stable_dt_interval=stable_dt_interval)
+                                          stable_dt_interval=stable_dt_interval,
+                                          stable_dt_method=Symbol(method_str),
+                                          stable_dt_eig_interval=eig_interval)
 
         # Compute initial stable time step estimate
         if CFL_val > 0.0

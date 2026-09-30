@@ -72,6 +72,78 @@
         end
     end
 
+    @testset "global stable step: λ_max of M⁻¹K by power iteration" begin
+        mktempdir() do dir
+            cp_example(joinpath(example_dir, "cube.g"), joinpath(dir, "cube.g"))
+            dict = Carina.YAML.load_file(joinpath(example_dir, "cube.yaml");
+                                         dicttype = Dict{String, Any})
+            dict["input mesh file"]  = joinpath(dir, "cube.g")
+            dict["output mesh file"] = joinpath(dir, "cube.e")
+            merge!(dict["time integrator"], Dict{String, Any}(
+                "cfl" => 1.0, "stable time step interval" => 1,
+                "stable time step method" => "global"))
+            sim = Carina.create_simulation(dict, dir)
+            ig = sim.integrator; p = sim.params; asm = ig.asm
+            @test ig.stable_dt_method === :global
+
+            # Reference: dense K from central differences of the internal
+            # force, one column per free DOF, and the largest eigenvalue of
+            # M_L⁻¹ K.  The cube is free, so K has six zero eigenvalues.
+            n = length(asm.dof.unknown_dofs)
+            U = zeros(n)
+            function force(V)
+                Carina.FEC.assemble_vector!(asm, Carina.FEC.residual, V, p)
+                return copy(Carina.FEC.residual(asm))
+            end
+            K = zeros(n, n)
+            for j in 1:n
+                e = zeros(n); e[j] = 1.0e-6
+                K[:, j] = (force(U + e) - force(U - e)) / 2.0e-6
+            end
+            m = Array(ig.m_lumped)
+            s = 1 ./ sqrt.(m)
+            λ_ref = maximum(Carina.LinearAlgebra.eigvals(Carina.LinearAlgebra.Symmetric((s .* K .* s' + (s .* K .* s')') / 2)))
+
+            copyto!(ig.stable_dt_U, zeros(n))
+            dt = Carina._global_stable_dt!(ig, p, 1.0)
+            @test dt ≈ 2 / sqrt(λ_ref) rtol = 2.0e-3
+            # Warm start from the converged eigenvector: the same value.
+            @test Carina._global_stable_dt!(ig, p, 1.0) ≈ dt rtol = 2.0e-3
+            # The element-length estimate is of the same order.
+            dt_el = Carina._compute_stable_dt(asm, p, 1.0)
+            @test 0.2 < dt_el / dt < 5.0
+
+            # A run with the global step completes and translates rigidly.
+            dict["time integrator"]["final time"] = 0.2
+            dict["output mesh file"] = joinpath(dir, "cube-run.e")
+            sim2 = Carina.create_simulation(dict, dir)
+            Carina.evolve!(sim2)
+            @test average_components(sim2)[3] ≈ 0.2 rtol = 1e-6
+        end
+    end
+
+    @testset "stable time step method: invalid input fails" begin
+        mktempdir() do dir
+            cp_example(joinpath(example_dir, "cube.g"), joinpath(dir, "cube.g"))
+            base = Carina.YAML.load_file(joinpath(example_dir, "cube.yaml");
+                                         dicttype = Dict{String, Any})
+            base["input mesh file"]  = joinpath(dir, "cube.g")
+            base["output mesh file"] = joinpath(dir, "cube.e")
+            for (k, extra) in enumerate((
+                    Dict{String, Any}("cfl" => 0.5, "stable time step interval" => 1,
+                                      "stable time step method" => "nodal"),
+                    Dict{String, Any}("stable time step method" => "global"),
+                    Dict{String, Any}("cfl" => 0.5, "stable time step interval" => 10,
+                                      "stable time step method" => "global",
+                                      "stable time step eigenvalue interval" => 5)))
+                dict = deepcopy(base)
+                dict["output mesh file"] = joinpath(dir, "cube-$k.e")
+                merge!(dict["time integrator"], extra)
+                @test_throws ErrorException Carina.create_simulation(dict, dir)
+            end
+        end
+    end
+
     @testset "the shipped cantilever example builds" begin
         # This is the example that regressed: it is the only bundled input that
         # sets `cfl`.  The failure was a `FieldError` raised while *building* the

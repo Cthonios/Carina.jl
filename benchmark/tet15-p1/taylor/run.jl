@@ -33,7 +33,7 @@
 # Usage (from the Carina root):
 #   julia -t 16 --project=. benchmark/tet15-p1/taylor/run.jl --h 1.5,0.75
 #        [--stages mesh,smooth,convert,run] [--elements tet15-p1,tet15-p0]
-#        [--final-time 8.0e-5] [--cfl 0.25] [--internal-variables]
+#        [--final-time 8.0e-5] [--cfl 0.8] [--internal-variables]
 # Environment: TAYLOR_CUBIT (default /usr/local/cubit/cubit), TAYLOR_NORMA
 # (default ~/Repos/Norma.jl/bin/norma), TAYLOR_NORMA_THREADS (default 8).
 # --internal-variables also writes the internal variables (eqps) at every
@@ -60,7 +60,7 @@ const LEVELS = Dict(1.5 => (false, 3_495), 0.75 => (false, 24_739),
                     0.094 => (true, 2_712_078), 0.047 => (true, 20_521_040))
 
 const FINAL_TIME = Ref(8.0e-5)
-const CFL = Ref(0.25)
+const CFL = Ref(0.8)
 const INTERNAL = Ref(false)
 
 tag(h) = "h$(h)"
@@ -197,6 +197,8 @@ time integrator:
   time step: 1.0e-8
   cfl: $(CFL[])
   stable time step interval: 10
+  stable time step method: global
+  stable time step eigenvalue interval: 200
 initial conditions:
   velocity:
     - node set: all
@@ -240,7 +242,7 @@ end
 
 function main(args)
     opts = Dict("--h" => "1.5", "--stages" => "mesh,smooth,convert,run",
-                "--elements" => "tet15-p1,tet15-p0", "--final-time" => "8.0e-5", "--cfl" => "0.25")
+                "--elements" => "tet15-p1,tet15-p0", "--final-time" => "8.0e-5", "--cfl" => "0.8")
     i = 1
     while i <= length(args)
         if args[i] == "--internal-variables"

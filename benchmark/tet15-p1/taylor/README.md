@@ -61,15 +61,29 @@ julia -t 16 --project=. benchmark/tet15-p1/taylor/run.jl --h 1.5,0.75 \
 `TAYLOR_CUBIT`, `TAYLOR_NORMA` and `TAYLOR_NORMA_THREADS` locate the tools.
 Each run writes `runs/<element>-h<h>/taylor.e`, `taylor.yaml` and
 `history.tsv` (time, radius, length in m), and appends one record to
-`results.tsv` (final radius and length in mm, wall time).  The time step is
-the Courant number 0.25 times the smallest node spacing over the dilatational
-wave speed, recomputed every ten steps on the current configuration, and
-capped at 1e-8 s.  With 0.5 the integration is unstable: TET15-P1 at
-h = 0.75 mm stopped with a non-finite residual at 28 μs while its Jacobian
-was at least 0.79 at every quadrature point; with 0.25 it reaches 80 μs.
-In a regular fifteen-node element the smallest node spacing, from the
-centroid to a face node, is 0.20 of the edge length, so 0.25 corresponds
-to c Δt / h ≈ 0.05 per edge length.
+`results.tsv` (final radius and length in mm, wall time).
+
+The time step is 0.8 times the critical step of central differences,
+2/√λ_max with λ_max the largest eigenvalue of M_L⁻¹K (lumped mass M_L,
+tangent stiffness K), capped at 1e-8 s (`stable time step method: global`).
+λ_max is computed by power iteration every 200 steps; between these, the
+step follows the element-length estimate, recomputed every 10 steps on the
+current configuration, scaled by the ratio of the two at the last
+computation of λ_max.  The element-length estimate alone, the smallest
+distance between two nodes of an element over the dilatational wave speed,
+is not a bound on the critical step in this problem.  For TET15-P1 at
+h = 0.75 mm the ratio of the critical step to that estimate was 1.14 at
+1 μs, 1.02 at 10 μs, 0.69 at 20 μs, 0.42 at 28 μs, 0.31 at 40 μs and 0.29
+at 60 and 80 μs: the run with Courant number 0.5 on the element estimate
+stopped with a non-finite residual at 28 μs, and the run with 0.25 reached
+80 μs with a step 0.82 times the critical one at 40 μs.
+
+| Stable step at h = 0.75 mm, TET15-P1, 12 threads (AMD 9900X) | Steps | Wall time | Final radius |
+|---|---|---|---|
+| element estimate, Courant number 0.25 | about 54 000 | 847 s | 7.2225 mm |
+| global, 0.8 | 43 863 | 803 s | 7.2232 mm |
+
+The computation of λ_max adds 17% to the time per step.
 
 Two defects of Carina were found and corrected in setting up this problem:
 `tetra15_mesh` left the element centroids out of node sets that cover the

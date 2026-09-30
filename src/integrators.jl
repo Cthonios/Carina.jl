@@ -250,6 +250,13 @@ mutable struct CentralDifferenceIntegrator{Asm, Vec}
     stable_dt_counter  ::Int      # steps since last recomputation
     stable_dt_U        ::Vec      # free-DOF displacement for the recomputation
     stable_dt_storage  ::Any      # element lengths, allocated on first use
+    stable_dt_method   ::Symbol   # :element (element lengths) or :global (λ_max)
+    stable_dt_eig_interval::Int   # :global: steps between eigenvalue estimates
+    stable_dt_eig_counter ::Int   # :global: steps since the last estimate
+    stable_dt_ratio    ::Float64  # :global: 2/√λ over the element-length step
+    stable_dt_v        ::Vec      # :global: estimate of the top eigenvector
+    stable_dt_w        ::Vec      # :global: K v
+    stable_dt_Up       ::Vec      # :global: perturbed displacement
     failed             ::Base.RefValue{Bool}
     # Rollback state (full-DOF)
     U_save::Vec; V_save::Vec; A_save::Vec
@@ -262,7 +269,11 @@ function CentralDifferenceIntegrator(γ::Float64, asm, m_lumped::Vec;
                                       decrease_factor::Float64=1.0,
                                       increase_factor::Float64=1.0,
                                       CFL::Float64=0.0,
-                                      stable_dt_interval::Int=0) where {Vec}
+                                      stable_dt_interval::Int=0,
+                                      stable_dt_method::Symbol=:element,
+                                      stable_dt_eig_interval::Int=0) where {Vec}
+    stable_dt_method in (:element, :global) ||
+        error("stable_dt_method must be :element or :global, got :$stable_dt_method")
     T = eltype(m_lumped)
     n_full = length(asm.dof)
     mk_full() = (v = similar(m_lumped, n_full); fill!(v, zero(T)); v)
@@ -270,10 +281,17 @@ function CentralDifferenceIntegrator(γ::Float64, asm, m_lumped::Vec;
     U, V, A                = mk_full(), mk_full(), mk_full()
     R_eff                  = mk_free()
     U_save, V_save, A_save = mk_full(), mk_full(), mk_full()
+    mk_global() = stable_dt_method === :global ? mk_free() : similar(m_lumped, 0)
     return CentralDifferenceIntegrator(
         γ, asm, U, V, A, m_lumped, R_eff,
         time_step, min_time_step, max_time_step, decrease_factor, increase_factor,
-        CFL, stable_dt_interval, 0, mk_free(), nothing,
+        # With the global method the first step already uses λ_max: the
+        # counters start at the end of their intervals.
+        CFL, stable_dt_interval,
+        stable_dt_method === :global ? max(stable_dt_interval - 1, 0) : 0,
+        mk_free(), nothing, stable_dt_method,
+        stable_dt_eig_interval, stable_dt_eig_interval, 1.0,
+        mk_global(), mk_global(), mk_global(),
         Ref(false),
         U_save, V_save, A_save,
     )
@@ -746,7 +764,87 @@ function _pre_step_hook!(ig::CentralDifferenceIntegrator, sim)
     copyto!(ig.stable_dt_U, view(ig.U, ig.asm.dof.unknown_dofs))
     ig.stable_dt_storage === nothing &&
         (ig.stable_dt_storage = _stable_dt_storage(ig.asm, ig.stable_dt_U))
-    stable_dt = _compute_stable_dt(ig.asm, sim.params, ig.CFL, ig.stable_dt_U;
-                                   storage = ig.stable_dt_storage)
+    dt_element = _compute_stable_dt(ig.asm, sim.params, 1.0, ig.stable_dt_U;
+                                    storage = ig.stable_dt_storage)
+    if ig.stable_dt_method === :global
+        ig.stable_dt_eig_counter += ig.stable_dt_interval
+        if ig.stable_dt_eig_counter >= ig.stable_dt_eig_interval
+            ig.stable_dt_eig_counter = 0
+            ig.stable_dt_ratio = _global_stable_dt!(ig, sim.params, 1.0) / dt_element
+        end
+    end
+    stable_dt = ig.CFL * ig.stable_dt_ratio * dt_element
     ig.time_step = min(stable_dt, ig.max_time_step)
+end
+
+# Stable step from the largest eigenvalue λ of M_L⁻¹ K on the free DOFs, with
+# M_L the lumped mass and K the tangent stiffness at the current displacement:
+# central differences are stable for Δt ≤ 2/√λ, and the step is CFL · 2/√λ.
+# λ is found by power iteration, started from the eigenvector of the previous
+# recomputation, with K v the central difference of the internal force along
+# v.  The iteration stops when λ changes by less than 1e-4 relative.  The
+# Rayleigh quotient vᵀKv / vᵀM_L v approaches λ from below, so 2/√λ is
+# approached from above.
+#
+# One estimate costs two internal-force evaluations per iteration, 4 to 10
+# evaluations when warm-started, so it runs every `stable time step eigenvalue
+# interval` steps only.  In between, the step follows the element-length
+# estimate, recomputed every `stable time step interval` steps, scaled by the
+# ratio r = (2/√λ) / Δt_element of the last eigenvalue estimate:
+# Δt = CFL · r · Δt_element.  The element lengths follow the change of
+# geometry between estimates; r corrects their error, which on the Taylor bar
+# at h = 0.75 mm ranged from r = 1.14 in the undeformed mesh to r = 0.31 at
+# 40 μs.  CFL < 1 covers the change of r between estimates and the following.
+# K is the consistent tangent of the material at its
+# current state, which during plastic loading is softer than the elastic
+# stiffness the next step may unload onto: on the Taylor bar at h = 0.75 mm the
+# elastic λ was up to 1.22 times the plastic one (2/√λ up to 10% smaller).
+const _GLOBAL_DT_TOL      = 1.0e-4
+const _GLOBAL_DT_MIN_ITERS = 20
+const _GLOBAL_DT_MAX_COLD  = 60
+const _GLOBAL_DT_MAX_WARM  = 40
+
+function _global_stable_dt!(ig::CentralDifferenceIntegrator, p, CFL)
+    asm = ig.asm
+    m, v, w, Up, U = ig.m_lumped, ig.stable_dt_v, ig.stable_dt_w, ig.stable_dt_Up, ig.stable_dt_U
+    # Start from the previous eigenvector plus a fixed sequence of the same
+    # M_L-norm.  The top mode is localized in the most distorted elements and
+    # moves as the mesh deforms, so the previous eigenvector alone can be
+    # nearly orthogonal to the new one; the iteration would then stop at the
+    # old eigenvalue.  The fixed sequence is not orthogonal to the top
+    # eigenvector in any practical case.
+    cold = iszero(maximum(abs, v))
+    copyto!(w, [sin(12.9898 * i) for i in 1:length(v)])
+    w ./= sqrt(sum(m .* w .* w))
+    cold ? copyto!(v, w) : (v .+= w)
+    @. w = m * v
+    v ./= sqrt(dot(v, w))
+    λ = 0.0
+    iters = 0
+    for k in 1:(cold ? _GLOBAL_DT_MAX_COLD : _GLOBAL_DT_MAX_WARM)
+        ε = sqrt(eps(Float64)) * (1 + maximum(abs, U)) / maximum(abs, v)
+        @. Up = U + ε * v
+        FEC.assemble_vector!(asm, FEC.residual, Up, p)
+        copyto!(w, FEC.residual(asm))
+        @. Up = U - ε * v
+        FEC.assemble_vector!(asm, FEC.residual, Up, p)
+        R = FEC.residual(asm)
+        @. w = (w - R) / (2ε)
+        λ_new = dot(v, w)                  # vᵀ M_L v = 1
+        @. v = w / m
+        @. w = m * v
+        v ./= sqrt(dot(v, w))
+        iters = k
+        done = k >= _GLOBAL_DT_MIN_ITERS && abs(λ_new - λ) <= _GLOBAL_DT_TOL * λ_new
+        λ = λ_new
+        done && break
+    end
+    # The perturbed evaluations overwrote the field and the new state.
+    FEC._update_for_assembly!(p, asm.dof, U)
+    p.state_new.data .= p.state_old.data
+    (isfinite(λ) && λ > 0) ||
+        error("Global stable time step: λ_max of M⁻¹K is $λ, not a positive number.")
+    _carina_logf(4, :advance, "Stable Δt = %.3e (global, λ_max from %d iterations)",
+                 CFL * 2 / sqrt(λ), iters)
+    return CFL * 2 / sqrt(λ)
 end

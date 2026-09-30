@@ -46,7 +46,9 @@ results:
   only ever built two models, which let a parsing bug make Saint
   Venant–Kirchhoff unreachable without any test noticing.
 - **Explicit stable time step** — the CFL-driven path (`explicit-cfl.jl`),
-  which runs only when `cfl` is set and so was previously unexercised
+  which runs only when `cfl` is set and so was previously unexercised; the
+  power-iteration estimate of λ_max of M_L⁻¹K against a dense eigenvalue
+  computation on the cube
 - **Boundary conditions** — Dirichlet, Neumann tractions, point loads, gravity
   body forces
 - **Initial conditions** — including 37 tests covering the traveling-wave

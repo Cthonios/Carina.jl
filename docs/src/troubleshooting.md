@@ -111,10 +111,35 @@ reached.
 [WARNING] Δt = 5.00e-06 exceeds stable Δt = 2.05e-06 — using stable step.
 ```
 
-**Fix.** Set `CFL` (0.9 is a reasonable default) and let Carina choose the step
-rather than hand-tuning `time step`. On large-deformation problems, where
-element geometry degrades as the run proceeds, also set `stable time step
-interval` so the estimate is refreshed.
+**Fix.** Set `CFL` and let Carina choose the step rather than hand-tuning
+`time step`. The default estimate uses the smallest distance between two
+nodes of an element and the dilatational wave speed.  On an undistorted mesh
+it is below the critical step (0.87 of it for the Taylor bar mesh of TETRA15
+elements at h = 0.75 mm), so CFL 0.9 is stable there.  On large-deformation
+problems, where element geometry degrades as the run proceeds, set `stable
+time step interval` so the estimate is refreshed; the node distance then no
+longer bounds the critical step: on the same bar at 40 μs it exceeded the
+critical step by a factor of 3.3, and the run was stable only below CFL 0.31.
+For such problems set
+
+```yaml
+time integrator:
+  type: central difference
+  cfl: 0.8
+  stable time step interval: 10
+  stable time step method: global
+  stable time step eigenvalue interval: 200
+```
+
+`global` scales the element estimate by the ratio of the critical step
+2/√λ_max, λ_max the largest eigenvalue of M_L⁻¹K, to the element estimate.
+λ_max is found by power iteration every `stable time step eigenvalue
+interval` steps (default 20 × `stable time step interval`) at a cost of 40
+to 80 internal-force evaluations; on the Taylor bar this added 17% to the
+time per step and reduced the number of steps from 54 000 (element estimate,
+CFL 0.25) to 43 900.  K is the consistent tangent: during plastic loading
+the elastic critical step can be up to 10% smaller than the one computed,
+which the CFL must cover.
 
 A zero or missing `density` would make the stable-step estimate degenerate, but
 it cannot reach this point: a dynamic run with no density is rejected at
