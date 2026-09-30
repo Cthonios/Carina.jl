@@ -375,12 +375,13 @@ a linear map $\Pi_h$ from the continuum displacement space into $U_h$ with
 which gives $\beta_h \ge \beta / C_\Pi$ with $\beta$ the continuum inf-sup
 constant. The operator must reproduce, for every $q$ in $Q_h$, the work of
 $q$ on the volume change of $~v$, with a bounded gradient. For a pressure
-that is linear on each element $K$ and discontinuous between elements,
+that is linear on each element $T$, a tetrahedron of the mesh, and
+discontinuous between elements,
 integration by parts on one element,
 \begin{equation}
   \label{eq:parts}
-  \int_K q \, \Div ~w \diff V
-  = - \int_K \Grad q \cdot ~w \diff V + \int_{\partial K} q \, ~w \cdot ~n \diff S ,
+  \int_T q \, \Div ~w \diff V
+  = - \int_T \Grad q \cdot ~w \diff V + \int_{\partial T} q \, ~w \cdot ~n \diff S ,
 \end{equation}
 shows what has to be matched: the flux $~w \cdot ~n$ weighted by $q$ on each
 face, and the interior integral of $~w$ against the constant $\Grad q$.
@@ -389,10 +390,10 @@ polynomial that vanishes on the three other faces of the element, times the
 face normal $~n_F$, changes the boundary term on face $F$ alone and controls
 the mean of $q$ on that face, and with it the jump of the pressure between
 the two elements sharing $F$; four face bubbles per element control the
-element mean of $q$ and its values on the faces. The interior bubble $b_K$,
+element mean of $q$ and its values on the faces. The interior bubble $b_T$,
 a quartic polynomial that vanishes on the whole element boundary, times
 $\Grad q$, changes the interior term alone:
-$\int_K q \Div(b_K \Grad q) \diff V = - \int_K b_K \lvert \Grad q \rvert^2
+$\int_T q \Div(b_T \Grad q) \diff V = - \int_T b_T \lvert \Grad q \rvert^2
 \diff V < 0$ for $\Grad q \ne 0$, so it controls the gradient of the
 pressure inside each element. Face bubbles alone leave the linear part of
 the pressure uncontrolled, and the interior bubble alone leaves the constant
@@ -1305,14 +1306,14 @@ vertices, three edge midpoints and the centroid.
 \begin{equation}
   \label{eq:space}
   \big[ P_2 \oplus \operatorname{span}\{b_{F_1}, \dots, b_{F_4}\}
-        \oplus \operatorname{span}\{b_K\} \big]^3,
+        \oplus \operatorname{span}\{b_T\} \big]^3,
   \qquad
   b_F = 27\,\lambda_a\lambda_b\lambda_c, \qquad
-  b_K = 256\,\lambda_1\lambda_2\lambda_3\lambda_4 ,
+  b_T = 256\,\lambda_1\lambda_2\lambda_3\lambda_4 ,
 \end{equation}
 with $P_2$ the ten quadratic Lagrange functions of the tetrahedron, $b_F$
 the cubic bubble of face $F$ with vertices $a$, $b$, $c$, which vanishes on
-the three other faces and equals one at the centroid of $F$, and $b_K$ the
+the three other faces and equals one at the centroid of $F$, and $b_T$ the
 quartic interior bubble, which vanishes on the whole boundary and equals
 one at the centroid. The space has dimension fifteen per component and
 contains the complete quadratic polynomials, so the element is conforming
@@ -1320,7 +1321,7 @@ and its interpolation error is that of the quadratic tetrahedron.
 
 \paragraph{The nodal basis.} The functions of \eqref{eq:space} in the order
 listed --- the ten Lagrange functions of TET10, then $b_{F_1},
-\dots, b_{F_4}$ in the face order of the nodes, then $b_K$ --- form the
+\dots, b_{F_4}$ in the face order of the nodes, then $b_T$ --- form the
 hierarchical basis $\{\hat N_j\}$, so called because the functions of the
 lower-degree element remain in it and the bubbles are appended. It is not
 nodal: the Lagrange functions are nonzero at the face centroids and at the
@@ -1355,7 +1356,7 @@ coordinates $(b, b, \tfrac12 - b, \tfrac12 - b)$ and its permutations,
   \end{aligned}
 \end{equation}
 with the weights normalized to the reference volume $1/6$. The gradient of
-$b_K$ is cubic and the stiffness integrand of its block is of degree six,
+$b_T$ is cubic and the stiffness integrand of its block is of degree six,
 which the rule integrates with an error of $35\%$ on that block
 (\S\ref{sec:basis}); the rules of degree two and three (four and five
 points) leave the element twenty-one zero-energy modes beyond the six
