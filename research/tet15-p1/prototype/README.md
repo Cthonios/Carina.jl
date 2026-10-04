@@ -320,3 +320,39 @@ now right.
 `softmode_out.txt`, `plastic_out.txt`, `deformed_out.txt`, `plastic_zone_out.txt`,
 `quadrature_out.txt`, `basis_out.txt`, `composite_tet_out.txt` are the runs the note's tables were
 transcribed from.
+
+## `general.jl` — the general form, one element
+
+Checks the formulas of the general form of the element (note, sec:general,
+case 2: the material is called at the modified deformation gradient
+F~ = s F with the projected volume) before any kernel is written, on one
+distorted TETRA15 with the 14-point rule, for theta = log J and theta = J - 1
+and for the constant and the linear projection, with the materials of
+ConstitutiveModels through the generic interface alone.
+
+```
+julia --project=. research/tet15-p1/prototype/general.jl
+```
+
+**Result** (`general_out.txt`). For the neo-Hookean and the elastic J2
+material the hand-derived residual equals the automatic-differentiation
+gradient of the energy to 4e-16, the closed-form tangent equals the Hessian
+to 1.2e-14 and the central-difference Jacobian of the residual to 2e-9, and
+the tangent is symmetric to rounding. The three reductions the note claims
+hold to rounding: with J2 (split, quadratic volumetric energy, theta = J - 1)
+the general residual, tangent and material state equal those of the
+implemented split form in the elastic and in the plastic regime (eqps up to
+0.52); with the neo-Hookean material (split, non-quadratic volumetric
+energy) the general residual equals the case-1 residual with the second
+projection; with the constant projection and theta = J - 1 the stress reduces
+to P = s P~ + p~ (J - J~) F^-T at every point.
+
+**Finding on the material.** In the plastic regime the tangent of the J2
+model in ConstitutiveModels (BOX 9.2 of Simo and Hughes) is not the
+derivative of its stress: at the fourteen states of the element, reached in
+one increment from the virgin state, the symmetric part differs by 2e-5 at
+eqps 0.14 and by 5e-2 at eqps 0.52, and the pointwise element without
+projection differs from the central-difference Jacobian of its residual by
+0.13. The general element inherits this exactly (reduction above). It is a
+property of the material's tangent, to be examined in ConstitutiveModels.
+
