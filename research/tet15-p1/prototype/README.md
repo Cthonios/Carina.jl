@@ -347,12 +347,15 @@ energy) the general residual equals the case-1 residual with the second
 projection; with the constant projection and theta = J - 1 the stress reduces
 to P = s P~ + p~ (J - J~) F^-T at every point.
 
-**Finding on the material.** In the plastic regime the tangent of the J2
-model in ConstitutiveModels (BOX 9.2 of Simo and Hughes) is not the
-derivative of its stress: at the fourteen states of the element, reached in
-one increment from the virgin state, the symmetric part differs by 2e-5 at
-eqps 0.14 and by 5e-2 at eqps 0.52, and the pointwise element without
-projection differs from the central-difference Jacobian of its residual by
-0.13. The general element inherits this exactly (reduction above). It is a
-property of the material's tangent, to be examined in ConstitutiveModels.
-
+**Finding on the material, corrected in ConstitutiveModels (commit 6705a4e).** The
+first run of this script found that in the plastic regime the tangent of
+the J2 model (BOX 9.2 of Simo and Hughes) was not the symmetric part of the
+derivative of its stress: 2e-5 at eqps 0.14 and 5e-2 at eqps 0.52 at the
+fourteen states of the element, and 0.13 for the pointwise element against
+the central-difference Jacobian of its residual. The cause was the
+coefficient beta_2 of BOX 9.2, which divided by the shear modulus mu
+instead of the effective modulus mu_bar = mu tr(b_bar_e_trial)/3; the two
+coincide at small strain and the term vanishes with H = 0, which is why the
+model's own checks had not seen it. With the correction the plastic rows
+of the central-difference column are 7e-7 to 9e-6, the antisymmetric part
+that BOX 9.2 drops by construction.

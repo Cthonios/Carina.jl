@@ -4,12 +4,10 @@ Hessian of the energy, hand tangent against the central-difference Jacobian of t
 residual (h = 1e-6), asymmetry of the hand tangent.  The energy columns do not apply to the
 plastic J2 model, whose stress is not the derivative of its Helmholtz energy during flow.
 In the plastic rows the central-difference column measures the J2 model's own tangent, which
-ConstitutiveModels forms by BOX 9.2 of Simo and Hughes: at the fourteen states of this element
-(eqps 0.14 to 0.52 in one increment from the virgin state) it differs from the derivative of
-the model's stress by 2e-5 to 5e-2 in its symmetric part, and the pointwise element without
-projection shows the same difference (0.13).  Reduction (a) below shows that the general
-element reproduces the split element's tangent to rounding, so the discrepancy is the
-material's and not the element's.
+ConstitutiveModels forms by BOX 9.2 of Simo and Hughes as the symmetric part of the Jacobian
+of its stress update; the remainder is the antisymmetric part that BOX 9.2 drops.  Reduction
+(a) below shows that the general element reproduces the split element's tangent to rounding,
+so whatever remains in these rows is the material's and not the element's.
 
 material       theta   projection      R vs dW   K vs d2W    K vs dR  asymmetry
 neo-Hookean    log J   constant       2.55e-16   6.59e-15   2.11e-09   0.00e+00
@@ -20,21 +18,21 @@ J2 elastic     log J   constant       3.01e-16   3.98e-15   2.11e-09   0.00e+00
 J2 elastic     log J   linear         3.38e-16   3.25e-15   1.80e-09   0.00e+00
 J2 elastic     J - 1   constant       2.96e-16   7.78e-15   2.12e-09   0.00e+00
 J2 elastic     J - 1   linear         2.23e-16   3.44e-15   2.06e-09   0.00e+00
-J2 plastic     log J   constant            n/a        n/a   1.98e-01   0.00e+00
-J2 plastic     log J   linear              n/a        n/a   2.92e-02   0.00e+00
-J2 plastic     J - 1   constant            n/a        n/a   3.55e-01   0.00e+00
-J2 plastic     J - 1   linear              n/a        n/a   1.86e-01   0.00e+00
+J2 plastic     log J   constant            n/a        n/a   4.90e-06   0.00e+00
+J2 plastic     log J   linear              n/a        n/a   7.24e-07   0.00e+00
+J2 plastic     J - 1   constant            n/a        n/a   8.78e-06   0.00e+00
+J2 plastic     J - 1   linear              n/a        n/a   4.59e-06   0.00e+00
 
    worst of the AD and symmetry columns: 1.2e-14  (target: 1e-12 or below)
    worst of the central-difference column, conservative rows: 2.1e-09  (target: 1e-7 or below)
-   worst of the central-difference column, plastic rows: 3.5e-01  (the material's tangent)
+   worst of the central-difference column, plastic rows: 8.8e-06  (the material's tangent)
 
 Reduction (a): J2 (split, quadratic in theta = J - 1): general against the split form.
 regime       projection     residual    tangent      state
 elastic      constant       4.60e-16   8.66e-15   0.00e+00   (max eqps 0.000)
 elastic      linear         1.13e-15   4.02e-15   0.00e+00   (max eqps 0.000)
-plastic      constant       5.31e-16   4.02e-14   1.78e-15   (max eqps 0.519)
-plastic      linear         4.85e-15   7.78e-15   2.70e-15   (max eqps 0.519)
+plastic      constant       5.31e-16   2.30e-14   1.78e-15   (max eqps 0.519)
+plastic      linear         4.85e-15   1.10e-14   2.70e-15   (max eqps 0.519)
 
 Reduction (b): neo-Hookean (split, W_vol not quadratic, theta = J - 1): general against case 1.
    constant     residual   1.61e-16

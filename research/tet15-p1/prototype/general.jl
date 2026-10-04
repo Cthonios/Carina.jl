@@ -304,12 +304,10 @@ println("Hessian of the energy, hand tangent against the central-difference Jaco
 println("residual (h = 1e-6), asymmetry of the hand tangent.  The energy columns do not apply to the")
 println("plastic J2 model, whose stress is not the derivative of its Helmholtz energy during flow.")
 println("In the plastic rows the central-difference column measures the J2 model's own tangent, which")
-println("ConstitutiveModels forms by BOX 9.2 of Simo and Hughes: at the fourteen states of this element")
-println("(eqps 0.14 to 0.52 in one increment from the virgin state) it differs from the derivative of")
-println("the model's stress by 2e-5 to 5e-2 in its symmetric part, and the pointwise element without")
-println("projection shows the same difference (0.13).  Reduction (a) below shows that the general")
-println("element reproduces the split element's tangent to rounding, so the discrepancy is the")
-println("material's and not the element's.\n")
+println("ConstitutiveModels forms by BOX 9.2 of Simo and Hughes as the symmetric part of the Jacobian")
+println("of its stress update; the remainder is the antisymmetric part that BOX 9.2 drops.  Reduction")
+println("(a) below shows that the general element reproduces the split element's tangent to rounding,")
+println("so whatever remains in these rows is the material's and not the element's.\n")
 @printf("%-14s %-7s %-12s %10s %10s %10s %10s\n", "material", "theta", "projection", "R vs dW", "K vs d2W", "K vs dR", "asymmetry")
 worst = 0.0; worst_fd = 0.0; worst_fd_c = 0.0
 for (mname, mat, conservative) in (("neo-Hookean", neohookean(), true), ("J2 elastic", j2(1.0e30), true),
