@@ -1,6 +1,14 @@
 # Solid mechanics with a projected volumetric strain (the mean-dilatation
-# formulation of research/tet15-p1/note.tex, section "Reduction to the
-# mean-dilatation formulation").
+# formulation of research/tet15-p1/note.tex).  Two forms are implemented: the
+# split form, for a material whose stored energy has an exact
+# volumetric-isochoric split with a quadratic volumetric energy (note, section
+# "Reduction to the mean-dilatation formulation"), and the general form, for
+# any material (note, section "General materials", case 2).  Both are
+# described below; the form is a type parameter of the physics, and the
+# kernels dispatch on it.
+#
+# Split form
+# ----------
 #
 # For a material whose stored energy splits exactly as
 #
@@ -42,40 +50,190 @@
 # ConstitutiveModels (has_volumetric_isochoric_split); the model's return map
 # runs unchanged at every quadrature point, and no quantity is projected
 # except θ.
+#
+# General form
+# ------------
+#
+# For any material, of which only the stored energy W(F), the stress
+# P(F) = ∂W/∂F and the tangent A(F) = ∂²W/∂F∂F are used, the volumetric
+# variable θ(J) is a property of the element, not of the material: log J or
+# J − 1, strictly increasing with θ(1) = 0 and θ'(1) = 1.  With
+#
+#     J̃ := θ⁻¹(P_h θ(J)),   s := (J̃/J)^{1/3},   F̃ := s F,   det F̃ = J̃,
+#
+# the element is the stationarity of Π[u] = ∫ W(F̃(u)) dV: the material is
+# evaluated at the pointwise isochoric deformation J^{-1/3} F and at the
+# projected volume J̃, and its internal variables are updated there.  With
+# P̃ := P(F̃) and p̃ := (P̃ : F̃)/(3 J̃), the mean Cauchy stress at F̃, the stress
+# that multiplies the gradient of the test function at a quadrature point is
+#
+#     P_q = s_q P̃_q − p̃_q J̃_q F_q⁻ᵀ + p̄_q θ'(J_q) J_q F_q⁻ᵀ,
+#     p̄ = P_h( p̃ / θ'(J̃) ),
+#
+# the material's stress at F̃ scaled to the pointwise volume, with its mean
+# part replaced by the projected mean stress.  The residual takes three passes
+# over the quadrature points: θ̄ = M⁻¹ b as above; F̃_q, one call of the
+# material at each point, and b̄_m = Σ_q JxW_q χ_m(ξ_q) p̃_q/θ'(J̃_q), from
+# which p̄ = M⁻¹ b̄; and the scatter of P_q.  The stresses P̃_q of the second
+# pass are kept for the third.
+#
+# The tangent of the general form is obtained by forward-mode
+# differentiation of the element residual: the nodal displacements carry dual
+# numbers, so the dependence of J̃ and of p̄ on every quadrature point of the
+# element, through the two projections, is differentiated exactly.  The
+# material is not called with dual numbers: at a dual F̃ the value of P̃ is the
+# material's stress at the value of F̃, and its derivative along each partial
+# direction δF̃ is A(F̃) : δF̃ with the material's own tangent.  For a material
+# whose tangent is the derivative of its stress this is the derivative of the
+# residual; for the J2 model in plastic flow, whose tangent (BOX 9.2 of Simo
+# and Hughes) is the symmetric part of that derivative, it is the tangent the
+# split form uses.  The matrix-free action is one dual pass with one partial
+# along the direction; the element matrix and the diagonal kernels are one
+# pass with three partials per node.
+#
+# For a material with the split and θ the material's own volumetric strain,
+# W(F̃) = κ/2 (P_h θ)² + W_iso(F̄), and the general form reproduces the split
+# form to rounding: energy, residual, tangent and internal variables.
+
+# --------------------------------------------------------------------------- #
+# The volumetric variable θ(J) of the element
+# --------------------------------------------------------------------------- #
 
 """
-    ProjectedSolidMechanics(cm, degree)
+    VolumetricVariable
+
+The volumetric strain measure θ(J) whose L² projection the element computes:
+`LogJ()` (θ = log J) or `JMinusOne()` (θ = J − 1).  `MaterialVolumetricVariable()`
+stands for the measure of a material with the volumetric-isochoric split that
+is neither of the two; the split form then evaluates θ through the material.
+"""
+abstract type VolumetricVariable end
+struct LogJ <: VolumetricVariable end
+struct JMinusOne <: VolumetricVariable end
+struct MaterialVolumetricVariable <: VolumetricVariable end
+
+@inline _θ(::LogJ, J)    = log(J)
+@inline _θ1(::LogJ, J)   = one(J) / J
+@inline _θ2(::LogJ, J)   = -one(J) / (J * J)
+@inline _θinv(::LogJ, t) = exp(t)
+
+@inline _θ(::JMinusOne, J)    = J - one(J)
+@inline _θ1(::JMinusOne, J)   = one(J)
+@inline _θ2(::JMinusOne, J)   = zero(J)
+@inline _θinv(::JMinusOne, t) = t + one(t)
+
+volumetric_variable_name(::LogJ) = "log J"
+volumetric_variable_name(::JMinusOne) = "J - 1"
+volumetric_variable_name(::MaterialVolumetricVariable) = "the material's own measure"
+
+# The measure θ(J) of a material with the split, identified by its values at
+# two Jacobians.
+function _material_volumetric_variable(cm::CM.AbstractConstitutiveModel)
+    Js = (0.6, 1.4)
+    all(J -> isapprox(CM.volumetric_strain(cm, J), J - 1; rtol = 1e-12), Js) && return JMinusOne()
+    all(J -> isapprox(CM.volumetric_strain(cm, J), log(J); rtol = 1e-12), Js) && return LogJ()
+    return MaterialVolumetricVariable()
+end
+
+# --------------------------------------------------------------------------- #
+# The physics
+# --------------------------------------------------------------------------- #
+
+"""
+    SplitForm, GeneralForm
+
+The two forms of the projected element.  `SplitForm`: the volumetric energy
+κ/2 θ² of a material with the volumetric-isochoric split is evaluated at the
+projected strain and the isochoric response at the pointwise deformation.
+`GeneralForm`: any material is evaluated at the modified deformation gradient
+F̃ = (J̃/J)^{1/3} F, J̃ = θ⁻¹(P_h θ(J)).  See the header of this file.
+"""
+abstract type VolumetricForm end
+struct SplitForm <: VolumetricForm end
+struct GeneralForm <: VolumetricForm end
+
+volumetric_form_name(::SplitForm) = "split"
+volumetric_form_name(::GeneralForm) = "general"
+
+"""
+    ProjectedSolidMechanics(cm, degree; form = :automatic, volumetric_strain = nothing)
 
 Solid mechanics in the mean-dilatation formulation: the volumetric strain
-θ(J) of the constitutive model `cm` is replaced by its L² projection onto the
-element-wise polynomials of degree `degree` (0 or 1) in the reference
-coordinates, and the volumetric energy κ/2 θ² is evaluated at the projected
-strain.  `cm` must have the volumetric-isochoric split
-(`ConstitutiveModels.has_volumetric_isochoric_split`).  The kernels are
-assembled by element (`FiniteElementContainers.assembly_granularity` is
-`ByElement()`), since
-the projection couples the quadrature points of an element.
+θ(J) is replaced by its L² projection onto the element-wise polynomials of
+degree `degree` (0 or 1) in the reference coordinates.
+
+`form` is `:split`, `:general` or `:automatic`.  The split form requires the
+volumetric-isochoric split of `cm`
+(`ConstitutiveModels.has_volumetric_isochoric_split`) and evaluates the
+volumetric energy κ/2 θ² at the projected strain, with θ the material's own
+measure.  The general form accepts any material and evaluates it at the
+deformation gradient whose volume is the projected one.  `:automatic`
+selects the split form when `cm` has the split and the general form
+otherwise.
+
+`volumetric_strain` is `LogJ()`, `JMinusOne()` or `nothing`.  For the general
+form it selects θ, and `nothing` means `LogJ()`.  For the split form θ is the
+material's, and a value that differs from it is an error, since the
+pressure κ θ̄ of the split form is the stationarity condition of κ/2 θ²
+written in the material's θ.
+
+The kernels are assembled by element (`FiniteElementContainers.assembly_granularity`
+is `ByElement()`), since the projection couples the quadrature points of an
+element.
 """
-struct ProjectedSolidMechanics{Model <: CM.AbstractConstitutiveModel, NP, NS, PD} <: FEC.AbstractPhysics{3, NP, NS}
+struct ProjectedSolidMechanics{Model <: CM.AbstractConstitutiveModel, NP, NS, PD,
+                               Form <: VolumetricForm, VV <: VolumetricVariable} <: FEC.AbstractPhysics{3, NP, NS}
     constitutive_model::Model
 end
 
-function ProjectedSolidMechanics(cm::CM.AbstractConstitutiveModel, degree::Int)
-    CM.has_volumetric_isochoric_split(cm) || error(
-        "The projected volumetric formulation requires a constitutive model with an " *
-        "exact volumetric-isochoric split and a quadratic volumetric energy " *
-        "(ConstitutiveModels.has_volumetric_isochoric_split); $(typeof(cm)) has none.")
+const _SplitProjected   = ProjectedSolidMechanics{<:Any, <:Any, <:Any, <:Any, SplitForm}
+const _GeneralProjected = ProjectedSolidMechanics{<:Any, <:Any, <:Any, <:Any, GeneralForm}
+
+function ProjectedSolidMechanics(cm::CM.AbstractConstitutiveModel, degree::Int;
+                                 form::Symbol = :automatic,
+                                 volumetric_strain::Union{Nothing, VolumetricVariable} = nothing)
     degree in (0, 1) || error(
         "The projection degree must be 0 (element-wise constant) or 1 (element-wise " *
         "linear); got $degree.")
+    form in (:automatic, :split, :general) || error(
+        "The volumetric form must be :automatic, :split or :general; got :$form.")
+    has_split = CM.has_volumetric_isochoric_split(cm)
+    form == :split && !has_split && error(
+        "The split form of the projected volumetric formulation requires a constitutive " *
+        "model with an exact volumetric-isochoric split and a quadratic volumetric energy " *
+        "(ConstitutiveModels.has_volumetric_isochoric_split); $(typeof(cm)) has none.  " *
+        "Use the general form.")
+    volumetric_strain isa MaterialVolumetricVariable && error(
+        "The volumetric strain of the projected element must be log J or J - 1.")
+    split = form == :split || (form == :automatic && has_split)
+    if split
+        own = _material_volumetric_variable(cm)
+        if volumetric_strain !== nothing && volumetric_strain !== own
+            error("The split form evaluates the volumetric energy κ/2 θ² in the volumetric " *
+                  "strain of the material, θ = $(volumetric_variable_name(own)) for " *
+                  "$(typeof(cm)); the volumetric strain " *
+                  "$(volumetric_variable_name(volumetric_strain)) differs from it.  Remove " *
+                  "the volumetric strain, set it to the material's, or select the general form.")
+        end
+        F, VV = SplitForm, typeof(own)
+    else
+        F, VV = GeneralForm, typeof(volumetric_strain === nothing ? LogJ() : volumetric_strain)
+    end
     NP = CM.num_properties(cm)
     NS = CM.num_state_variables(cm)
-    return ProjectedSolidMechanics{typeof(cm), NP, NS, degree}(cm)
+    return ProjectedSolidMechanics{typeof(cm), NP, NS, degree, F, VV}(cm)
 end
 
 FEC.assembly_granularity(::ProjectedSolidMechanics) = FEC.ByElement()
 
 projection_degree(::ProjectedSolidMechanics{Model, NP, NS, PD}) where {Model, NP, NS, PD} = PD
+volumetric_form(::ProjectedSolidMechanics{M, NP, NS, PD, F}) where {M, NP, NS, PD, F} = F()
+volumetric_variable(::ProjectedSolidMechanics{M, NP, NS, PD, F, VV}) where {M, NP, NS, PD, F, VV} = VV()
+
+# θ(J) of the element: the material's measure in the split form, the
+# element's own in the general form.
+@inline _theta(physics::_SplitProjected, J) = CM.volumetric_strain(physics.constitutive_model, J)
+@inline _theta(physics::_GeneralProjected, J) = _θ(volumetric_variable(physics), J)
 
 # The per-quadrature-point physics of the same model, for the kernels that
 # the projection does not change (mass, element length, ...).
@@ -159,17 +317,22 @@ end
     PD = Val(projection_degree(physics))
     NC = _num_projection_functions(PD)
     T  = eltype(x_el)
+    # The displacement may carry dual numbers (the general form's tangent);
+    # the geometry does not.
+    Tu = promote_type(T, eltype(u_el))
     M  = zero(SMatrix{NC, NC, T})
-    b  = zero(SVector{NC, T})
+    b  = zero(SVector{NC, Tu})
     everted = false
     for q in 1:RFE.num_cell_quadrature_points(ref_fe)
         interps = FEC._cell_interpolants(ref_fe, q)
         cell = FEC.map_interpolants(interps, x_el)
-        J = det(_gradient_at(physics, cell, u_el) + one(Tensor{2, 3, T, 9}))
+        J = det(_gradient_at(physics, cell, u_el) + one(Tensor{2, 3, Tu, 9}))
         everted = everted | (J <= zero(J))
         χ = _projection_basis(PD, interps.ξ)
         M = M + cell.JxW * (χ * χ')
-        b = b + (cell.JxW * CM.volumetric_strain(model, J)) * χ
+        # θ is evaluated at J = 1 where J ≤ 0, so that log J cannot raise an
+        # error in device code; the kernels return NaN in that case.
+        b = b + (cell.JxW * _theta(physics, J > zero(J) ? J : one(J))) * χ
     end
     Minv = inv(M)
     return Minv * b, Minv, everted
@@ -231,7 +394,7 @@ end
 # --------------------------------------------------------------------------- #
 
 @inline function FEC.residual(
-    physics::ProjectedSolidMechanics, ref_fe, x_el, t, dt, u_el, u_el_old,
+    physics::_SplitProjected, ref_fe, x_el, t, dt, u_el, u_el_old,
     states::FEC.ElementState, props_el,
 )
     model = physics.constitutive_model
@@ -257,7 +420,7 @@ end
 end
 
 @inline function FEC.energy(
-    physics::ProjectedSolidMechanics, ref_fe, x_el, t, dt, u_el, u_el_old,
+    physics::_SplitProjected, ref_fe, x_el, t, dt, u_el, u_el_old,
     states::FEC.ElementState, props_el,
 )
     model = physics.constitutive_model
@@ -279,7 +442,7 @@ end
 end
 
 @inline function FEC.stiffness(
-    physics::ProjectedSolidMechanics, ref_fe, x_el, t, dt, u_el, u_el_old,
+    physics::_SplitProjected, ref_fe, x_el, t, dt, u_el, u_el_old,
     states::FEC.ElementState, props_el,
 )
     model = physics.constitutive_model
@@ -309,7 +472,7 @@ end
 end
 
 @inline function FEC.stiffness_action(
-    physics::ProjectedSolidMechanics, ref_fe, x_el, t, dt, u_el, u_el_old, v_el,
+    physics::_SplitProjected, ref_fe, x_el, t, dt, u_el, u_el_old, v_el,
     states::FEC.ElementState, props_el,
 )
     model = physics.constitutive_model
@@ -353,7 +516,7 @@ _fp32_action_is_effective(::ProjectedSolidMechanics, props_el) = false
 # One pass over the element for the diagonal kernels.  `column` is 0 for the
 # diagonal and K in 1:3 for column K of each node's 3×3 block.
 @inline function _projected_block_entries(
-    physics::ProjectedSolidMechanics, ref_fe, x_el, dt, u_el, states, props_el, ::Val{column},
+    physics::_SplitProjected, ref_fe, x_el, dt, u_el, states, props_el, ::Val{column},
 ) where {column}
     model = physics.constitutive_model
     PD = Val(projection_degree(physics))
@@ -399,27 +562,29 @@ _fp32_action_is_effective(::ProjectedSolidMechanics, props_el) = false
 end
 
 @inline function (::StiffnessDiagonal)(
-    physics::ProjectedSolidMechanics, ref_fe, x_el, t, dt, u_el, u_el_old,
+    physics::_SplitProjected, ref_fe, x_el, t, dt, u_el, u_el_old,
     states::FEC.ElementState, props_el,
 )
     return _projected_block_entries(physics, ref_fe, x_el, dt, u_el, states, props_el, Val(0))
 end
 
 @inline function (::StiffnessBlockColumn{K})(
-    physics::ProjectedSolidMechanics, ref_fe, x_el, t, dt, u_el, u_el_old,
+    physics::_SplitProjected, ref_fe, x_el, t, dt, u_el, u_el_old,
     states::FEC.ElementState, props_el,
 ) where {K}
     return _projected_block_entries(physics, ref_fe, x_el, dt, u_el, states, props_el, Val(K))
 end
 
 @inline function (dg::NewmarkDiagonal)(
-    physics::ProjectedSolidMechanics, ref_fe, x_el, t, dt, u_el, u_el_old,
+    physics::_SplitProjected, ref_fe, x_el, t, dt, u_el, u_el_old,
     states::FEC.ElementState, props_el,
 )
     d = _projected_block_entries(physics, ref_fe, x_el, dt, u_el, states, props_el, Val(0))
-    NDOF = length(d)
-    T = eltype(d)
-    cρ = dg.c_M * props_el[1]
+    return d + _mass_diagonal_element(ref_fe, x_el, dg.c_M * props_el[1], d)
+end
+
+# The diagonal of cρ times the consistent mass, in the layout of `d`.
+@inline function _mass_diagonal_element(ref_fe, x_el, cρ, d::SVector{NDOF, T}) where {NDOF, T}
     m = zero(SVector{NDOF, T})
     for q in 1:RFE.num_cell_quadrature_points(ref_fe)
         cell = FEC.map_interpolants(FEC._cell_interpolants(ref_fe, q), x_el)
@@ -429,7 +594,249 @@ end
             cρ * JxW * N[n] * N[n]
         end)
     end
-    return d + m
+    return m
+end
+
+# --------------------------------------------------------------------------- #
+# General form: the material at F̃ = s F
+# --------------------------------------------------------------------------- #
+
+struct _ProjectedTag end
+
+# The material's stress at ∇ũ = F̃ − I.  At a real argument this is the
+# material's stress; at a dual argument the value is the stress at the value
+# of ∇ũ and the partials are A(F̃) : δF̃ with the material's tangent, so that
+# the material is never called with dual numbers and a model with internal
+# variables writes real values into its state.
+@inline function _material_pk1(model, props, state_old, state_new, dt,
+                               ∇ũ::Tensor{2, 3, T, 9}) where {T <: AbstractFloat}
+    return CM.pk1_stress(model, props, state_old, state_new, dt, ∇ũ, zero(T))
+end
+
+@inline function _material_pk1(model, props, state_old, state_new, dt,
+                               ∇ũ::Tensor{2, 3, D, 9}) where {D <: ForwardDiff.Dual}
+    V = ForwardDiff.valtype(D)
+    N = ForwardDiff.npartials(D)
+    ∇ũ0 = Tensor{2, 3, V, 9}(ntuple(i -> ForwardDiff.value(∇ũ.data[i]), Val(9)))
+    P0 = CM.pk1_stress(model, props, state_old, state_new, dt, ∇ũ0, zero(V))
+    A  = CM.material_tangent(model, props, state_old, state_new, dt, ∇ũ0, zero(V))
+    A_v = FEC.extract_stiffness(FEC.ThreeDimensional(), A)
+    dP = ntuple(Val(N)) do k
+        A_v * SVector{9, V}(ntuple(i -> ForwardDiff.partials(∇ũ.data[i], k), Val(9)))
+    end
+    return Tensor{2, 3, D, 9}(ntuple(Val(9)) do i
+        D(P0.data[i], ForwardDiff.Partials{N, V}(ntuple(k -> dP[k][i], Val(N))))
+    end)
+end
+
+# The second pass at quadrature point q: F̃, the material's stress P̃ at F̃,
+# the mean Cauchy stress p̃ = (P̃ : F̃)/(3 J̃), J̃ and s.  `scratch` is true for
+# the output kernel, which must not change the internal variables.
+@inline function _general_point(physics::_GeneralProjected, ref_fe, x_el, dt, u_el, states,
+                                props_el, θ̄, q, ::Val{scratch}) where {scratch}
+    vv = volumetric_variable(physics)
+    PD = Val(projection_degree(physics))
+    interps = FEC._cell_interpolants(ref_fe, q)
+    cell = FEC.map_interpolants(interps, x_el)
+    ∇u = _gradient_at(physics, cell, u_el)
+    F  = ∇u + one(∇u)
+    J  = det(F)
+    χ  = _projection_basis(PD, interps.ξ)
+    J̃  = _θinv(vv, dot(χ, θ̄))
+    s  = cbrt(J̃ / J)
+    F̃  = s * F
+    state_old_q, state_new_q = FEC.state_variables(states, q)
+    Z_new = scratch ? similar(state_new_q) : state_new_q
+    P̃ = _material_pk1(physics.constitutive_model, props_el, state_old_q, Z_new, dt, F̃ - one(F̃))
+    p̃ = (P̃ ⊡ F̃) / (3 * J̃)
+    return P̃, p̃, J̃, s, χ
+end
+
+# The three passes of the residual.  Returns the stresses P_q of the third
+# pass, one per quadrature point, and whether the element is everted.  Generic
+# in the element type of `u_el`, so that it runs on dual numbers.
+@inline function _general_stresses(physics::_GeneralProjected, ref_fe, x_el, dt, u_el, states,
+                                   props_el, ::Val{scratch}) where {scratch}
+    vv = volumetric_variable(physics)
+    NQ = RFE.num_cell_quadrature_points(ref_fe)
+    # Pass 1: θ̄ = P_h θ(J).
+    θ̄, Minv, everted = _project(physics, ref_fe, x_el, u_el)
+    # Pass 2: the material at F̃ and b̄ = Σ_q JxW_q χ_q p̃_q / θ'(J̃_q).  Where
+    # the element is everted the material is called at F = I, so that no
+    # model is asked to evaluate J ≤ 0; the caller returns NaN.
+    u_safe = everted ? zero(u_el) : u_el
+    θ̄_safe = everted ? zero(θ̄) : θ̄
+    pts = ntuple(q -> _general_point(physics, ref_fe, x_el, dt, u_safe, states, props_el,
+                                     θ̄_safe, q, Val(scratch)), Val(NQ))
+    b̄ = zero(θ̄)
+    for q in 1:NQ
+        P̃, p̃, J̃, s, χ = pts[q]
+        JxW = FEC.map_interpolants(FEC._cell_interpolants(ref_fe, q), x_el).JxW
+        b̄ = b̄ + (JxW * p̃ / _θ1(vv, J̃)) * χ
+    end
+    p̄ = Minv * b̄
+    # Pass 3: P_q = s P̃ − p̃ J̃ F⁻ᵀ + p̄_q θ'(J) J F⁻ᵀ.
+    Ps = ntuple(Val(NQ)) do q
+        P̃, p̃, J̃, s, χ = pts[q]
+        cell = FEC.map_interpolants(FEC._cell_interpolants(ref_fe, q), x_el)
+        F = _gradient_at(physics, cell, u_safe)
+        F = F + one(F)
+        J = det(F)
+        FinvT = inv(F)'
+        s * P̃ + (dot(χ, p̄) * _θ1(vv, J) * J - p̃ * J̃) * FinvT
+    end
+    return Ps, everted
+end
+
+@inline function _general_residual(physics::_GeneralProjected, ref_fe, x_el, dt, u_el, states, props_el)
+    Tu = promote_type(eltype(x_el), eltype(u_el))
+    NDOF = 3 * RFE.num_cell_dofs(ref_fe)
+    Ps, everted = _general_stresses(physics, ref_fe, x_el, dt, u_el, states, props_el, Val(false))
+    R = zero(SVector{NDOF, Tu})
+    for q in 1:RFE.num_cell_quadrature_points(ref_fe)
+        cell = FEC.map_interpolants(FEC._cell_interpolants(ref_fe, q), x_el)
+        R = R + _scatter_qp(cell.∇N_X, Ps[q], convert(Tu, cell.JxW))
+    end
+    return everted ? Tu(NaN) * R : R
+end
+
+@inline function FEC.residual(
+    physics::_GeneralProjected, ref_fe, x_el, t, dt, u_el, u_el_old,
+    states::FEC.ElementState, props_el,
+)
+    return _general_residual(physics, ref_fe, x_el, dt, u_el, states, props_el)
+end
+
+@inline function FEC.energy(
+    physics::_GeneralProjected, ref_fe, x_el, t, dt, u_el, u_el_old,
+    states::FEC.ElementState, props_el,
+)
+    model = physics.constitutive_model
+    vv = volumetric_variable(physics)
+    PD = Val(projection_degree(physics))
+    NQ = RFE.num_cell_quadrature_points(ref_fe)
+    θ̄, _, everted = _project(physics, ref_fe, x_el, u_el)
+    u_safe = everted ? zero(u_el) : u_el
+    θ̄_safe = everted ? zero(θ̄) : θ̄
+    return ntuple(Val(NQ)) do q
+        interps = FEC._cell_interpolants(ref_fe, q)
+        cell = FEC.map_interpolants(interps, x_el)
+        ∇u = _gradient_at(physics, cell, u_safe)
+        F  = ∇u + one(∇u)
+        J̃  = _θinv(vv, dot(_projection_basis(PD, interps.ξ), θ̄_safe))
+        F̃  = cbrt(J̃ / det(F)) * F
+        state_old_q, state_new_q = FEC.state_variables(states, q)
+        W = cell.JxW * CM.helmholtz_free_energy(model, props_el, state_old_q, state_new_q, dt,
+                                                F̃ - one(F̃), zero(J̃))
+        everted ? oftype(W, NaN) : W
+    end
+end
+
+# The nodal displacements with the three components of node n seeded as the
+# three partial directions.
+@inline function _seed_node(u_el::SVector{NDOF, T}, n) where {NDOF, T}
+    D = ForwardDiff.Dual{_ProjectedTag, T, 3}
+    return SVector{NDOF, D}(ntuple(Val(NDOF)) do k
+        c = k - 3 * (n - 1)
+        D(u_el[k], ForwardDiff.Partials{3, T}(ntuple(i -> i == c ? one(T) : zero(T), Val(3))))
+    end)
+end
+
+@inline function FEC.stiffness_action(
+    physics::_GeneralProjected, ref_fe, x_el, t, dt, u_el, u_el_old, v_el,
+    states::FEC.ElementState, props_el,
+)
+    T = eltype(u_el)
+    NDOF = length(u_el)
+    D = ForwardDiff.Dual{_ProjectedTag, T, 1}
+    u_d = SVector{NDOF, D}(ntuple(k -> D(u_el[k], ForwardDiff.Partials{1, T}((v_el[k],))), Val(NDOF)))
+    R_d = _general_residual(physics, ref_fe, x_el, dt, u_d, states, props_el)
+    return SVector{NDOF, T}(ntuple(k -> ForwardDiff.partials(R_d[k], 1), Val(NDOF)))
+end
+
+# The element tangent, one dual pass with three partials per node: the
+# columns 3(n−1)+1..3(n−1)+3 are the partials of the residual of pass n.
+@inline function FEC.stiffness(
+    physics::_GeneralProjected, ref_fe, x_el, t, dt, u_el, u_el_old,
+    states::FEC.ElementState, props_el,
+)
+    T = eltype(u_el)
+    NDOF = length(u_el)
+    NN = NDOF ÷ 3
+    K = zero(SMatrix{NDOF, NDOF, T})
+    for n in 1:NN
+        R_d = _general_residual(physics, ref_fe, x_el, dt, _seed_node(u_el, n), states, props_el)
+        B = SMatrix{NDOF, 3, T}(ntuple(Val(3 * NDOF)) do lin
+            ForwardDiff.partials(R_d[(lin - 1) % NDOF + 1], (lin - 1) ÷ NDOF + 1)
+        end)
+        S = SMatrix{3, NDOF, T}(ntuple(Val(3 * NDOF)) do lin
+            i = (lin - 1) % 3 + 1
+            j = (lin - 1) ÷ 3 + 1
+            j == 3 * (n - 1) + i ? one(T) : zero(T)
+        end)
+        K = K + B * S
+    end
+    return K
+end
+
+# Diagonal (column = 0) or column `column` of every node's 3×3 diagonal block
+# of the element tangent: entry 3(n−1)+i is a partial of the residual of pass
+# n, which seeds node n.
+@inline function _general_block_entries(
+    physics::_GeneralProjected, ref_fe, x_el, dt, u_el, states, props_el, ::Val{column},
+) where {column}
+    T = eltype(u_el)
+    NDOF = length(u_el)
+    NN = NDOF ÷ 3
+    d = zero(SVector{NDOF, T})
+    for n in 1:NN
+        R_d = _general_residual(physics, ref_fe, x_el, dt, _seed_node(u_el, n), states, props_el)
+        d = d + SVector{NDOF, T}(ntuple(Val(NDOF)) do k
+            nk = (k - 1) ÷ 3 + 1
+            c  = column == 0 ? k - 3 * (nk - 1) : column
+            nk == n ? ForwardDiff.partials(R_d[k], c) : zero(T)
+        end)
+    end
+    return d
+end
+
+@inline function (::StiffnessDiagonal)(
+    physics::_GeneralProjected, ref_fe, x_el, t, dt, u_el, u_el_old,
+    states::FEC.ElementState, props_el,
+)
+    return _general_block_entries(physics, ref_fe, x_el, dt, u_el, states, props_el, Val(0))
+end
+
+@inline function (::StiffnessBlockColumn{K})(
+    physics::_GeneralProjected, ref_fe, x_el, t, dt, u_el, u_el_old,
+    states::FEC.ElementState, props_el,
+) where {K}
+    return _general_block_entries(physics, ref_fe, x_el, dt, u_el, states, props_el, Val(K))
+end
+
+@inline function (dg::NewmarkDiagonal)(
+    physics::_GeneralProjected, ref_fe, x_el, t, dt, u_el, u_el_old,
+    states::FEC.ElementState, props_el,
+)
+    d = _general_block_entries(physics, ref_fe, x_el, dt, u_el, states, props_el, Val(0))
+    return d + _mass_diagonal_element(ref_fe, x_el, dg.c_M * props_el[1], d)
+end
+
+# Output: the deformation gradient and the Cauchy stress σ = J⁻¹ P Fᵀ of the
+# stress P_q of the third pass, at each quadrature point.
+function quadrature_field_output(
+    physics::_GeneralProjected, ref_fe, x_el, t, dt, u_el, u_el_old,
+    states::FEC.ElementState, props_el,
+)
+    NQ = RFE.num_cell_quadrature_points(ref_fe)
+    Ps, _ = _general_stresses(physics, ref_fe, x_el, dt, u_el, states, props_el, Val(true))
+    return ntuple(Val(NQ)) do q
+        cell = FEC.map_interpolants(FEC._cell_interpolants(ref_fe, q), x_el)
+        ∇u = _gradient_at(physics, cell, u_el)
+        F = ∇u + one(∇u)
+        σ = symmetric((1 / det(F)) * dot(Ps[q], transpose(F)))
+        QuadratureFieldOutput(F, σ)
+    end
 end
 
 # --------------------------------------------------------------------------- #
@@ -518,7 +925,7 @@ end
 # Output: the deformation gradient and the Cauchy stress σ = J⁻¹ P Fᵀ with the
 # projected pressure, at each quadrature point.
 function quadrature_field_output(
-    physics::ProjectedSolidMechanics, ref_fe, x_el, t, dt, u_el, u_el_old,
+    physics::_SplitProjected, ref_fe, x_el, t, dt, u_el, u_el_old,
     states::FEC.ElementState, props_el,
 )
     model = physics.constitutive_model

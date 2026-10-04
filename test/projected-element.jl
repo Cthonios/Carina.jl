@@ -12,7 +12,8 @@
 #   4. an affine displacement field is reproduced exactly (a constant J is its
 #      own projection, so the projected element must agree with the pointwise
 #      one there);
-#   5. a material without the split is refused.
+#   5. a material without the split is accepted, in the general form
+#      (test/projected-general.jl).
 # All run on the TETRA15 cube with the J2 model in its elastic range, at a
 # converged nonlinear state, so that the geometric and coupling terms of the
 # tangent are nonzero.
@@ -242,18 +243,15 @@ solver:
         end
     end
 
-    @testset "a material without the split is refused" begin
+    @testset "a material without the split is accepted in the general form" begin
         text = replace(deck("linear"), "cube: j2 plasticity" => "cube: neohookean",
                        "    j2 plasticity:" => "    neohookean:")
         mktempdir() do dir
-            err = try
-                build(dir, text); nothing
-            catch e
-                e
-            end
-            @test err isa ErrorException
-            @test occursin("volumetric projection", err.msg)
-            @test occursin("cube", err.msg)
+            sim = run!(build(dir, text))
+            ph = first(values(sim.params_cpu.physics))
+            @test Carina.volumetric_form(ph) isa Carina.GeneralForm
+            @test all(isfinite, adapt(Array, sim.params.field.data))
+            @test maximum(abs, adapt(Array, sim.params.field.data)) > 1e-3
         end
         # and an unknown projection space
         @test_throws ErrorException Carina._parse_volumetric_projection(

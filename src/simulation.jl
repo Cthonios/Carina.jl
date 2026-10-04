@@ -124,14 +124,18 @@ function create_simulation(dict::Dict{String,Any}, basedir::String="";
 
     block_syms = Tuple(Symbol(m.block) for m in materials)
     projection = _parse_volumetric_projection(dict)
+    volumetric_strain = _parse_volumetric_strain(dict)
+    form_choice = _parse_volumetric_form(dict)
     if projection === nothing
         physics = NamedTuple{block_syms}(Tuple(SolidMechanics(m.cm) for m in materials))
     else
-        # `ProjectedSolidMechanics` refuses a model without the volumetric-
-        # isochoric split; name the block in that case.
+        # `ProjectedSolidMechanics` refuses the split form for a model without
+        # the volumetric-isochoric split, and a volumetric strain that differs
+        # from the material's in the split form; name the block in that case.
         physics = NamedTuple{block_syms}(Tuple(
             try
-                ProjectedSolidMechanics(m.cm, projection)
+                ProjectedSolidMechanics(m.cm, projection; form = form_choice,
+                                        volumetric_strain = volumetric_strain)
             catch err
                 err isa ErrorException || rethrow()
                 error("model.volumetric projection with the material of block " *
@@ -139,6 +143,11 @@ function create_simulation(dict::Dict{String,Any}, basedir::String="";
             end for m in materials))
         _carina_log(0, :setup, "Volumetric projection: " *
                     (projection == 0 ? "element-wise constant" : "element-wise linear"))
+        for (m, ph) in zip(materials, values(physics))
+            _carina_log(0, :setup, "Volumetric form of block $(m.block): " *
+                        "$(volumetric_form_name(volumetric_form(ph))), θ = " *
+                        volumetric_variable_name(volumetric_variable(ph)))
+        end
     end
     props   = NamedTuple{block_syms}(
         Tuple(create_solid_mechanics_properties(m.cm, m.props_inputs) for m in materials))

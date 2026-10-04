@@ -220,7 +220,8 @@ end
 
 const _BC_SECTION_KEYS = Set(["dirichlet", "neumann"])
 
-const _MODEL_KEYS = Set(["type", "material", "volumetric projection"])
+const _MODEL_KEYS = Set(["type", "material", "volumetric projection", "volumetric strain",
+                         "volumetric form"])
 
 # `model.volumetric projection` selects the mean-dilatation formulation, in
 # which the volumetric strain of the constitutive model is replaced by its L²
@@ -243,6 +244,58 @@ function _parse_volumetric_projection(dict)
         "Unknown model.volumetric projection = \"$value\". " *
         "Supported: \"constant\" (element-wise constant), \"linear\" (element-wise linear).")
     return _VOLUMETRIC_PROJECTIONS[value]
+end
+
+# `model.volumetric strain` and `model.volumetric form` qualify the projected
+# formulation: the volumetric strain θ(J) whose projection the element
+# computes (log J or J − 1), and the form of the element (split: the
+# volumetric energy κ/2 θ² of a material with the volumetric-isochoric split
+# at the projected strain; general: any material at the deformation gradient
+# with the projected volume).  Both are meaningful only with
+# `model.volumetric projection`, and either one without it is an error.
+
+function _model_value(dict, key)
+    model = get(dict, "model", nothing)
+    model isa AbstractDict || return nothing
+    haskey(model, key) || return nothing
+    haskey(model, "volumetric projection") || error(
+        "model.$key requires model.volumetric projection; without a projection the " *
+        "formulation is the pointwise one, in which the key has no meaning.")
+    return String(model[key])
+end
+
+"""
+    _parse_volumetric_strain(dict) -> Union{Nothing, VolumetricVariable}
+
+The volumetric strain named by `model.volumetric strain`: `LogJ()` for
+`log J`, `JMinusOne()` for `J - 1`, `nothing` when the key is absent.  The
+comparison ignores case and white space.  Unknown values are an error.
+"""
+function _parse_volumetric_strain(dict)
+    raw = _model_value(dict, "volumetric strain")
+    raw === nothing && return nothing
+    value = lowercase(replace(raw, r"\s" => ""))
+    value == "logj" && return LogJ()
+    value == "j-1"  && return JMinusOne()
+    error("Unknown model.volumetric strain = \"$(strip(raw))\". " *
+          "Supported: \"log J\", \"J - 1\".")
+end
+
+"""
+    _parse_volumetric_form(dict) -> Symbol
+
+The form named by `model.volumetric form`: `:split` or `:general`, and
+`:automatic` when the key is absent (the split form for a material with the
+volumetric-isochoric split, the general form otherwise).  Unknown values are
+an error.
+"""
+function _parse_volumetric_form(dict)
+    raw = _model_value(dict, "volumetric form")
+    raw === nothing && return :automatic
+    value = lowercase(strip(raw))
+    value == "split"   && return :split
+    value == "general" && return :general
+    error("Unknown model.volumetric form = \"$value\". Supported: \"split\", \"general\".")
 end
 
 # Physics declared by `model.type`.  Only solid mechanics is implemented;

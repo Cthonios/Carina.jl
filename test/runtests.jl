@@ -32,6 +32,7 @@ const indexed_test_files = [
     (36, "spelling.jl"),
     (37, "element-types-tet.jl"),
     (38, "projected-element.jl"),
+    (39, "projected-general.jl"),
     (1, "mechanics-quasistatic-cube.jl"),
     (2, "mechanics-implicit-dynamic-cube.jl"),
     (3, "mechanics-explicit-dynamic-cube.jl"),
