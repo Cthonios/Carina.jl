@@ -34,6 +34,7 @@
 #   julia -t 16 --project=. benchmark/tet15-p1/taylor/run.jl --h 1.5,0.75
 #        [--stages mesh,smooth,convert,run] [--elements tet15-p1,tet15-p0]
 #        [--final-time 8.0e-5] [--cfl 0.8] [--internal-variables] [--stress]
+#        [--device cpu|rocm|cuda]
 # Environment: TAYLOR_CUBIT (default /usr/local/cubit/cubit), TAYLOR_NORMA
 # (default ~/Repos/Norma.jl/bin/norma), TAYLOR_NORMA_THREADS (default 8).
 # --internal-variables also writes the internal variables (eqps) at every
@@ -41,6 +42,10 @@
 # 370 GB at h = 0.19 mm; without it the output holds the displacement.
 # --stress also writes the Cauchy stress at every quadrature point, into the
 # run directory <element>-h<h>-stress, for the pressure figures (pressure.jl).
+# --device selects the device of the run (the deck's `device` key); a GPU run
+# needs the vendor package loaded, e.g. julia --project=bin -e 'using AMDGPU;
+# push!(ARGS, ...); include("benchmark/tet15-p1/taylor/run.jl")', and writes
+# its results to <element>-h<h>-<device>.
 
 using Carina
 using Exodus
@@ -65,6 +70,7 @@ const FINAL_TIME = Ref(8.0e-5)
 const CFL = Ref(0.8)
 const INTERNAL = Ref(false)
 const STRESS = Ref(false)
+const DEVICE = Ref("cpu")
 
 tag(h) = "h$(h)"
 tet4_file(h)  = joinpath(MESHES, "taylor-$(tag(h))-tet4.g")
@@ -175,6 +181,7 @@ function carina_deck(element, h, out_file)
 """ : ""
     return """
 type: single
+device: $(DEVICE[])
 input mesh file: $(tet15_file(h))
 output mesh file: $out_file
 output interval: 1.0e-6
@@ -217,20 +224,39 @@ end
 
 include(joinpath(@__DIR__, "history.jl"))
 
+# The backend of a device name, as bin/carina.jl resolves it: the vendor
+# package must have been loaded by the caller (the Carina library does not
+# depend on it), and a ROCm run attaches the workgroup-size bound of
+# bin/rocm_workgroup_bound.jl before any kernel is compiled.
+function backend_of(device)
+    device == "cpu" && return Carina.KA.CPU()
+    pkg = device == "rocm" ? :AMDGPU : device == "cuda" ? :CUDA :
+          error("unknown device $device; expected cpu, rocm or cuda")
+    isdefined(Main, pkg) || error("--device $device needs `using $pkg` in the calling session")
+    mod = getfield(Main, pkg)
+    mod.functional() || error("--device $device: no functional GPU found")
+    if device == "rocm"
+        include(joinpath(pkgdir(Carina), "bin", "rocm_workgroup_bound.jl"))
+        return mod.ROCBackend()
+    end
+    return mod.CUDABackend()
+end
+
 function run_carina(element, h)
-    dir = joinpath(RUNS, "$element-$(tag(h))" * (STRESS[] ? "-stress" : ""))
+    dir = joinpath(RUNS, "$element-$(tag(h))" * (STRESS[] ? "-stress" : "") *
+                   (DEVICE[] == "cpu" ? "" : "-" * DEVICE[]))
     mkpath(dir)
     out_file = joinpath(dir, "taylor.e")
     deck = joinpath(dir, "taylor.yaml")
     open(io -> write(io, carina_deck(element, h, out_file)), deck, "w")
     t0 = time()
-    sim = Carina.run(deck)
+    sim = Carina.run(deck; backend = backend_of(DEVICE[]))
     wall = time() - t0
     rows = taylor_history(out_file)
     write_history(joinpath(dir, "history.tsv"), rows)
     t, r, len = rows[end]
     commit = strip(read(`git -C $DIR rev-parse --short HEAD`, String))
-    rec = (element = element, h = h, elements = count_tets(tet10_file(h)),
+    rec = (element = element, device = DEVICE[], h = h, elements = count_tets(tet10_file(h)),
            dofs = length(sim.params_cpu.field.data), time = t, radius_mm = 1e3 * r,
            length_mm = 1e3 * len, wall = wall, commit = commit)
     path = joinpath(DIR, "results.tsv")
@@ -253,6 +279,9 @@ function main(args)
         end
         if args[i] == "--stress"
             STRESS[] = true; i += 1; continue
+        end
+        if args[i] == "--device"
+            DEVICE[] = args[i + 1]; i += 2; continue
         end
         haskey(opts, args[i]) || error("unknown option $(args[i])")
         opts[args[i]] = args[i + 1]; i += 2

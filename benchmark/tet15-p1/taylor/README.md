@@ -59,6 +59,17 @@ julia -t 16 --project=. benchmark/tet15-p1/taylor/run.jl --h 1.5,0.75 \
 ```
 
 `TAYLOR_CUBIT`, `TAYLOR_NORMA` and `TAYLOR_NORMA_THREADS` locate the tools.
+`--device rocm` or `--device cuda` runs on a GPU; the vendor package must be
+loaded in the calling session, which the library does not depend on:
+
+```
+julia --project=bin -e 'using AMDGPU; append!(ARGS, ["--h", "0.75", "--stages", "run",
+    "--elements", "tet15-p1", "--device", "rocm"]); include("benchmark/tet15-p1/taylor/run.jl")'
+```
+
+with `JULIA_LOAD_PATH="@:$PWD:@stdlib"` so that the `bin` environment finds
+the test dependencies of the root one.  A device run writes to
+`runs/<element>-h<h>-<device>` and records the device in `results.tsv`.
 Each run writes `runs/<element>-h<h>/taylor.e`, `taylor.yaml` and
 `history.tsv` (time, radius, length in m), and appends one record to
 `results.tsv` (final radius and length in mm, wall time).
@@ -84,6 +95,17 @@ stopped with a non-finite residual at 28 μs, and the run with 0.25 reached
 | global, 0.8 | 43 863 | 803 s | 7.2232 mm |
 
 The computation of λ_max adds 17% to the time per step.
+
+On a GPU the run gives the same history.  At h = 0.75 mm with the global
+stable step, the radius and length of every output frame of the run on an
+AMD RX 7600 equal those of the run on the CPU to every written digit, and
+the 221 stable-step estimates are the same numbers; the wall time is 513 s on
+the RX 7600 against 839 s on 12 threads of an AMD Ryzen 9 9900X.  At
+h = 1.5 mm the two also agree to every digit (80 s against 67 s: the GPU
+is slower than the CPU on 3522 elements).  The device run holds about 590 MB
+of VRAM throughout: the collector is run every 100 steps on a device
+(`src/simulation.jl`), without which the temporaries of the explicit step
+exhausted the 8 GB of the card after about 5 000 steps.
 
 Two defects of Carina were found and corrected in setting up this problem:
 `tetra15_mesh` left the element centroids out of node sets that cover the
