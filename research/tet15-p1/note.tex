@@ -82,7 +82,10 @@ its stress and tangent; when the stored energy splits exactly into a
 volumetric part quadratic in $\theta$ and an isochoric (volume-preserving)
 part, the pressure equals $\kappa$ times the projected strain at every
 point and the element needs one projection and one material call per
-quadrature point, which is the form implemented. The choice of $\theta(J)$
+quadrature point. Both forms are implemented; the general one takes one
+pass more over the quadrature points and, with the $J_2$ model, $1.36$
+times the split form's time per residual on a CPU and $1.60$ times on a
+GPU. The choice of $\theta(J)$
 is a parameter of the formulation, and two instances of the split form are
 developed, $\theta = \log J$ with the Hencky material and $\theta = J - 1$
 with the $J_2$ plasticity model of Simo and Hughes, the instance
@@ -672,7 +675,7 @@ $W(\F)$, the first Piola--Kirchhoff stress $\P(\F) = \partial W/\partial\F$
 and the tangent $\mathbb{A}(\F) = \partial^2 W/\partial\F\partial\F$, with
 the internal variables the model carries. The second case is the general
 one: it applies to a code whose material models cannot be modified, and it
-contains the first and the implemented form as special cases.
+contains the first and the split form as special cases.
 
 \paragraph{Case 1: an accessible split with a non-quadratic volumetric
 energy.} Nothing in \S\ref{sec:hw} changes. With $\bar\theta$ and $\bar p$
@@ -831,7 +834,7 @@ j_q\, \chi_m(~\xi_q)\, \tilde p_q / \theta'(\tilde J_q)$, from which $\bar p
 assembles the residual from the stored $\tilde{\P}_q$ and
 \eqref{eq:P-general-material}. The storage is one stress tensor per
 quadrature point of the element; the material is called once per point per
-residual, as in the implemented form. Where the split is accessible the
+residual, as in the split form. Where the split is accessible the
 second projection is still exact but the third pass is unnecessary, since
 $\bar p$ follows from $\bar\theta$ alone.
 
@@ -887,6 +890,35 @@ p/\partial\tilde J$ at fixed shape, to be positive over the states reached.
 The element needs the element-level assembly of \S\ref{sec:algorithm} and
 one pass more, and its cost per element is one material call per
 quadrature point plus the two $4 \times 4$ solves.
+
+\paragraph{Implementation.} Both forms are implemented in Carina in one
+physics type with a form parameter, chosen at setup: the split form when
+the material exposes the split, the general form otherwise, and the
+general form on request for any material (input key \code{volumetric
+form}). The volumetric variable is a property of the element, not of the
+material (input key \code{volumetric strain}, with the values $\log J$ and
+$J - 1$): a material without the split uses $\log J$ unless the key says
+otherwise; a material with the split uses its own $\theta$, and a key that
+differs from it is an error, since the split form's pressure $\kappa\bar\theta$
+is the stationarity condition of the energy $\tfrac{\kappa}{2}\theta^2$
+written in the material's $\theta$. The general residual takes the three
+passes above with the fourteen stresses $\tilde{\P}_q$ held on the stack.
+The tangent is not coded from \eqref{eq:tangent-general} directly: the
+element residual is written generically in its number type and
+differentiated in forward mode, with the material's stress and tangent at
+$\tilde{\F}_q$ supplying the value and the derivative of $\tilde{\P}_q$
+along each direction, so that a material that writes its internal
+variables into real-valued storage is never called with derivative-carrying
+numbers; this gives \eqref{eq:tangent-general} with the material's own
+$\mathbb{A}_q$. The action on a vector takes one pass with one derivative
+direction; the element matrix and the diagonal and nodal-block kernels of
+the preconditioners take one pass with three directions per node, fifteen
+passes per element. Measured on the Taylor bar mesh at $h = 0.75$~mm
+(\S\ref{sec:taylor}, $339\,993$ unknowns) with the $J_2$ model, the general
+residual takes $1.36$ times the split form's time on a CPU with $12$
+threads ($16.2$ against $11.9$~ms) and $1.60$ times on an AMD RX~7600
+($13.6$ against $8.5$~ms); the split form remains the default for that
+model.
 
 \begin{remark}[The volumetric variable is a modeling choice]
 \label{rem:thetachoice}
@@ -1505,9 +1537,27 @@ the truncation error of the differences; the matrix-free action, the
 diagonal and the nodal-block kernels reproduce the assembled tangent to
 $10^{-12}$; an affine displacement field is reproduced exactly (patch test,
 $10^{-10}$), because a constant $J$ is its own projection and the projected
-element must then agree with the pointwise one; Newton converges
+element must then agree with the pointwise one; and Newton converges
 quadratically (relative residual $1$, $8.6\times10^{-3}$, $8\times10^{-7}$,
-$2\times10^{-14}$); and a material without the split is refused.
+$2\times10^{-14}$).
+
+The general form of \S\ref{sec:general} passes the same checks
+(\code{test/projected-general.jl}, $129$ checks) with the neo-Hookean
+material, which has no accessible split in the material library, for
+$\theta = \log J$ and $\theta = J - 1$ and for both projections, on the
+CPU and on a GPU, where the Newton history and the displacements agree
+with the CPU's within $10^{-8}$. Its reduction to the split form is checked
+on the same cube with the $J_2$ model forced through the general form with
+$\theta = J - 1$: the Newton history, the displacements, the internal
+variables, the energy, the residual and the assembled tangent agree with
+the split form's to between $10^{-15}$ and $10^{-13}$ relative, in the
+elastic range and in a plastic step with an equivalent plastic strain of
+$0.021$. The formulas themselves were checked on one distorted element
+before the kernels were written (\code{prototype/general.jl}): the
+hand-derived residual against the gradient of the energy by automatic
+differentiation to $4\times10^{-16}$, the closed-form tangent against its
+Hessian to $1.2\times10^{-14}$, and the three reductions of
+\S\ref{sec:general} to rounding.
 
 \section{Plasticity}
 \label{sec:plasticity}
@@ -3168,17 +3218,19 @@ $\lambda_{\max}$ the largest eigenvalue of $M_L^{-1}K$, stays below it at
 $17\%$ more time per step. If weak shocks are run with the implicit
 integrator the factor does not apply.
 
-\paragraph{The material.} The form implemented calls the material through
-the split of \S\ref{sec:matreq}, which of the seven material models of
-Table~\ref{tab:split} five have; linear elasticity and
-Saint-Venant--Kirchhoff do not, and are not finite-deformation models in
-the sense of \S\ref{sec:problem}. The three with a volumetric energy that
-is not quadratic need the second projection of \S\ref{sec:general}, and a
-material without an accessible split, or with an anisotropic or
-non-separable response, needs the general form of \S\ref{sec:general},
-which calls the material at the modified deformation gradient
-\eqref{eq:Ftilde} with one pass more; that form is not implemented in
-Carina, and its consistency checks are those of \S\ref{sec:checks}.
+\paragraph{The material.} The element places no requirement on the
+material: the split form of \S\ref{sec:algorithm} calls it through the
+split of \S\ref{sec:matreq}, which of the seven material models of
+Table~\ref{tab:split} five have, and the general form of
+\S\ref{sec:general} calls any material at the modified deformation gradient
+\eqref{eq:Ftilde}, at $1.36$ to $1.60$ times the split form's time per
+residual. What the general form requires is a positive volumetric tangent
+of the material over the states reached, and what it changes for a
+material whose isochoric response depends on $J$ is that this response is
+evaluated at the projected volume. The tangent of the general form is
+assembled from fifteen forward-mode passes per element; the closed form
+\eqref{eq:tangent-general} is not yet coded, and the time of the tangent
+and of the preconditioner kernels is not measured.
 
 \paragraph{The parts.} Mixed volumetric treatment
 \citep{SimoTaylorPister:1985}, logarithmic-strain plasticity
