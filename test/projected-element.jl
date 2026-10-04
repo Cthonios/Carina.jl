@@ -76,12 +76,12 @@ solver:
       - relative residual: 1.0e-12
 """
 
-    function build(dir, yaml_text)
+    function build(dir, yaml_text; backend = Carina.KA.CPU())
         cp_example(joinpath(mesh_dir("tet15"), "cube.g"), joinpath(dir, "cube.g"))
         path = joinpath(dir, "projected.yaml")
         open(io -> write(io, yaml_text), path, "w")
         dict = Carina.YAML.load_file(path; dicttype=Dict{String,Any})
-        return Carina.create_simulation(dict, dir)
+        return Carina.create_simulation(dict, dir; backend = backend)
     end
 
     function run!(sim)
@@ -240,6 +240,45 @@ solver:
             m = adapt(Array, sim.integrator.m_lumped)
             @test all(>(0.0), m)
             @test all(isfinite, adapt(Array, sim.params.field.data))
+        end
+    end
+
+    # The split form on a device, against the CPU: the implicit solve with the
+    # matrix-free solver, and the explicit integration with the stable step
+    # recomputed from the current configuration by the global method.  The
+    # second had never run on a device before 2026-10-03: the per-block
+    # accessors of the property field and of the connectivity are defined for
+    # host arrays only, and the step recomputation read both on the device.
+    backend = test_best_device()
+    if backend isa Carina.KA.CPU
+        @info "No GPU detected; the device runs of the split form are skipped"
+    else
+        @testset "split form on $backend" begin
+            iterative = "    type: iterative\n    tolerance: 1.0e-12\n" *
+                        "    maximum iterations: 2000\n    preconditioner:\n      type: jacobi"
+            implicit = replace(deck("linear"), "    type: direct" => iterative)
+            extra = "  time step: 1.0e-7\n  final time: 2.0e-6\n  cfl: 0.8\n" *
+                    "  stable time step interval: 2\n  stable time step method: global\n" *
+                    "  stable time step eigenvalue interval: 4"
+            explicit = replace(deck("linear"; integrator = "central difference"),
+                               "  time step: 0.5\n" => "", "  final time: 1.0\n" => extra * "\n")
+            for (label, text) in (("implicit", implicit), ("explicit", explicit))
+                results = map((Carina.KA.CPU(), backend)) do dev
+                    mktempdir() do dir
+                        sim = run!(build(dir, text; backend = dev))
+                        ig = sim.integrator
+                        (copy(adapt(Array, sim.params.field.data)), ig.time_step,
+                         ig isa Carina.CentralDifferenceIntegrator ? ig.stable_dt_ratio : 1.0)
+                    end
+                end
+                (u_cpu, dt_cpu, r_cpu), (u_gpu, dt_gpu, r_gpu) = results
+                @testset "$label" begin
+                    @test all(isfinite, u_gpu)
+                    @test maximum(abs.(u_gpu .- u_cpu)) / maximum(abs.(u_cpu)) < 1e-8
+                    @test abs(dt_gpu - dt_cpu) / dt_cpu < 1e-8
+                    @test abs(r_gpu - r_cpu) / r_cpu < 1e-8
+                end
+            end
         end
     end
 

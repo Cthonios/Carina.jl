@@ -780,6 +780,10 @@ function _parse_integrator(dict, asm, asm_cpu, p_cpu, controller, backend=KA.CPU
 
         # Compute initial stable time step estimate
         if CFL_val > 0.0
+            if stable_dt_interval > 0
+                ig.stable_dt_storage = _stable_dt_storage(asm_cpu, ig.stable_dt_U)
+                ig.stable_dt_wave_speeds = _block_wave_speeds(p_cpu)
+            end
             stable_dt = _compute_stable_dt(asm_cpu, p_cpu, CFL_val)
             if stable_dt < ig.time_step
                 _carina_logf(0, :warning,
@@ -991,9 +995,11 @@ end
 # (the elements of an impacted bar reach aspect ratios near 120) are much
 # smaller than those of the reference mesh.  Absent, the reference mesh.
 # Per-block storage for the element lengths (nq × nelem), on the device of U.
-# The integrator allocates it once and passes it to every recomputation.
-function _stable_dt_storage(asm, U)
-    fspace = FEC.function_space(asm.dof)
+# The block sizes are read from `asm_cpu`, the assembler on the host: FEC's
+# per-block accessors are defined for host connectivities only.  The
+# integrator allocates the storage once and passes it to every recomputation.
+function _stable_dt_storage(asm_cpu, U)
+    fspace = FEC.function_space(asm_cpu.dof)
     storage = map(keys(fspace.ref_fes)) do b
         nquad = RFE.num_cell_quadrature_points(getfield(fspace.ref_fes, b))
         nelem = FEC.num_elements(fspace, findfirst(==(b), keys(fspace.ref_fes)))
@@ -1002,9 +1008,30 @@ function _stable_dt_storage(asm, U)
     return NamedTuple{keys(fspace.ref_fes)}(storage)
 end
 
-function _compute_stable_dt(asm, p, CFL, U = nothing; storage = nothing)
+# One dilatational wave speed per block, from the parameters on the host.
+# Properties live in one flat `PropertyField`; index it by block rather than
+# zipping it (see the same note in io.jl).  Element 1 stands in for the block:
+# a stable time step needs one wave speed per block, and element-level
+# properties would call for a min over elements instead.  Density is the
+# first property of every model (ConstitutiveModels/src/Interface.jl), which
+# is also what the mass-matrix kernels in physics.jl read.
+function _block_wave_speeds(p_cpu)
+    return map(enumerate(values(p_cpu.physics))) do (b, block_physics)
+        props = FEC.properties(p_cpu.properties, 1, b)
+        ρ = props[1]
+        M = CM.p_wave_modulus(block_physics.constitutive_model, props)
+        return sqrt(M / ρ)
+    end
+end
+
+# The element lengths are assembled on the device of `U`; the wave speeds
+# come from the host (`wave_speeds`, computed once by `_block_wave_speeds`
+# from the parameters on the host), since the property field cannot be read
+# by block on a device.  Without them `p` must be on the host.
+function _compute_stable_dt(asm, p, CFL, U = nothing; storage = nothing, wave_speeds = nothing)
     U_at = U === nothing ? zeros(Float64, length(asm.dof.unknown_dofs)) : U
     char_len_storage = storage === nothing ? _stable_dt_storage(asm, U_at) : storage
+    c_p = wave_speeds === nothing ? _block_wave_speeds(p) : wave_speeds
 
     # Assemble per-element char lengths on device
     FEC.assemble_quadrature_quantity!(
@@ -1015,27 +1042,9 @@ function _compute_stable_dt(asm, p, CFL, U = nothing; storage = nothing)
 
     # Min-reduction over all blocks
     stable_dt = Inf
-    for (b, (block_physics, block_storage)) in enumerate(zip(
-        values(p.physics), values(char_len_storage),
-    ))
-        # Properties live in one flat `PropertyField`; index it by block rather
-        # than zipping it (see the same note in io.jl).  Element 1 stands in for
-        # the block: a stable time step needs one wave speed per block, and
-        # element-level properties would call for a min over elements instead.
-        props = FEC.properties(p.properties, 1, b)
-        # Density lives in the property vector, not on the physics object --
-        # `SolidMechanics` no longer carries a `density` field.  CM's interface
-        # mandates that the first property of every model is the Lagrangian-frame
-        # density (ConstitutiveModels/src/Interface.jl), which is also what the
-        # mass-matrix kernels in physics.jl read.  `CM.density` itself is not
-        # usable here: it takes the full (props, Z_old, Z_new, Δt, ∇u, θ) call
-        # signature, none of which is meaningful at setup time.
-        ρ   = props[1]
-        M   = CM.p_wave_modulus(block_physics.constitutive_model, props)
-        c_p = sqrt(M / ρ)
-        h_min = minimum(block_storage)   # GPU-native reduction if on device
-        block_dt = CFL * h_min / c_p
-        stable_dt = min(stable_dt, block_dt)
+    for (b, block_storage) in enumerate(values(char_len_storage))
+        h_min = minimum(block_storage)   # a device reduction when on a device
+        stable_dt = min(stable_dt, CFL * h_min / c_p[b])
     end
     return stable_dt
 end

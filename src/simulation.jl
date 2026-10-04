@@ -403,9 +403,22 @@ function _advance_controller!(c::TimeController)
     c.time      = min(c.initial_time + c.stop * c.control_step, c.final_time)
 end
 
+# On a device, the temporaries of the indexed operations of a step (about
+# 0.65 MB per explicit step at 340 000 unknowns, mostly the scatter of the
+# field update) are released only when the garbage collector runs, and the
+# collector responds to host pressure, which those temporaries do not exert.
+# A Taylor bar run with 340 000 unknowns on an 8 GB RX 7600 stopped after
+# about 5 000 steps with a spurious BoundsError, the form a failed device
+# allocation takes.  The collector is therefore run every
+# `_DEVICE_GC_INTERVAL` steps on a device; a collection costs about a
+# millisecond, against 8.5 ms per step on that GPU.
+const _DEVICE_GC_INTERVAL = 100
+
 function _subcycle!(sim, target::Float64, is_explicit::Bool=false)
     (; params, integrator) = sim
     last_log_wall = -Inf  # for explicit: throttle to once per second of wall time
+    on_device = !(_backend_ref[] isa KA.CPU)
+    nsteps = 0
 
     while true
         t  = FEC.current_time(params.times)
@@ -424,6 +437,8 @@ function _subcycle!(sim, target::Float64, is_explicit::Bool=false)
 
         _pre_step_hook!(integrator, sim)
         _advance_one_step!(sim)
+        nsteps += 1
+        on_device && nsteps % _DEVICE_GC_INTERVAL == 0 && GC.gc(false)
 
         isapprox(FEC.current_time(params.times), target;
                  rtol=1e-6, atol=1e-12) && break

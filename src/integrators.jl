@@ -250,6 +250,7 @@ mutable struct CentralDifferenceIntegrator{Asm, Vec}
     stable_dt_counter  ::Int      # steps since last recomputation
     stable_dt_U        ::Vec      # free-DOF displacement for the recomputation
     stable_dt_storage  ::Any      # element lengths, allocated on first use
+    stable_dt_wave_speeds::Vector{Float64}   # per block, from the host parameters
     stable_dt_method   ::Symbol   # :element (element lengths) or :global (λ_max)
     stable_dt_eig_interval::Int   # :global: steps between eigenvalue estimates
     stable_dt_eig_counter ::Int   # :global: steps since the last estimate
@@ -289,7 +290,7 @@ function CentralDifferenceIntegrator(γ::Float64, asm, m_lumped::Vec;
         # counters start at the end of their intervals.
         CFL, stable_dt_interval,
         stable_dt_method === :global ? max(stable_dt_interval - 1, 0) : 0,
-        mk_free(), nothing, stable_dt_method,
+        mk_free(), nothing, Float64[], stable_dt_method,
         stable_dt_eig_interval, stable_dt_eig_interval, 1.0,
         mk_global(), mk_global(), mk_global(),
         Ref(false),
@@ -762,10 +763,15 @@ function _pre_step_hook!(ig::CentralDifferenceIntegrator, sim)
     ig.stable_dt_counter < ig.stable_dt_interval && return
     ig.stable_dt_counter = 0
     copyto!(ig.stable_dt_U, view(ig.U, ig.asm.dof.unknown_dofs))
+    # The storage is allocated with the integrator (input_parsing.jl), from the
+    # host assembler; an integrator built without one allocates it here.
     ig.stable_dt_storage === nothing &&
         (ig.stable_dt_storage = _stable_dt_storage(ig.asm, ig.stable_dt_U))
+    isempty(ig.stable_dt_wave_speeds) &&
+        (ig.stable_dt_wave_speeds = _block_wave_speeds(sim.params))
     dt_element = _compute_stable_dt(ig.asm, sim.params, 1.0, ig.stable_dt_U;
-                                    storage = ig.stable_dt_storage)
+                                    storage = ig.stable_dt_storage,
+                                    wave_speeds = ig.stable_dt_wave_speeds)
     if ig.stable_dt_method === :global
         ig.stable_dt_eig_counter += ig.stable_dt_interval
         if ig.stable_dt_eig_counter >= ig.stable_dt_eig_interval

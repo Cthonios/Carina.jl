@@ -180,9 +180,14 @@ host, and the V-cycle applies on the device.
 signature of GPU memory exhaustion rather than an indexing bug. Julia's garbage
 collector triggers on host memory pressure, not device pressure, so device
 temporaries can accumulate between output syncs until VRAM runs out; the
-resulting asynchronous fault surfaces at the next bounds-checked kernel. Reduce
-the problem size, shorten the output interval, or check for a per-step
-allocation in a modified integrator path.
+resulting asynchronous fault surfaces at the next bounds-checked kernel. Since
+the collector is run every 100 steps on a device (`_DEVICE_GC_INTERVAL` in
+`src/simulation.jl`), an explicit run of 340 000 unknowns at 0.65 MB of
+temporaries per step holds at most about 65 MB of them; before that valve the
+same run exhausted the 8 GB of an RX 7600 after 5 000 steps. If the error
+still appears, reduce the problem size or check for a per-step allocation in
+a modified integrator path (`AMDGPU.memory_stats().live` across a loop with
+the collector disabled locates it).
 
 **Running with plain `julia` gives no GPU.** `julia --project=. src/Carina.jl`
 bypasses the launcher environment that owns the vendor packages. Use
