@@ -25,6 +25,13 @@ cmap = LinearSegmentedColormap.from_list("rainbow_uniform", list(zip(x, pts[:, 1
 
 LEVELS = ("1.5", "0.75", "0.38", "0.19")
 ROWS = (("ct", "composite tetrahedron"), ("tet15-p1", "TET15-P1"))
+# Element count of each level and node count of each mesh: the TETRA10 mesh
+# of the composite tetrahedron and the TETRA15 mesh of TET15-P1, the same
+# elements with the face and interior nodes added.
+ELEMENTS = {1.5: 3522, 0.75: 25029, 0.38: 190727, 0.19: 1521212}
+NODES = {"ct": {1.5: 5601, 0.75: 36666, 0.38: 267150, 0.19: 2083320},
+         "tet15-p1": {1.5: 16587, 0.75: 113331, 0.38: 845573, 0.19: 6672877}}
+thin = lambda n: f"{n:,}".replace(",", "\u2009") if n >= 10000 else str(n)
 
 
 def crop(path):
@@ -50,10 +57,12 @@ for view in ("side", "face"):
                 ax.text(0.5, 0.5, "not run", ha="center", va="center", fontsize=13, color="0.5",
                         transform=ax.transAxes)
             if i == 0:
-                ax.set_title(f"h = {h} mm", fontsize=14)
+                ax.set_title(f"h = {h} mm\n{thin(ELEMENTS[float(h)])} elements", fontsize=12)
+            ax.text(0.5, -0.01, f"{thin(NODES[key][float(h)])} nodes", ha="center", va="top",
+                    fontsize=11, color="0.3", transform=ax.transAxes)
         axes[i, 0].text(-0.06, 0.5, label, rotation=90, ha="right", va="center", fontsize=14,
                         transform=axes[i, 0].transAxes)
-    fig.subplots_adjust(left=0.05, right=0.9, top=0.93, bottom=0.02, wspace=0.04, hspace=0.06)
+    fig.subplots_adjust(left=0.05, right=0.9, top=0.9, bottom=0.05, wspace=0.04, hspace=0.18)
     cax = fig.add_axes([0.925, 0.12, 0.015, 0.72])
     cb = fig.colorbar(plt.cm.ScalarMappable(norm=Normalize(lo, hi), cmap=cmap), cax=cax)
     cb.set_label("p = −tr σ / 3 (GPa)", fontsize=12)

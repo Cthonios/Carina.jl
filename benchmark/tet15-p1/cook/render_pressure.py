@@ -165,7 +165,7 @@ def main(d, out, limit, ncol, *specs):
                           cmap=RAINBOW_UNIFORM, vmin=-lim, vmax=lim)
         ax.set_xlim(lo[0], hi[0]); ax.set_ylim(lo[1], hi[1])
         ax.set_aspect("equal"); ax.set_axis_off()
-        ax.set_title(lab, fontsize=15)
+        ax.set_title(lab, fontsize=13)
         print(f"  {lab!r}: front face p from {v.min():.4g} to {v.max():.4g}")
     for ax in axes[n:]:
         ax.set_axis_off()

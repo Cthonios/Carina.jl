@@ -41,8 +41,14 @@ for c in elastic plastic; do
         "TET10\n(Carina)=$c-tet10-h2" "TET10\n(Albany)=$c-lcm-tet10-h2" \
         "TET15=$c-tet15-h2" "TET15-P1=$c-tet15-p1-h2" "TET15-P0=$c-tet15-p0-h2" \
         "Composite tetrahedron\n(Albany)=$c-lcm-ct-h2"
+    # Node counts: 647, 3208, 22 059 on the TETRA10 meshes (TET10, composite
+    # tetrahedron); 1721, 9127, 66 813 on the TETRA15 meshes.
     for e in tet10 tet15 tet15-p1 tet15-p0 lcm-ct; do
-        render "$out/$c-$e-refine.png" $lim 3 "h = 8\n327 elements=$c-$e-h8" \
-            "h = 4\n1860 elements=$c-$e-h4" "h = 2\n14 475 elements=$c-$e-h2"
+        case $e in
+            tet10|lcm-ct) n8=647; n4=3208; n2="22 059" ;;
+            *)            n8=1721; n4=9127; n2="66 813" ;;
+        esac
+        render "$out/$c-$e-refine.png" $lim 3 "h = 8\n327 elements\n$n8 nodes=$c-$e-h8" \
+            "h = 4\n1860 elements\n$n4 nodes=$c-$e-h4" "h = 2\n14 475 elements\n$n2 nodes=$c-$e-h2"
     done
 done
