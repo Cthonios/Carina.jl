@@ -83,9 +83,9 @@ volumetric part quadratic in $\theta$ and an isochoric (volume-preserving)
 part, the pressure equals $\kappa$ times the projected strain at every
 point and the element needs one projection and one material call per
 quadrature point. Both forms are implemented; the general one takes one
-pass more over the quadrature points and, with the $J_2$ model, $1.36$
-times the split form's time per residual on a CPU and $1.60$ times on a
-GPU. The choice of $\theta(J)$
+pass more over the quadrature points and, with the $J_2$ model, $1.4$ to
+$2.1$ times the split form's time per explicit step on six devices. The
+choice of $\theta(J)$
 is a parameter of the formulation, and two instances of the split form are
 developed, $\theta = \log J$ with the Hencky material and $\theta = J - 1$
 with the $J_2$ plasticity model of Simo and Hughes, the instance
@@ -917,8 +917,10 @@ passes per element. Measured on the Taylor bar mesh at $h = 0.75$~mm
 (\S\ref{sec:taylor}, $339\,993$ unknowns) with the $J_2$ model, the general
 residual takes $1.36$ times the split form's time on a CPU with $12$
 threads ($16.2$ against $11.9$~ms) and $1.60$ times on an AMD RX~7600
-($13.6$ against $8.5$~ms); the split form remains the default for that
-model.
+($13.6$ against $8.5$~ms); per explicit step of a run the ratio is $1.36$
+on a CPU with $16$ threads, $1.44$ on the RX~7600, $1.60$ on an NVIDIA L4,
+$1.84$ on an A100 and $2.05$ on a V100 (Table~\ref{tab:taylordevices}). The
+split form remains the default for that model.
 
 \begin{remark}[The volumetric variable is a modeling choice]
 \label{rem:thetachoice}
@@ -1557,7 +1559,18 @@ before the kernels were written (\code{prototype/general.jl}): the
 hand-derived residual against the gradient of the energy by automatic
 differentiation to $4\times10^{-16}$, the closed-form tangent against its
 Hessian to $1.2\times10^{-14}$, and the three reductions of
-\S\ref{sec:general} to rounding.
+\S\ref{sec:general} to rounding. The same prototype found that the
+tangent of the $J_2$ model in the material library, the consistent tangent
+of BOX~9.2 of \citet{SimoHughes:1998}, divided its coefficient $\beta_2$ by
+$\mu$ instead of the effective modulus $\bar\mu = \mu\,\mathrm{tr}(\bar{~b}^e_{\mathrm{tr}})/3$;
+the two agree at small strain and the term vanishes without hardening, which
+is why the library's own checks had not seen it, and the symmetric part of
+the tangent was off by $5\times10^{-2}$ at an equivalent plastic strain of
+$0.6$ reached in one increment. With the correction the symmetric part
+agrees with the central-difference Jacobian of the stress to $10^{-10}$;
+what remains, $4\times10^{-3}$ to $5\times10^{-3}$, is the antisymmetric part
+that BOX~9.2 drops by construction, so Newton converges linearly, not
+quadratically, on steps that yield with this model.
 
 \section{Plasticity}
 \label{sec:plasticity}
@@ -3270,9 +3283,11 @@ is the quadratic element and $1.4$ the enrichment (\S\ref{sec:basis}). On the Ta
 element count outweighs the smaller step (\S\ref{sec:taylor}). On a
 deformed mesh an element estimate from node distances does not bound the
 critical step; a step of $0.8$ times $2/\sqrt{\lambda_{\max}}$, with
-$\lambda_{\max}$ the largest eigenvalue of $M_L^{-1}K$, stays below it at
-$17\%$ more time per step. If weak shocks are run with the implicit
-integrator the factor does not apply.
+$\lambda_{\max}$ the largest eigenvalue of $M_L^{-1}K$, stays below it, at
+a cost of $13\%$ of the stepping time on a CPU and $25$ to $40\%$ on the
+GPUs with the estimate every $200$ steps (Table~\ref{tab:taylordevices}); a
+longer interval on a GPU is not yet tested. If weak shocks are run with the
+implicit integrator the factor does not apply.
 
 \paragraph{The material.} The element places no requirement on the
 material: the split form of \S\ref{sec:algorithm} calls it through the
@@ -3286,7 +3301,9 @@ material whose isochoric response depends on $J$ is that this response is
 evaluated at the projected volume. The tangent of the general form is
 assembled from fifteen forward-mode passes per element; the closed form
 \eqref{eq:tangent-general} is not yet coded, and the time of the tangent
-and of the preconditioner kernels is not measured.
+and of the preconditioner kernels is not measured. For the split form, the
+action of the tangent on a vector takes $2.4$ times the residual's time on
+the RX~7600 ($20.8$ against $8.6$~ms on the Taylor mesh at $h = 0.75$~mm).
 
 \paragraph{The parts.} Mixed volumetric treatment
 \citep{SimoTaylorPister:1985}, logarithmic-strain plasticity
