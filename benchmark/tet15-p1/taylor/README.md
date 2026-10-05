@@ -132,3 +132,80 @@ a two-socket AMD EPYC 9634.  `plot.py` draws the final radius against the
 number of elements and the radius against time from them.  The results and
 the cost comparison are in Sec. "Explicit dynamics: the Taylor bar impact" of
 `research/tet15-p1/note.pdf`.
+
+## Performance across machines
+
+`kernel_timing.jl` times, on the mesh of a level in a deformed state with
+plastic flow (400 explicit steps from the impact, equivalent plastic strain up
+to 1.0), the residual assembly, one explicit step, the element estimate of the
+stable step and the eigenvalue estimate, each the median of 20 repetitions
+with the device synchronized, and estimates the time per step of a run from
+them (step + element estimate / 10 + eigenvalue estimate / 200).  One JSON
+record per run goes to `kernel-timing.jsonl` (this machine) or
+`data/kernel-timing-<host>.jsonl`; `timing_table.py` prints the table below
+from them.  All records: Carina 9e4bfaf, ConstitutiveModels 273af9e,
+`OPENBLAS_NUM_THREADS=1`, each run alone on its machine, nothing pinned, the
+same h = 0.75 and 0.38 mm meshes on the Rigel side (Rigel, L4, V100, A100) and
+the same on the Sirius side (CPU, RX 7600); the two sides' h = 0.75 meshes are
+different smoothing runs of the same Cubit mesh, which changes the radius
+history by 2.8e-7 relative, while within a side every device gives the same
+history to every written digit.  Machines: Sirius, AMD Ryzen 9 9900X (12
+cores) with an AMD RX 7600 (ROCm); Rigel, 2 x AMD EPYC 9634 (168 cores) with
+an NVIDIA L4 (driver 615.71.09, CUDA 13.4); ascicgpu22, Tesla V100-PCIE-32GB
+and ascicgpu073, A100-PCIE-40GB (driver 580.126.20, CUDA 13.0); Julia 1.13.0
+everywhere.
+
+| host | device | threads | h (mm) | form | elements | residual (ms) | step (ms) | element dt (ms) | global dt (ms) | per run step (ms) | us per element-step |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| rigel | 2 x AMD EPYC 9634 | 16 | 0.38 | split | 190727 | 90.87 | 150.48 | 28.96 | 8720.49 | 196.98 | 1.033 |
+| rigel | 2 x AMD EPYC 9634 | 32 | 0.38 | split | 190727 | 57.99 | 115.24 | 23.45 | 5943.29 | 147.30 | 0.772 |
+| rigel | 2 x AMD EPYC 9634 | 64 | 0.38 | split | 190727 | 41.87 | 98.88 | 19.90 | 4682.35 | 124.28 | 0.652 |
+| ascicgpu073 | NVIDIA A100-PCIE-40GB | 16 | 0.38 | split | 190727 | 14.00 | 15.32 | 0.90 | 1465.92 | 22.74 | 0.119 |
+| ascicgpu22 | NVIDIA V100-PCIE-32GB | 16 | 0.38 | split | 190727 | 31.18 | 33.04 | 1.60 | 2881.79 | 47.61 | 0.250 |
+| rigel | NVIDIA L4 | 16 | 0.38 | split | 190727 | 40.17 | 44.90 | 2.41 | 3268.32 | 61.48 | 0.322 |
+| rigel | 2 x AMD EPYC 9634 | 16 | 0.75 | general | 25029 | 21.27 | 30.75 | 3.94 | 945.33 | 35.87 | 1.433 |
+| sirius | AMD Ryzen 9 9900X | 12 | 0.75 | general | 25029 | 15.51 | 22.58 | 1.56 | 799.73 | 26.73 | 1.068 |
+| ascicgpu073 | NVIDIA A100-PCIE-40GB | 16 | 0.75 | general | 25029 | 5.04 | 5.43 | 0.18 | 463.29 | 7.77 | 0.310 |
+| ascicgpu22 | NVIDIA V100-PCIE-32GB | 16 | 0.75 | general | 25029 | 12.27 | 12.76 | 0.30 | 776.30 | 16.67 | 0.666 |
+| rigel | NVIDIA L4 | 16 | 0.75 | general | 25029 | 10.91 | 11.42 | 0.37 | 640.30 | 14.66 | 0.586 |
+| sirius | AMD RX 7600 | 12 | 0.75 | general | 25029 | 13.51 | 14.37 | 0.42 | 679.14 | 17.81 | 0.712 |
+| rigel | 2 x AMD EPYC 9634 | 16 | 0.75 | split | 25029 | 13.92 | 22.65 | 4.07 | 671.96 | 26.42 | 1.056 |
+| rigel | 2 x AMD EPYC 9634 | 32 | 0.75 | split | 25029 | 7.64 | 15.10 | 2.97 | 422.89 | 17.52 | 0.700 |
+| rigel | 2 x AMD EPYC 9634 | 64 | 0.75 | split | 25029 | 6.49 | 18.58 | 3.31 | 400.06 | 20.92 | 0.836 |
+| sirius | AMD Ryzen 9 9900X | 12 | 0.75 | split | 25029 | 8.95 | 14.12 | 1.52 | 459.57 | 16.57 | 0.662 |
+| ascicgpu073 | NVIDIA A100-PCIE-40GB | 16 | 0.75 | split | 25029 | 2.13 | 2.52 | 0.17 | 338.09 | 4.23 | 0.169 |
+| ascicgpu22 | NVIDIA V100-PCIE-32GB | 16 | 0.75 | split | 25029 | 5.11 | 5.62 | 0.30 | 496.23 | 8.13 | 0.325 |
+| rigel | NVIDIA L4 | 16 | 0.75 | split | 25029 | 6.06 | 6.82 | 0.38 | 457.04 | 9.15 | 0.365 |
+| sirius | AMD RX 7600 | 12 | 0.75 | split | 25029 | 8.61 | 9.41 | 0.41 | 593.73 | 12.41 | 0.496 |
+
+Full Taylor runs to 80 μs at h = 0.75 mm with the global stable step, wall
+time of the whole run (setup included):
+
+| Device | Wall time (s) |
+|---|---|
+| NVIDIA A100 | 227.3 |
+| NVIDIA V100 | 403.6 |
+| NVIDIA L4 | 405.9 |
+| AMD RX 7600 | 513.1 |
+| Sirius CPU, 12 threads | 838.9 |
+| Rigel CPU, 16 threads | 1282.7 |
+
+Observations.  Per run step the A100 is 1.9 to 2.1 times faster than the
+V100 and 2.2 to 2.7 times faster than the L4; the V100 and the L4 are within
+11% of each other at h = 0.75 mm, and the V100 is 1.3 times faster at
+h = 0.38 mm; the RX 7600 is 1.4 times slower than the L4.  The time per
+element-step falls on every GPU from h = 0.75 to 0.38 mm (A100 0.169 to
+0.119 μs, V100 0.325 to 0.250, L4 0.365 to 0.322): 25 029 elements do not
+fill the larger GPUs.  On the Rigel CPU the best thread count is 32 at
+h = 0.75 mm and 64 at h = 0.38 mm; at 64 threads the explicit step at
+h = 0.75 mm is slower than at 32 although the residual alone is faster.  The
+Sirius CPU with 12 threads (0.66 μs per element-step) is faster than the
+Rigel CPU with 32 (0.70).  The general form costs 1.36 times the split form
+per run step on the CPUs, 1.44 on the RX 7600, 1.60 on the L4, 1.84 on the
+A100 and 2.05 on the V100.  The eigenvalue estimate of the stable step costs
+25 to 80 run steps and runs every 200, so it takes 13% of the stepping time
+on the 16-thread CPU, 25% on the L4, 31% on the V100 and 40% on the A100: on
+a GPU the interval `stable time step eigenvalue interval` should be raised,
+which the ratio of the two estimates, varying by 1% per 200 steps late in
+the run, permits.
+

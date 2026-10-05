@@ -114,8 +114,13 @@ function main(args)
     sim = Carina.create_simulation(dict, dir; backend = backend)
     ig = sim.integrator; p = sim.params; asm = ig.asm
     step!() = (p.times.Δt = ig.time_step; Carina._advance_one_step!(sim))
-    for _ in 1:warm
+    # The warm-up steps the integrator directly, so the collection valve of
+    # the time loop (simulation.jl, _DEVICE_GC_INTERVAL) is applied here too:
+    # on a device the temporaries of the steps are otherwise never released.
+    on_device = !(backend isa Carina.KA.CPU)
+    for k in 1:warm
         step!()
+        on_device && k % Carina._DEVICE_GC_INTERVAL == 0 && GC.gc(false)
     end
     Carina._pre_step_hook!(ig, sim)          # allocates the stable-step storage
     sync()

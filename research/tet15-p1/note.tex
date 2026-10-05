@@ -3050,21 +3050,61 @@ $8.4$ in wall time, on $25\,029$ elements against $1\,521\,212$. At equal
 mesh the composite tetrahedron takes $3.6$ times less time to $80~\mu$s on
 $16$ cores, with an error $16$ times larger.
 
-\paragraph{The same run on a GPU.} The explicit integration of TET15-P1
+\paragraph{The same run on GPUs.} The explicit integration of TET15-P1
 runs on a GPU through the same kernels, with the stable step recomputed on
 the device. At $h = 0.75$~mm with the global stable step, the radius and the
-length of every output frame of the run on an AMD RX~7600 equal those of
-the run on the CPU to every written digit, and the $221$ stable-step
-estimates are the same numbers; the wall time is $513$~s on the RX~7600
-against $839$~s on $12$ threads of an AMD Ryzen~9 9900X. Two defects were
-found and corrected in making this run: the stable-step recomputation read
-the block sizes and the material properties through accessors defined for
-host arrays only, so it had never run on a device; and the temporaries of
-the explicit step (about $0.65$~MB per step at $340\,000$ unknowns) are
-released only when the garbage collector runs, which host pressure did not
-trigger, so the run exhausted the $8$~GB of the card after about $5\,000$
-steps; the collector is now run every $100$ steps on a device, and the run
-holds about $590$~MB throughout.
+length of every output frame of the run are the same numbers to every
+written digit on the CPU, on an AMD RX~7600 and on NVIDIA L4, V100 and A100
+cards (the last three on one mesh, the first two on another smoothing of the
+same Cubit mesh, which changes the radius by $2.8\times10^{-7}$ relative),
+and so are the $221$ stable-step estimates. Table~\ref{tab:taylordevices}
+gives the time per step from the kernel timings and the wall time of the
+run. Three defects were found and corrected in making these runs: the
+stable-step recomputation read the block sizes and the material properties
+through accessors defined for host arrays only, so it had never run on a
+device; the temporaries of the explicit step (about $0.65$~MB per step at
+$340\,000$ unknowns) are released only when the garbage collector runs,
+which host pressure did not trigger, so the run exhausted the $8$~GB of the
+RX~7600 after about $5\,000$ steps, and the collector is now run every
+$100$ steps on a device; and the $J_2$ tangent of the material library
+built its pull-back in mutable buffers that CUDA places on the device heap,
+which is never freed, so the matrix-free solves of the implicit tests failed
+on the L4 after some thousands of tangent calls (the buffers are now
+immutable, and the tangent is $5\%$ faster on every device). The eigenvalue
+estimate of the stable step takes $25$ to $80$ explicit steps' time and runs
+every $200$ steps, so it is $13\%$ of the stepping time on a CPU with $16$
+threads and $25$ to $40\%$ on the GPUs; the ratio it corrects varies by $1\%$
+per $200$ steps late in the run, so the interval can be raised on a GPU.
+
+\begin{table}[tbp]
+\centering
+\caption{TET15-P1, split form, explicit Taylor bar: time per step of a run
+from the kernel timings (median of $20$, deformed state with plastic strains
+to $1.0$; includes the stable-step estimates at their intervals), in
+microseconds per element-step, at $h = 0.75$ and $0.38$~mm, the ratio of the
+general form's time to the split form's at $h = 0.75$~mm, and the wall time
+of the run to $80~\mu$s at $h = 0.75$~mm. Carina 9e4bfaf; one process alone
+on each machine. Scripts: \code{benchmark/tet15-p1/taylor/kernel\_timing.jl},
+\code{timing\_table.py}; records in \code{data/}.}
+\label{tab:taylordevices}
+\small
+\begin{tabular}{lrrrr}
+\toprule
+device & $h = 0.75$ & $h = 0.38$ & general/split & run (s) \\
+\midrule
+AMD Ryzen~9 9900X, 12 threads  & 0.662 & ---   & 1.61 & 839 \\
+2$\times$AMD EPYC 9634, 32 threads & 0.700 & 0.772 & 1.36$^{\dagger}$ & 1283$^{\dagger}$ \\
+2$\times$AMD EPYC 9634, 64 threads & 0.836 & 0.652 & --- & --- \\
+AMD RX 7600                    & 0.496 & ---   & 1.44 & 513 \\
+NVIDIA L4                      & 0.365 & 0.322 & 1.60 & 406 \\
+NVIDIA V100                    & 0.325 & 0.250 & 2.05 & 404 \\
+NVIDIA A100                    & 0.169 & 0.119 & 1.84 & 227 \\
+\bottomrule
+\end{tabular}
+
+\smallskip
+$^{\dagger}$at 16 threads.
+\end{table}
 
 \paragraph{Pressure field.} Figure~\ref{fig:taylorpressure} shows the
 pressure $p = -\tfrac13\trace ~\sigma$, positive in compression, on the impact
