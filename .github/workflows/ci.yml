@@ -103,11 +103,15 @@ jobs:
         if: matrix.threads == 1 && matrix.julia-version == env.COVERAGE_JULIA
         uses: julia-actions/julia-processcoverage@v1
 
+      # The upload is not a test: when Codecov's servers do not answer (on
+      # 2026-10-05 the download of its uploader failed the TLS handshake for
+      # over an hour), the run keeps the result of the tests and the commit
+      # lacks a coverage report, instead of a passing suite being marked failed.
       - name: Upload coverage to Codecov
         if: matrix.threads == 1 && matrix.julia-version == env.COVERAGE_JULIA
         uses: codecov/codecov-action@v5
         with:
           files: lcov.info
-          fail_ci_if_error: true
+          fail_ci_if_error: false
         env:
           CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
