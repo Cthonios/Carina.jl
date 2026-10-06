@@ -903,6 +903,11 @@ differs from it is an error, since the split form's pressure $\kappa\bar\theta$
 is the stationarity condition of the energy $\tfrac{\kappa}{2}\theta^2$
 written in the material's $\theta$. The general residual takes the three
 passes above with the fourteen stresses $\tilde{\P}_q$ held on the stack.
+Calling the material again in the third pass instead of storing them gives
+the same residual to rounding and takes longer: on the Taylor bar mesh at
+$h = 0.75$~mm with the $J_2$ model, $20.2$ against $14.5$~ms on a CPU with
+$12$ threads and $14.8$ against $11.3$~ms on an AMD RX~7600; it has not
+been measured on NVIDIA GPUs.
 The element matrix and the diagonal and nodal-block kernels of the
 preconditioners assemble \eqref{eq:tangent-general} in closed form. The
 stress $\P_q$ of \eqref{eq:P-general-material} depends on the deformation
