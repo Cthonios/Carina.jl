@@ -3111,8 +3111,23 @@ on the L4 after some thousands of tangent calls (the buffers are now
 immutable, and the tangent is $5\%$ faster on every device). The eigenvalue
 estimate of the stable step takes $25$ to $80$ explicit steps' time and runs
 every $200$ steps, so it is $13\%$ of the stepping time on a CPU with $16$
-threads and $25$ to $40\%$ on the GPUs; the ratio it corrects varies by $1\%$
-per $200$ steps late in the run, so the interval can be raised on a GPU.
+threads and $25$ to $40\%$ on the GPUs. A fixed longer interval is not
+safe: the ratio of the eigenvalue step to the element estimate falls by up
+to $11\%$ between two estimates $200$ steps apart while the bar spreads,
+between $8$ and $30~\mu$s, and by up to $23\%$ within $1000$ steps, more
+than the $20\%$ margin of CFL $0.8$; after $30~\mu$s it varies by at most
+$1.3\%$ per $200$ steps, and after $60~\mu$s by $0.04\%$. Carina therefore
+sets the interval from the observed change (input key \code{stable time step
+eigenvalue change}~$c$): after each estimate the next interval is the one
+over which the relative decrease of the ratio observed over the last
+interval would amount to $c$, at least the given interval, at most twice the
+last one and at most $16$ times the given one. With $c = 0.02$ the run at
+$h = 0.75$~mm on the RX~7600 takes $52$ estimates instead of $220$, at
+intervals from $200$ to $3200$ steps, $43\,557$ steps instead of
+$43\,865$, and $443$ instead of $500$~s, with the radius and length
+histories equal to within $7\times10^{-7}$ relative. Applied to the ratios
+recorded with the fixed interval, the rule keeps the largest decrease of the
+ratio within an interval at the one over $200$ steps.
 
 \begin{table}[tbp]
 \centering
@@ -3313,7 +3328,9 @@ critical step; a step of $0.8$ times $2/\sqrt{\lambda_{\max}}$, with
 $\lambda_{\max}$ the largest eigenvalue of $M_L^{-1}K$, stays below it, at
 a cost of $13\%$ of the stepping time on a CPU and $25$ to $40\%$ on the
 GPUs with the estimate every $200$ steps (Table~\ref{tab:taylordevices}); a
-longer interval on a GPU is not yet tested. If weak shocks are run with the
+fixed longer interval is unsafe on the Taylor bar, and the interval set from
+the observed change of the ratio reduces the time of the run on the RX~7600
+by $11\%$ (\S\ref{sec:taylor}). If weak shocks are run with the
 implicit integrator the factor does not apply.
 
 \paragraph{The material.} The element places no requirement on the

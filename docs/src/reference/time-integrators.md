@@ -153,6 +153,9 @@ time integrator:
 | `gamma` | `γ` | `0.5` | Velocity-update parameter. `0.5` = standard central difference. |
 | `CFL` | `cfl` | `0.0` | If > 0, compute a stable Δt and cap `time step` with it. |
 | `stable time step interval` | — | `0` | Steps between recomputations of the stable Δt. `0` = compute once at startup only. |
+| `stable time step method` | — | `element` | `element`: element lengths and the dilatational wave speed. `global`: the element estimate scaled by the critical step 2/√λ_max of M_L⁻¹K. |
+| `stable time step eigenvalue interval` | — | 20 × `stable time step interval` | `global`: steps between eigenvalue estimates; with `stable time step eigenvalue change`, the smallest interval. |
+| `stable time step eigenvalue change` | — | none | `global`: the relative decrease of the stable-step ratio allowed between two eigenvalue estimates, in (0, 1 − `cfl`); the interval is then set from the observed change. |
 
 ### The CFL cap
 
@@ -182,6 +185,19 @@ Setting `stable time step interval: N` with `N > 0` recomputes the estimate
 every `N` steps, which matters when large deformation changes element
 geometry enough to shrink the stable step mid-run. Leaving it at `0` computes
 the estimate once, from the undeformed configuration.
+
+With `stable time step method: global` the step is CFL · r · Δt_element, with
+r the ratio of the critical step 2/√λ_max to the element estimate at the last
+eigenvalue estimate. The step stays stable while the true ratio stays above
+CFL · r, so r must not fall by more than 1 − CFL between two estimates. With
+`stable time step eigenvalue change: c` the interval adapts: after each
+estimate, the next interval n' is the one over which the relative decrease d
+of r observed over the last interval n would amount to c, n' = n c / d, at
+least `stable time step eigenvalue interval`, at most twice n and at most 16
+times `stable time step eigenvalue interval`. On the Taylor bar at
+h = 0.75 mm with CFL 0.8, a minimum interval of 200 and c = 0.02, this takes
+52 estimates instead of 220 and 443 instead of 500 s on an AMD RX 7600, with
+the same result to within 7e-7.
 
 Note that the stable-step computation needs a nonzero `density`; see
 [Materials](materials.md).

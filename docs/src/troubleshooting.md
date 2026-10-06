@@ -135,7 +135,9 @@ time integrator:
 2/√λ_max, λ_max the largest eigenvalue of M_L⁻¹K, to the element estimate.
 λ_max is found by power iteration every `stable time step eigenvalue
 interval` steps (default 20 × `stable time step interval`) at a cost of 40
-to 80 internal-force evaluations; on the Taylor bar this added 17% to the
+to 80 internal-force evaluations (`stable time step eigenvalue change: 0.02`
+sets the interval from the observed change of the ratio and, on the Taylor
+bar, takes 52 estimates instead of 220); on the Taylor bar this added 17% to the
 time per step and reduced the number of steps from 54 000 (element estimate,
 CFL 0.25) to 43 900.  K is the consistent tangent: during plastic loading
 the elastic critical step can be up to 10% smaller than the one computed,

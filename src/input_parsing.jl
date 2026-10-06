@@ -152,7 +152,8 @@ const _TI_TYPE_KEYS = Dict{String, Set{String}}(
     "newmark"            => Set(["alpha", "beta", "gamma", "β", "γ"]),
     "central difference" => Set(["gamma", "γ", "CFL", "cfl",
                                  "stable time step interval", "stable time step method",
-                                 "stable time step eigenvalue interval"]),
+                                 "stable time step eigenvalue interval",
+                                 "stable time step eigenvalue change"]),
 )
 
 const _TI_TYPE_ALIASES = Dict{String, String}(
@@ -764,6 +765,17 @@ function _parse_integrator(dict, asm, asm_cpu, p_cpu, controller, backend=KA.CPU
         method_str == "global" && eig_interval < stable_dt_interval &&
             error("stable time step eigenvalue interval = $eig_interval is smaller than " *
                   "stable time step interval = $stable_dt_interval.")
+        eig_change = 0.0
+        if haskey(ti_dict, "stable time step eigenvalue change")
+            method_str == "global" ||
+                error("stable time step eigenvalue change applies to stable time step " *
+                      "method = \"global\" only.")
+            eig_change = Float64(ti_dict["stable time step eigenvalue change"])
+            0.0 < eig_change < 1.0 - CFL_val ||
+                error("stable time step eigenvalue change = $eig_change must lie in " *
+                      "(0, 1 − cfl) = (0, $(1.0 - CFL_val)): a decrease of the stable-step " *
+                      "ratio by 1 − cfl between estimates makes the step unstable.")
+        end
 
         m_lumped = _compute_lumped_mass(asm_cpu, p_cpu, template)
 
@@ -776,7 +788,8 @@ function _parse_integrator(dict, asm, asm_cpu, p_cpu, controller, backend=KA.CPU
                                           CFL=CFL_val,
                                           stable_dt_interval=stable_dt_interval,
                                           stable_dt_method=Symbol(method_str),
-                                          stable_dt_eig_interval=eig_interval)
+                                          stable_dt_eig_interval=eig_interval,
+                                          stable_dt_eig_change=eig_change)
 
         # Compute initial stable time step estimate
         if CFL_val > 0.0

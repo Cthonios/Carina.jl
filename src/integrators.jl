@@ -255,6 +255,10 @@ mutable struct CentralDifferenceIntegrator{Asm, Vec}
     stable_dt_eig_interval::Int   # :global: steps between eigenvalue estimates
     stable_dt_eig_counter ::Int   # :global: steps since the last estimate
     stable_dt_ratio    ::Float64  # :global: 2/√λ over the element-length step
+    stable_dt_eig_change ::Float64  # :global: allowed relative decrease of the ratio
+                                    # between estimates (0: fixed interval)
+    stable_dt_eig_current::Int      # :global: steps until the next estimate
+    stable_dt_eig_prev   ::Float64  # :global: ratio of the previous estimate (NaN: none)
     stable_dt_v        ::Vec      # :global: estimate of the top eigenvector
     stable_dt_w        ::Vec      # :global: K v
     stable_dt_Up       ::Vec      # :global: perturbed displacement
@@ -272,7 +276,8 @@ function CentralDifferenceIntegrator(γ::Float64, asm, m_lumped::Vec;
                                       CFL::Float64=0.0,
                                       stable_dt_interval::Int=0,
                                       stable_dt_method::Symbol=:element,
-                                      stable_dt_eig_interval::Int=0) where {Vec}
+                                      stable_dt_eig_interval::Int=0,
+                                      stable_dt_eig_change::Float64=0.0) where {Vec}
     stable_dt_method in (:element, :global) ||
         error("stable_dt_method must be :element or :global, got :$stable_dt_method")
     T = eltype(m_lumped)
@@ -292,6 +297,7 @@ function CentralDifferenceIntegrator(γ::Float64, asm, m_lumped::Vec;
         stable_dt_method === :global ? max(stable_dt_interval - 1, 0) : 0,
         mk_free(), nothing, Float64[], stable_dt_method,
         stable_dt_eig_interval, stable_dt_eig_interval, 1.0,
+        stable_dt_eig_change, stable_dt_eig_interval, NaN,
         mk_global(), mk_global(), mk_global(),
         Ref(false),
         U_save, V_save, A_save,
@@ -774,13 +780,48 @@ function _pre_step_hook!(ig::CentralDifferenceIntegrator, sim)
                                     wave_speeds = ig.stable_dt_wave_speeds)
     if ig.stable_dt_method === :global
         ig.stable_dt_eig_counter += ig.stable_dt_interval
-        if ig.stable_dt_eig_counter >= ig.stable_dt_eig_interval
+        if ig.stable_dt_eig_counter >= ig.stable_dt_eig_current
             ig.stable_dt_eig_counter = 0
             ig.stable_dt_ratio = _global_stable_dt!(ig, sim.params, 1.0) / dt_element
+            if ig.stable_dt_eig_change > 0.0
+                isnan(ig.stable_dt_eig_prev) ||
+                    (ig.stable_dt_eig_current = _next_eig_interval(ig, ig.stable_dt_eig_prev,
+                                                                   ig.stable_dt_ratio))
+                ig.stable_dt_eig_prev = ig.stable_dt_ratio
+            end
         end
     end
     stable_dt = ig.CFL * ig.stable_dt_ratio * dt_element
     ig.time_step = min(stable_dt, ig.max_time_step)
+end
+
+# Adaptive interval between eigenvalue estimates (`stable time step eigenvalue
+# change` c > 0).  Between two estimates the step is CFL · r · Δt_element with
+# the ratio r of the last estimate, and it is stable while the true ratio
+# stays above CFL · r: a decrease of r by more than 1 − CFL within one
+# interval would make it unstable.  The next interval n' is the one over which
+# the relative decrease observed over the last interval n, d = (r₀ − r₁)/r₀,
+# would amount to c at the same rate: n' = n c / d, at least the given
+# interval n₀, at most twice n and at most _EIG_INTERVAL_MAX_FACTOR · n₀, and
+# a multiple of the element-estimate interval.  An increase of r gives d = 0
+# and doubles the interval.  On the Taylor bar at h = 0.75 mm with CFL 0.8,
+# n₀ = 200 and c = 0.02 the run takes 52 estimates instead of 220, at
+# intervals from 200 to 3200 steps; applied to the ratios recorded with the
+# fixed interval, the rule keeps the largest decrease of r within an interval
+# at the one over n₀ steps (to 0.886 of r).
+const _EIG_INTERVAL_MAX_FACTOR = 16
+
+function _next_eig_interval(ig, r_prev::Float64, r_new::Float64)
+    n0 = ig.stable_dt_eig_interval
+    n  = ig.stable_dt_eig_current
+    d  = max(r_prev - r_new, 0.0) / r_prev
+    upper = min(2 * n, _EIG_INTERVAL_MAX_FACTOR * n0)
+    want  = d == 0.0 ? upper : ig.stable_dt_eig_change * n / d
+    m = clamp(want, n0, upper)
+    k = ig.stable_dt_interval
+    # The relative slack keeps a quotient that is a multiple of k up to
+    # rounding, such as 0.02 · 40 / (1 − 0.98), at that multiple.
+    return max(n0, k * floor(Int, m / k * (1 + 1e-9)))
 end
 
 # Stable step from the largest eigenvalue λ of M_L⁻¹ K on the free DOFs, with

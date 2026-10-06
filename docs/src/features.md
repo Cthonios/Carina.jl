@@ -51,7 +51,8 @@ is not read as promising more than it delivers.
   the element estimate is scaled by the critical step 2/√λ_max of the
   assembled system, λ_max the largest eigenvalue of M_L⁻¹K (lumped mass M_L,
   tangent stiffness K), found by power iteration every `stable time step
-  eigenvalue interval` steps.
+  eigenvalue interval` steps, or at an interval set from the observed change
+  of the ratio (`stable time step eigenvalue change`).
 - **Output-interval subcycling.** The integrator takes as many internal steps as
   needed between output frames, landing exactly on output times.
 

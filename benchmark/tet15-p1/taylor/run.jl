@@ -34,7 +34,7 @@
 #   julia -t 16 --project=. benchmark/tet15-p1/taylor/run.jl --h 1.5,0.75
 #        [--stages mesh,smooth,convert,run] [--elements tet15-p1,tet15-p0]
 #        [--final-time 8.0e-5] [--cfl 0.8] [--internal-variables] [--stress]
-#        [--device cpu|rocm|cuda]
+#        [--device cpu|rocm|cuda] [--eigenvalue-interval 200] [--eigenvalue-change c]
 # Environment: TAYLOR_CUBIT (default /usr/local/cubit/cubit), TAYLOR_NORMA
 # (default ~/Repos/Norma.jl/bin/norma), TAYLOR_NORMA_THREADS (default 8).
 # --internal-variables also writes the internal variables (eqps) at every
@@ -46,6 +46,11 @@
 # needs the vendor package loaded, e.g. julia --project=bin -e 'using AMDGPU;
 # push!(ARGS, ...); include("benchmark/tet15-p1/taylor/run.jl")', and writes
 # its results to <element>-h<h>-<device>.
+# --eigenvalue-interval sets the steps between eigenvalue estimates of the
+# stable step (the deck's `stable time step eigenvalue interval`); a value
+# other than 200 is appended to the run directory as -eig<N>.
+# --eigenvalue-change sets `stable time step eigenvalue change` (adaptive
+# interval, the eigenvalue interval as its minimum) and appends -change<c>.
 
 using Carina
 using Exodus
@@ -71,6 +76,8 @@ const CFL = Ref(0.8)
 const INTERNAL = Ref(false)
 const STRESS = Ref(false)
 const DEVICE = Ref("cpu")
+const EIG_INTERVAL = Ref(200)
+const EIG_CHANGE = Ref(0.0)
 
 tag(h) = "h$(h)"
 tet4_file(h)  = joinpath(MESHES, "taylor-$(tag(h))-tet4.g")
@@ -208,8 +215,8 @@ time integrator:
   cfl: $(CFL[])
   stable time step interval: 10
   stable time step method: global
-  stable time step eigenvalue interval: 200
-initial conditions:
+  stable time step eigenvalue interval: $(EIG_INTERVAL[])
+$(EIG_CHANGE[] > 0 ? "  stable time step eigenvalue change: $(EIG_CHANGE[])\n" : "")initial conditions:
   velocity:
     - node set: all
       component: z
@@ -228,7 +235,9 @@ include(joinpath(@__DIR__, "backend.jl"))
 
 function run_carina(element, h)
     dir = joinpath(RUNS, "$element-$(tag(h))" * (STRESS[] ? "-stress" : "") *
-                   (DEVICE[] == "cpu" ? "" : "-" * DEVICE[]))
+                   (DEVICE[] == "cpu" ? "" : "-" * DEVICE[]) *
+                   (EIG_INTERVAL[] == 200 ? "" : "-eig$(EIG_INTERVAL[])") *
+                   (EIG_CHANGE[] > 0 ? "-change$(EIG_CHANGE[])" : ""))
     mkpath(dir)
     out_file = joinpath(dir, "taylor.e")
     deck = joinpath(dir, "taylor.yaml")
@@ -242,7 +251,8 @@ function run_carina(element, h)
     commit = strip(read(`git -C $DIR rev-parse --short HEAD`, String))
     rec = (element = element, device = DEVICE[], h = h, elements = count_tets(tet10_file(h)),
            dofs = length(sim.params_cpu.field.data), time = t, radius_mm = 1e3 * r,
-           length_mm = 1e3 * len, wall = wall, commit = commit)
+           length_mm = 1e3 * len, wall = wall, commit = commit,
+           eigenvalue_interval = EIG_INTERVAL[], eigenvalue_change = EIG_CHANGE[])
     path = joinpath(DIR, "results.tsv")
     fresh = !isfile(path)
     open(path, "a") do io
@@ -266,6 +276,14 @@ function main(args)
         end
         if args[i] == "--device"
             DEVICE[] = args[i + 1]; i += 2; continue
+        end
+        if args[i] == "--eigenvalue-interval"
+            EIG_INTERVAL[] = parse(Int, args[i + 1])
+            EIG_INTERVAL[] > 0 || error("--eigenvalue-interval must be positive")
+            i += 2; continue
+        end
+        if args[i] == "--eigenvalue-change"
+            EIG_CHANGE[] = parse(Float64, args[i + 1]); i += 2; continue
         end
         haskey(opts, args[i]) || error("unknown option $(args[i])")
         opts[args[i]] = args[i + 1]; i += 2

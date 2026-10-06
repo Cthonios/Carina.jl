@@ -122,6 +122,45 @@
         end
     end
 
+    @testset "global stable step: adaptive eigenvalue interval" begin
+        mktempdir() do dir
+            cp_example(joinpath(example_dir, "cube.g"), joinpath(dir, "cube.g"))
+            dict = Carina.YAML.load_file(joinpath(example_dir, "cube.yaml");
+                                         dicttype = Dict{String, Any})
+            dict["input mesh file"]  = joinpath(dir, "cube.g")
+            dict["output mesh file"] = joinpath(dir, "cube.e")
+            merge!(dict["time integrator"], Dict{String, Any}(
+                "cfl" => 0.5, "stable time step interval" => 2,
+                "stable time step method" => "global",
+                "stable time step eigenvalue interval" => 4,
+                "stable time step eigenvalue change" => 0.02, "final time" => 50.0))
+            sim = Carina.create_simulation(dict, dir)
+            ig = sim.integrator
+            @test ig.stable_dt_eig_change == 0.02
+            @test ig.stable_dt_eig_current == 4
+
+            # The rule: n' = n c / d between n₀ and min(2n, 16 n₀), a multiple
+            # of the element-estimate interval (2).
+            ig.stable_dt_eig_current = 4
+            @test Carina._next_eig_interval(ig, 1.0, 1.0) == 8      # no decrease: doubles
+            @test Carina._next_eig_interval(ig, 1.0, 1.1) == 8      # increase: doubles
+            @test Carina._next_eig_interval(ig, 1.0, 0.9) == 4      # 10% > 2%: n₀
+            @test Carina._next_eig_interval(ig, 1.0, 0.985) == 4    # n c/d = 5.3 → 4
+            ig.stable_dt_eig_current = 40
+            @test Carina._next_eig_interval(ig, 1.0, 1.0) == 64     # 16 n₀
+            @test Carina._next_eig_interval(ig, 1.0, 0.98) == 40    # n c/d = n
+            @test Carina._next_eig_interval(ig, 1.0, 0.95) == 16    # n c/d = 16
+            @test Carina._next_eig_interval(ig, 1.0, 0.97) == 26    # 26.7 → 26
+
+            # A rigid translation keeps the ratio: the interval grows to 16 n₀,
+            # and the motion is the exact one.
+            ig.stable_dt_eig_current = 4
+            Carina.evolve!(sim)
+            @test ig.stable_dt_eig_current == 64
+            @test average_components(sim)[3] ≈ 50.0 rtol = 1e-6
+        end
+    end
+
     @testset "stable time step method: invalid input fails" begin
         mktempdir() do dir
             cp_example(joinpath(example_dir, "cube.g"), joinpath(dir, "cube.g"))
@@ -135,7 +174,15 @@
                     Dict{String, Any}("stable time step method" => "global"),
                     Dict{String, Any}("cfl" => 0.5, "stable time step interval" => 10,
                                       "stable time step method" => "global",
-                                      "stable time step eigenvalue interval" => 5)))
+                                      "stable time step eigenvalue interval" => 5),
+                    Dict{String, Any}("cfl" => 0.5, "stable time step interval" => 10,
+                                      "stable time step eigenvalue change" => 0.02),
+                    Dict{String, Any}("cfl" => 0.8, "stable time step interval" => 10,
+                                      "stable time step method" => "global",
+                                      "stable time step eigenvalue change" => 0.2),
+                    Dict{String, Any}("cfl" => 0.8, "stable time step interval" => 10,
+                                      "stable time step method" => "global",
+                                      "stable time step eigenvalue change" => 0.0)))
                 dict = deepcopy(base)
                 dict["output mesh file"] = joinpath(dir, "cube-$k.e")
                 merge!(dict["time integrator"], extra)

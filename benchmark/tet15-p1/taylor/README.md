@@ -204,8 +204,13 @@ Rigel CPU with 32 (0.70).  The general form costs 1.36 times the split form
 per run step on the CPUs, 1.44 on the RX 7600, 1.60 on the L4, 1.84 on the
 A100 and 2.05 on the V100.  The eigenvalue estimate of the stable step costs
 25 to 80 run steps and runs every 200, so it takes 13% of the stepping time
-on the 16-thread CPU, 25% on the L4, 31% on the V100 and 40% on the A100: on
-a GPU the interval `stable time step eigenvalue interval` should be raised,
-which the ratio of the two estimates, varying by 1% per 200 steps late in
-the run, permits.
+on the 16-thread CPU, 25% on the L4, 31% on the V100 and 40% on the A100.
+A fixed longer interval is not safe: the ratio of the eigenvalue step to the
+element estimate falls by up to 11% between two estimates 200 steps apart
+(8 to 30 μs at h = 0.75 mm) and by up to 23% within 1000 steps, more than
+the 20% margin of CFL 0.8.  The interval set from the observed change
+(`--eigenvalue-change 0.02`, the key `stable time step eigenvalue change`)
+takes 52 estimates instead of 220 and reduces the run at h = 0.75 mm on the
+RX 7600 from 500 to 443 s; the radius and length histories agree with the
+fixed interval to within 7e-7 relative.
 
