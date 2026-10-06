@@ -903,17 +903,34 @@ differs from it is an error, since the split form's pressure $\kappa\bar\theta$
 is the stationarity condition of the energy $\tfrac{\kappa}{2}\theta^2$
 written in the material's $\theta$. The general residual takes the three
 passes above with the fourteen stresses $\tilde{\P}_q$ held on the stack.
-The tangent is not coded from \eqref{eq:tangent-general} directly: the
-element residual is written generically in its number type and
-differentiated in forward mode, with the material's stress and tangent at
-$\tilde{\F}_q$ supplying the value and the derivative of $\tilde{\P}_q$
-along each direction, so that a material that writes its internal
-variables into real-valued storage is never called with derivative-carrying
-numbers; this gives \eqref{eq:tangent-general} with the material's own
-$\mathbb{A}_q$. The action on a vector takes one pass with one derivative
-direction; the element matrix and the diagonal and nodal-block kernels of
-the preconditioners take one pass with three directions per node, fifteen
-passes per element. Measured on the Taylor bar mesh at $h = 0.75$~mm
+The element matrix and the diagonal and nodal-block kernels of the
+preconditioners assemble \eqref{eq:tangent-general} in closed form. The
+stress $\P_q$ of \eqref{eq:P-general-material} depends on the deformation
+gradient at its own point and on the element only through $\bar\theta$ and
+$\bar p$, so that its variation is $\delta\P_q = \mathbb{C}_q : \delta\F_q
++ \mathbb{E}_q\,\delta\bar\theta + \mathbb{H}_q\,\delta\bar p$, with
+$\mathbb{C}_q$ a $9\times9$ matrix and $\mathbb{E}_q$, $\mathbb{H}_q$
+$9\times n_p$ matrices, $n_p$ the number of projection functions; both
+$\delta\bar\theta$ and $\delta\bar p$ are sums over the points of the
+element. The element matrix is then the sum of the quadrature-point
+matrices $w_q j_q\, \mathbb{G}_q \mathbb{C}_q \mathbb{G}_q^{\mathsf T}$,
+$\mathbb{G}_q$ the discrete gradient, and of two corrections of rank at
+most $n_p$, and it uses the material tangent $\mathbb{A}_q$ at
+$\tilde{\F}_q$ once per quadrature point. It equals the derivative of the
+element residual by forward-mode differentiation to rounding, which the
+kernels used before: that derivative took one pass with three directions
+per node, fifteen passes per element, each evaluating $\mathbb{A}_q$ at
+every point. The action on a vector remains one forward-mode pass with one
+direction, in which the material's stress and tangent at $\tilde{\F}_q$
+supply the value and the derivative of $\tilde{\P}_q$, so that a material
+that writes its internal variables into real-valued storage is never
+called with derivative-carrying numbers. On the Taylor bar mesh at $h =
+0.75$~mm with the $J_2$ model in plastic flow, the closed form reduced the
+time of the element matrix from $1078$ to $133$~ms on a CPU with $12$
+threads, against $147$~ms for the split form, and the time of the diagonal
+from $1032$ to $89$~ms against $75$~ms; on an AMD RX~7600 the diagonal
+went from $483$ to $54$~ms, against $22$~ms for the split form, and the
+action takes $30$~ms against $21$~ms. Measured on the Taylor bar mesh at $h = 0.75$~mm
 (\S\ref{sec:taylor}, $339\,993$ unknowns) with the $J_2$ model, the general
 residual takes $1.36$ times the split form's time on a CPU with $12$
 threads ($16.2$ against $11.9$~ms) and $1.60$ times on an AMD RX~7600
@@ -3303,10 +3320,10 @@ Table~\ref{tab:split} five have, and the general form of
 residual. What the general form requires is a positive volumetric tangent
 of the material over the states reached, and what it changes for a
 material whose isochoric response depends on $J$ is that this response is
-evaluated at the projected volume. The tangent of the general form is
-assembled from fifteen forward-mode passes per element; the closed form
-\eqref{eq:tangent-general} is not yet coded, and the time of the tangent
-and of the preconditioner kernels is not measured. For the split form, the
+evaluated at the projected volume. The element matrix and the
+diagonal of the general form take $0.9$ and $1.2$ times the split form's
+time on a CPU with $12$ threads, and the diagonal $2.5$ times on the
+RX~7600 (\S\ref{sec:general}). For the split form, the
 action of the tangent on a vector takes $2.4$ times the residual's time on
 the RX~7600 ($20.8$ against $8.6$~ms on the Taylor mesh at $h = 0.75$~mm).
 

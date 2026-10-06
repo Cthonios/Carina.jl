@@ -77,19 +77,21 @@
 # which p̄ = M⁻¹ b̄; and the scatter of P_q.  The stresses P̃_q of the second
 # pass are kept for the third.
 #
-# The tangent of the general form is obtained by forward-mode
-# differentiation of the element residual: the nodal displacements carry dual
-# numbers, so the dependence of J̃ and of p̄ on every quadrature point of the
-# element, through the two projections, is differentiated exactly.  The
-# material is not called with dual numbers: at a dual F̃ the value of P̃ is the
-# material's stress at the value of F̃, and its derivative along each partial
-# direction δF̃ is A(F̃) : δF̃ with the material's own tangent.  For a material
-# whose tangent is the derivative of its stress this is the derivative of the
-# residual; for the J2 model in plastic flow, whose tangent (BOX 9.2 of Simo
-# and Hughes) is the symmetric part of that derivative, it is the tangent the
-# split form uses.  The matrix-free action is one dual pass with one partial
-# along the direction; the element matrix and the diagonal kernels are one
-# pass with three partials per node.
+# The element matrix and the diagonal kernels of the general form are the
+# closed form of "The element tangent of the general form in closed form"
+# below: the quadrature-point matrices plus two corrections of rank at most
+# the number of projection functions, with the material's tangent evaluated
+# once per quadrature point.  The matrix-free action is obtained by
+# forward-mode differentiation of the element residual along the direction:
+# the nodal displacements carry dual numbers with one partial, so the
+# dependence of J̃ and of p̄ on every quadrature point of the element, through
+# the two projections, is differentiated exactly.  The material is not called
+# with dual numbers: at a dual F̃ the value of P̃ is the material's stress at
+# the value of F̃, and its derivative is A(F̃) : δF̃ with the material's own
+# tangent.  For a material whose tangent is the derivative of its stress both
+# are the derivative of the residual; for the J2 model in plastic flow, whose
+# tangent (BOX 9.2 of Simo and Hughes) is the symmetric part of that
+# derivative, they are the tangent the split form uses.
 #
 # For a material with the split and θ the material's own volumetric strain,
 # W(F̃) = κ/2 (P_h θ)² + W_iso(F̄), and the general form reproduces the split
@@ -652,11 +654,12 @@ end
     return P̃, p̃, J̃, s, χ
 end
 
-# The three passes of the residual.  Returns the stresses P_q of the third
-# pass, one per quadrature point, and whether the element is everted.  Generic
-# in the element type of `u_el`, so that it runs on dual numbers.
-@inline function _general_stresses(physics::_GeneralProjected, ref_fe, x_el, dt, u_el, states,
-                                   props_el, ::Val{scratch}) where {scratch}
+# The first two passes of the residual: θ̄ and M⁻¹, the quantities of the
+# second pass at every quadrature point, p̄, whether the element is everted,
+# and the displacement used (zero where the element is everted).  Generic in
+# the element type of `u_el`, so that it runs on dual numbers.
+@inline function _general_passes(physics::_GeneralProjected, ref_fe, x_el, dt, u_el, states,
+                                 props_el, ::Val{scratch}) where {scratch}
     vv = volumetric_variable(physics)
     NQ = RFE.num_cell_quadrature_points(ref_fe)
     # Pass 1: θ̄ = P_h θ(J).
@@ -675,6 +678,17 @@ end
         b̄ = b̄ + (JxW * p̃ / _θ1(vv, J̃)) * χ
     end
     p̄ = Minv * b̄
+    return pts, θ̄_safe, Minv, p̄, everted, u_safe
+end
+
+# The three passes of the residual.  Returns the stresses P_q of the third
+# pass, one per quadrature point, and whether the element is everted.
+@inline function _general_stresses(physics::_GeneralProjected, ref_fe, x_el, dt, u_el, states,
+                                   props_el, ::Val{scratch}) where {scratch}
+    vv = volumetric_variable(physics)
+    NQ = RFE.num_cell_quadrature_points(ref_fe)
+    pts, _, _, p̄, everted, u_safe = _general_passes(physics, ref_fe, x_el, dt, u_el, states,
+                                                     props_el, Val(scratch))
     # Pass 3: P_q = s P̃ − p̃ J̃ F⁻ᵀ + p̄_q θ'(J) J F⁻ᵀ.
     Ps = ntuple(Val(NQ)) do q
         P̃, p̃, J̃, s, χ = pts[q]
@@ -732,16 +746,6 @@ end
     end
 end
 
-# The nodal displacements with the three components of node n seeded as the
-# three partial directions.
-@inline function _seed_node(u_el::SVector{NDOF, T}, n) where {NDOF, T}
-    D = ForwardDiff.Dual{_ProjectedTag, T, 3}
-    return SVector{NDOF, D}(ntuple(Val(NDOF)) do k
-        c = k - 3 * (n - 1)
-        D(u_el[k], ForwardDiff.Partials{3, T}(ntuple(i -> i == c ? one(T) : zero(T), Val(3))))
-    end)
-end
-
 @inline function FEC.stiffness_action(
     physics::_GeneralProjected, ref_fe, x_el, t, dt, u_el, u_el_old, v_el,
     states::FEC.ElementState, props_el,
@@ -754,50 +758,175 @@ end
     return SVector{NDOF, T}(ntuple(k -> ForwardDiff.partials(R_d[k], 1), Val(NDOF)))
 end
 
-# The element tangent, one dual pass with three partials per node: the
-# columns 3(n−1)+1..3(n−1)+3 are the partials of the residual of pass n.
+# --------------------------------------------------------------------------- #
+# The element tangent of the general form in closed form
+# --------------------------------------------------------------------------- #
+#
+# At quadrature point q the stress of the third pass,
+#
+#     P_q = s P̃ + c F⁻ᵀ,   c = p̄_q θ'(J) J − p̃ J̃,
+#
+# depends on δF_q = G_qᵀ δu (G_q the discrete gradient), and on the element
+# through dθ̄ and dp̄ only, so that
+#
+#     dP_q = C_q δF_q + E_q dθ̄ + H_q dp̄,   H_q = θ'(J) J F⁻ᵀ ⊗ χ_q.
+#
+# With dJ = J F⁻ᵀ : δF, dJ̃ = χ·dθ̄ / θ'(J̃), ds = s/3 (dJ̃/J̃ − dJ/J),
+# dF̃ = ds F + s δF, dP̃ = A(F̃) : dF̃ with the material's tangent,
+# dp̃ = (dP̃ : F̃ + P̃ : dF̃)/(3 J̃) − p̃ dJ̃/J̃, and d(F⁻ᵀ) = −F⁻ᵀ δFᵀ F⁻ᵀ, the
+# matrices C_q (9×9) and E_q (9×NC) follow by collecting the terms.  The two
+# projections give
+#
+#     dθ̄ = M⁻¹ Σ_r w_r θ'(J_r) χ_r (J F⁻ᵀ)_r : δF_r,
+#     dp̄ = M⁻¹ Σ_r w_r χ_r d(p̃/θ'(J̃))_r,
+#     d(p̃/θ'(J̃)) = q_f · δF + q_t · dθ̄,
+#
+# and the element tangent is
+#
+#     K = Σ_q w_q G_q C_q G_qᵀ + (Y_E + Y_H R) M⁻¹ Z_θᵀ + Y_H M⁻¹ Z_pᵀ
+#
+# with Y_E = Σ_q w_q G_q E_q, Y_H = Σ_q w_q θ'(J_q) J_q (G_q F_q⁻ᵀ) χ_qᵀ,
+# R = M⁻¹ Σ_q w_q χ_q q_tᵀ, Z_θ = Σ_q w_q θ'(J_q) (G_q J_q F_q⁻ᵀ) χ_qᵀ and
+# Z_p = Σ_q w_q (G_q q_f) χ_qᵀ: the quadrature-point matrices plus two
+# corrections of rank at most NC.  It uses the material's tangent once per
+# quadrature point, against once per quadrature point and node for the
+# derivative by dual numbers, which it equals to rounding (test set
+# "Projected volumetric formulation, general form").  The matrix-free action
+# stays one dual pass, which uses the tangent once per quadrature point.
+
+# d(F⁻ᵀ)/dF as a 9×9 matrix in the column-major vec order of `_scatter_qp`:
+# entry [i + 3(j−1), l + 3(k−1)] = −F⁻¹[k,i] F⁻¹[j,l].
+@inline function _dFinvT_matrix(Finv::Tensor{2, 3, T, 9}) where {T}
+    return SMatrix{9, 9, T, 81}(ntuple(Val(81)) do lin
+        c, r = divrem(lin - 1, 9)
+        j, i = divrem(r, 3)
+        k, l = divrem(c, 3)
+        -Finv[k + 1, i + 1] * Finv[j + 1, l + 1]
+    end)
+end
+
+@inline _tensor9(v::SVector{9, T}) where {T} = Tensor{2, 3, T, 9}(Tuple(v))
+
+# The linearization of P_q and of p̃/θ'(J̃) at one quadrature point: C, E, the
+# coefficient h = θ'(J) J of H = h F⁻ᵀ ⊗ χ, F⁻ᵀ and J F⁻ᵀ as 9-vectors,
+# θ'(J), q_f and q_t.
+@inline function _general_point_tangent(vv, F::Tensor{2, 3, T, 9}, χ, P̃, p̃, J̃, s, p̄,
+                                        A_v) where {T}
+    J     = det(F)
+    Finv  = inv(F)
+    Fv    = SVector{9, T}(F.data)
+    P̃v    = SVector{9, T}(P̃.data)
+    FinvT = SVector{9, T}(Finv'.data)
+    gJ    = J * FinvT
+    θ1J, θ2J = _θ1(vv, J), _θ2(vv, J)
+    θ1t, θ2t = _θ1(vv, J̃), _θ2(vv, J̃)
+    γ   = one(T) / θ1t
+    a_f = (-s / (3 * J)) * gJ                    # ds along δF
+    a_t = (s * γ / (3 * J̃)) * χ                  # ds along dθ̄
+    DFf = Fv * a_f' + s * one(SMatrix{9, 9, T})   # dF̃ along δF
+    DFt = Fv * a_t'                               # dF̃ along dθ̄
+    w9  = (A_v' * (s * Fv) + P̃v) / (3 * J̃)
+    e_f = DFf' * w9                               # dp̃ along δF
+    e_t = DFt' * w9 - (p̃ * γ / J̃) * χ             # dp̃ along dθ̄
+    q_f = e_f / θ1t
+    q_t = e_t / θ1t - (p̃ * θ2t * γ / (θ1t * θ1t)) * χ
+    p̄_q = dot(χ, p̄)
+    c   = p̄_q * θ1J * J - p̃ * J̃
+    dc_f = (p̄_q * (θ2J * J + θ1J)) * gJ - J̃ * e_f
+    dc_t = -J̃ * e_t - (p̃ * γ) * χ
+    C = P̃v * a_f' + s * (A_v * DFf) + FinvT * dc_f' + c * _dFinvT_matrix(Finv)
+    E = P̃v * a_t' + s * (A_v * DFt) + FinvT * dc_t'
+    return C, E, θ1J * J, FinvT, gJ, θ1J, q_f, q_t
+end
+
+# The parts of the element tangent.  `column` is −1 for the element matrix
+# Σ_q w_q G_q C_q G_qᵀ, 0 for its diagonal and K in 1:3 for column K of each
+# node's 3×3 diagonal block.  Returns that part, Y_E + Y_H R, Y_H, Z_θ, Z_p,
+# M⁻¹ and whether the element is everted.
+@inline function _general_tangent_parts(
+    physics::_GeneralProjected, ref_fe, x_el, dt, u_el, states, props_el, ::Val{column},
+) where {column}
+    model = physics.constitutive_model
+    vv = volumetric_variable(physics)
+    PD = Val(projection_degree(physics))
+    NC = _num_projection_functions(PD)
+    T  = eltype(u_el)
+    NDOF = length(u_el)
+    NQ = RFE.num_cell_quadrature_points(ref_fe)
+    pts, _, Minv, p̄, everted, u_safe = _general_passes(physics, ref_fe, x_el, dt, u_el, states,
+                                                        props_el, Val(false))
+    Kq = column < 0 ? zero(SMatrix{NDOF, NDOF, T}) : zero(SVector{NDOF, T})
+    Y_E = zero(SMatrix{NDOF, NC, T})
+    Y_H = zero(SMatrix{NDOF, NC, T})
+    Z_θ = zero(SMatrix{NDOF, NC, T})
+    Z_p = zero(SMatrix{NDOF, NC, T})
+    Racc = zero(SMatrix{NC, NC, T})
+    for q in 1:NQ
+        P̃, p̃, J̃, s, χ = pts[q]
+        cell = FEC.map_interpolants(FEC._cell_interpolants(ref_fe, q), x_el)
+        w = cell.JxW
+        F = _gradient_at(physics, cell, u_safe)
+        F = F + one(F)
+        state_old_q, state_new_q = FEC.state_variables(states, q)
+        A = CM.material_tangent(model, props_el, state_old_q, state_new_q, dt, s * F - one(F), zero(T))
+        A_v = FEC.extract_stiffness(FEC.ThreeDimensional(), A)
+        C, E, h, FinvT, gJ, θ1J, q_f, q_t = _general_point_tangent(vv, F, χ, P̃, p̃, J̃, s, p̄, A_v)
+        if column < 0
+            G = FEC.discrete_gradient(FEC.ThreeDimensional(), cell.∇N_X)
+            Kq = Kq + w * (G * C * G')
+        elseif column == 0
+            Kq = Kq + _diag_qp(cell.∇N_X, C, w)
+        else
+            Kq = Kq + _block_col_qp(cell.∇N_X, C, w, Val(column))
+        end
+        GE = hcat(ntuple(m -> _scatter_qp(cell.∇N_X, _tensor9(E[:, m]), w), Val(NC))...)
+        Y_E = Y_E + GE
+        Y_H = Y_H + _scatter_qp(cell.∇N_X, _tensor9(FinvT), w * h) * χ'
+        Z_θ = Z_θ + _scatter_qp(cell.∇N_X, _tensor9(gJ), w * θ1J) * χ'
+        Z_p = Z_p + _scatter_qp(cell.∇N_X, _tensor9(q_f), w) * χ'
+        Racc = Racc + w * (χ * q_t')
+    end
+    R = Minv * Racc
+    return Kq, Y_E + Y_H * R, Y_H, Z_θ, Z_p, Minv, everted
+end
+
 @inline function FEC.stiffness(
     physics::_GeneralProjected, ref_fe, x_el, t, dt, u_el, u_el_old,
     states::FEC.ElementState, props_el,
 )
     T = eltype(u_el)
-    NDOF = length(u_el)
-    NN = NDOF ÷ 3
-    K = zero(SMatrix{NDOF, NDOF, T})
-    for n in 1:NN
-        R_d = _general_residual(physics, ref_fe, x_el, dt, _seed_node(u_el, n), states, props_el)
-        B = SMatrix{NDOF, 3, T}(ntuple(Val(3 * NDOF)) do lin
-            ForwardDiff.partials(R_d[(lin - 1) % NDOF + 1], (lin - 1) ÷ NDOF + 1)
-        end)
-        S = SMatrix{3, NDOF, T}(ntuple(Val(3 * NDOF)) do lin
-            i = (lin - 1) % 3 + 1
-            j = (lin - 1) ÷ 3 + 1
-            j == 3 * (n - 1) + i ? one(T) : zero(T)
-        end)
-        K = K + B * S
-    end
-    return K
+    Kq, Y_θ, Y_H, Z_θ, Z_p, Minv, everted = _general_tangent_parts(
+        physics, ref_fe, x_el, dt, u_el, states, props_el, Val(-1))
+    K = Kq + Y_θ * Minv * Z_θ' + Y_H * Minv * Z_p'
+    return everted ? T(NaN) * K : K
 end
 
 # Diagonal (column = 0) or column `column` of every node's 3×3 diagonal block
-# of the element tangent: entry 3(n−1)+i is a partial of the residual of pass
-# n, which seeds node n.
+# of the element tangent: the quadrature-point part plus the entries of the
+# two corrections, (Y M⁻¹)[k, :] · Z[kc, :].
 @inline function _general_block_entries(
     physics::_GeneralProjected, ref_fe, x_el, dt, u_el, states, props_el, ::Val{column},
 ) where {column}
     T = eltype(u_el)
     NDOF = length(u_el)
-    NN = NDOF ÷ 3
-    d = zero(SVector{NDOF, T})
-    for n in 1:NN
-        R_d = _general_residual(physics, ref_fe, x_el, dt, _seed_node(u_el, n), states, props_el)
-        d = d + SVector{NDOF, T}(ntuple(Val(NDOF)) do k
-            nk = (k - 1) ÷ 3 + 1
-            c  = column == 0 ? k - 3 * (nk - 1) : column
-            nk == n ? ForwardDiff.partials(R_d[k], c) : zero(T)
-        end)
-    end
-    return d
+    d, Y_θ, Y_H, Z_θ, Z_p, Minv, everted = _general_tangent_parts(
+        physics, ref_fe, x_el, dt, u_el, states, props_el, Val(column))
+    # Bound once before the closure (see `_projected_block_entries`).
+    d_q = d
+    YθM = Y_θ * Minv
+    YHM = Y_H * Minv
+    Zθ, Zp = Z_θ, Z_p
+    NC = size(Minv, 1)
+    out = SVector{NDOF, T}(ntuple(Val(NDOF)) do k
+        n = (k - 1) ÷ 3 + 1
+        kc = column == 0 ? k : 3 * (n - 1) + column
+        acc = zero(T)
+        for m in 1:NC
+            acc = acc + YθM[k, m] * Zθ[kc, m] + YHM[k, m] * Zp[kc, m]
+        end
+        d_q[k] + acc
+    end)
+    return everted ? T(NaN) * out : out
 end
 
 @inline function (::StiffnessDiagonal)(

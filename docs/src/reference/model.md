@@ -77,10 +77,10 @@ The element has two forms, selected by `volumetric form`:
   updated there.  The element is the stationarity of the integral of the
   stored energy W(F̃).  The pressure that enters the residual is the
   projection of the material's mean stress at F̃ (note, section "General
-  materials").  The tangent is computed by forward-mode differentiation of
-  the element residual, with the material's own tangent at F̃; the element
-  matrix costs one residual evaluation with three partial derivatives per
-  node.
+  materials").  The element matrix and the diagonal kernels of the
+  preconditioners are assembled in closed form, with the material's own
+  tangent at F̃ evaluated once per quadrature point; the matrix-free action
+  is the forward-mode derivative of the element residual along the vector.
 
 When `volumetric form` is absent, the split form is used for a material
 with the split and the general form otherwise.  `general` may be given for a
