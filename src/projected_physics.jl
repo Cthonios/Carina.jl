@@ -620,8 +620,7 @@ end
     V = ForwardDiff.valtype(D)
     N = ForwardDiff.npartials(D)
     ∇ũ0 = Tensor{2, 3, V, 9}(ntuple(i -> ForwardDiff.value(∇ũ.data[i]), Val(9)))
-    P0 = CM.pk1_stress(model, props, state_old, state_new, dt, ∇ũ0, zero(V))
-    A  = CM.material_tangent(model, props, state_old, state_new, dt, ∇ũ0, zero(V))
+    P0, A = CM.pk1_stress_and_material_tangent(model, props, state_old, state_new, dt, ∇ũ0, zero(V))
     A_v = FEC.extract_stiffness(FEC.ThreeDimensional(), A)
     dP = ntuple(Val(N)) do k
         A_v * SVector{9, V}(ntuple(i -> ForwardDiff.partials(∇ũ.data[i], k), Val(9)))
@@ -781,21 +780,55 @@ end
 #     dp̄ = M⁻¹ Σ_r w_r χ_r d(p̃/θ'(J̃))_r,
 #     d(p̃/θ'(J̃)) = q_f · δF + q_t · dθ̄,
 #
-# and the element tangent is
+# and, with H_q dp̄ and dθ̄ both carried by the same coupling matrix
+# D = Σ_q w_q θ'(J_q) J_q (G_q F_q⁻ᵀ) χ_qᵀ and DM = D M⁻¹, the element tangent is
 #
-#     K = Σ_q w_q G_q C_q G_qᵀ + (Y_E + Y_H R) M⁻¹ Z_θᵀ + Y_H M⁻¹ Z_pᵀ
+#     K = Σ_q w_q G_q C_q G_qᵀ + Y_E DMᵀ + DM R̂ DMᵀ + DM Z_pᵀ
 #
-# with Y_E = Σ_q w_q G_q E_q, Y_H = Σ_q w_q θ'(J_q) J_q (G_q F_q⁻ᵀ) χ_qᵀ,
-# R = M⁻¹ Σ_q w_q χ_q q_tᵀ, Z_θ = Σ_q w_q θ'(J_q) (G_q J_q F_q⁻ᵀ) χ_qᵀ and
-# Z_p = Σ_q w_q (G_q q_f) χ_qᵀ: the quadrature-point matrices plus two
-# corrections of rank at most NC.  It uses the material's tangent once per
-# quadrature point, against once per quadrature point and node for the
-# derivative by dual numbers, which it equals to rounding (test set
+# with Y_E = Σ_q w_q G_q E_q, R̂ = Σ_q w_q χ_q q_tᵀ and Z_p = Σ_q w_q (G_q q_f)
+# χ_qᵀ: the quadrature-point matrices plus corrections of rank at most NC.
+# D depends on the geometry and J only and is formed before the material
+# loop, so that the diagonal kernels add each point's contribution to the
+# result at that point; the second pass accumulates p̄ without storing its
+# stresses, and the material loop takes the stress and the tangent from one
+# call (CM.pk1_stress_and_material_tangent).  It uses the material's tangent
+# once per quadrature point, against once per quadrature point and node for
+# the derivative by dual numbers, which it equals to rounding (test set
 # "Projected volumetric formulation, general form").  The matrix-free action
 # stays one dual pass, which uses the tangent once per quadrature point.
 
-# d(F⁻ᵀ)/dF as a 9×9 matrix in the column-major vec order of `_scatter_qp`:
-# entry [i + 3(j−1), l + 3(k−1)] = −F⁻¹[k,i] F⁻¹[j,l].
+@inline _tensor9(v::SVector{9, T}) where {T} = Tensor{2, 3, T, 9}(Tuple(v))
+
+# The quadrature-point matrix C of dP_q = C δF_q + E dθ̄ + H dp̄, kept as its
+# terms,
+#
+#     C = u a_fᵀ + s² A + F⁻ᵀ d_cᵀ + c N,   N = d(F⁻ᵀ)/dF,
+#
+# with u = P̃ + s A F, so that no 9×9×9 product is formed:
+# A (F a_fᵀ + s I) = (A F) a_fᵀ + s A.  N[i + 3(j−1), l + 3(k−1)] =
+# −F⁻¹[k,i] F⁻¹[j,l] in the column-major vec order of `_scatter_qp`.  The
+# kernels use the full matrix (`_materialize`): reading the entries the
+# diagonal needs one by one through `getindex` was not faster on the RX 7600
+# (39.0 against 38.5 ms) and slower on a CPU.
+struct _GeneralPointMatrix{T}
+    u::SVector{9, T}
+    a::SVector{9, T}
+    s2::T
+    A::SMatrix{9, 9, T, 81}
+    FinvT::SVector{9, T}
+    d::SVector{9, T}
+    c::T
+    Finv::Tensor{2, 3, T, 9}
+end
+
+@inline function Base.getindex(C::_GeneralPointMatrix, r::Int, col::Int)
+    j, i = divrem(r - 1, 3)
+    k, l = divrem(col - 1, 3)
+    return C.u[r] * C.a[col] + C.s2 * C.A[r, col] + C.FinvT[r] * C.d[col] -
+           C.c * C.Finv[k + 1, i + 1] * C.Finv[j + 1, l + 1]
+end
+
+# N = d(F⁻ᵀ)/dF as a 9×9 matrix (entries as in the comment above).
 @inline function _dFinvT_matrix(Finv::Tensor{2, 3, T, 9}) where {T}
     return SMatrix{9, 9, T, 81}(ntuple(Val(81)) do lin
         c, r = divrem(lin - 1, 9)
@@ -805,11 +838,14 @@ end
     end)
 end
 
-@inline _tensor9(v::SVector{9, T}) where {T} = Tensor{2, 3, T, 9}(Tuple(v))
+# The full point matrix, built from the vector products, which the compiler
+# vectorizes; building it entry by entry made the element matrix 15 to 30%
+# slower on a CPU.
+@inline _materialize(C::_GeneralPointMatrix) =
+    C.u * C.a' + C.s2 * C.A + C.FinvT * C.d' + C.c * _dFinvT_matrix(C.Finv)
 
-# The linearization of P_q and of p̃/θ'(J̃) at one quadrature point: C, E, the
-# coefficient h = θ'(J) J of H = h F⁻ᵀ ⊗ χ, F⁻ᵀ and J F⁻ᵀ as 9-vectors,
-# θ'(J), q_f and q_t.
+# The linearization of P_q and of p̃/θ'(J̃) at one quadrature point: the point
+# matrix C; E = u a_tᵀ + F⁻ᵀ d_tᵀ through u, a_t and d_t; F⁻ᵀ; q_f and q_t.
 @inline function _general_point_tangent(vv, F::Tensor{2, 3, T, 9}, χ, P̃, p̃, J̃, s, p̄,
                                         A_v) where {T}
     J     = det(F)
@@ -823,106 +859,159 @@ end
     γ   = one(T) / θ1t
     a_f = (-s / (3 * J)) * gJ                    # ds along δF
     a_t = (s * γ / (3 * J̃)) * χ                  # ds along dθ̄
-    DFf = Fv * a_f' + s * one(SMatrix{9, 9, T})   # dF̃ along δF
-    DFt = Fv * a_t'                               # dF̃ along dθ̄
-    w9  = (A_v' * (s * Fv) + P̃v) / (3 * J̃)
-    e_f = DFf' * w9                               # dp̃ along δF
-    e_t = DFt' * w9 - (p̃ * γ / J̃) * χ             # dp̃ along dθ̄
+    u   = P̃v + s * (A_v * Fv)
+    w9  = (s * (A_v' * Fv) + P̃v) / (3 * J̃)
+    Fw  = dot(Fv, w9)
+    e_f = Fw * a_f + s * w9                      # dp̃ along δF
+    e_t = Fw * a_t - (p̃ * γ / J̃) * χ             # dp̃ along dθ̄
     q_f = e_f / θ1t
     q_t = e_t / θ1t - (p̃ * θ2t * γ / (θ1t * θ1t)) * χ
     p̄_q = dot(χ, p̄)
     c   = p̄_q * θ1J * J - p̃ * J̃
-    dc_f = (p̄_q * (θ2J * J + θ1J)) * gJ - J̃ * e_f
-    dc_t = -J̃ * e_t - (p̃ * γ) * χ
-    C = P̃v * a_f' + s * (A_v * DFf) + FinvT * dc_f' + c * _dFinvT_matrix(Finv)
-    E = P̃v * a_t' + s * (A_v * DFt) + FinvT * dc_t'
-    return C, E, θ1J * J, FinvT, gJ, θ1J, q_f, q_t
+    d_f = (p̄_q * (θ2J * J + θ1J)) * gJ - J̃ * e_f
+    d_t = -J̃ * e_t - (p̃ * γ) * χ
+    C = _GeneralPointMatrix{T}(u, a_f, s * s, A_v, FinvT, d_f, c, Finv)
+    return C, u, a_t, d_t, FinvT, q_f, q_t
 end
 
-# The parts of the element tangent.  `column` is −1 for the element matrix
-# Σ_q w_q G_q C_q G_qᵀ, 0 for its diagonal and K in 1:3 for column K of each
-# node's 3×3 diagonal block.  Returns that part, Y_E + Y_H R, Y_H, Z_θ, Z_p,
-# M⁻¹ and whether the element is everted.
-@inline function _general_tangent_parts(
-    physics::_GeneralProjected, ref_fe, x_el, dt, u_el, states, props_el, ::Val{column},
-) where {column}
-    model = physics.constitutive_model
+# The geometric quantities of the tangent at quadrature point q: the cell, F,
+# J̃, s and χ.
+@inline function _general_point_kinematics(physics, ref_fe, x_el, u_el, θ̄, q)
+    vv = volumetric_variable(physics)
+    interps = FEC._cell_interpolants(ref_fe, q)
+    cell = FEC.map_interpolants(interps, x_el)
+    F = _gradient_at(physics, cell, u_el)
+    F = F + one(F)
+    χ = _projection_basis(Val(projection_degree(physics)), interps.ξ)
+    J̃ = _θinv(vv, dot(χ, θ̄))
+    s = cbrt(J̃ / det(F))
+    return cell, F, J̃, s, χ
+end
+
+# The passes of the tangent before the material loop: θ̄, M⁻¹, whether the
+# element is everted, the displacement used, the coupling matrix
+# D = Σ_q w_q θ'(J_q) J_q (G_q F_q⁻ᵀ) χ_qᵀ, which depends on the geometry and
+# J only, and p̄ from the second pass, which accumulates b̄ and stores nothing.
+@inline function _general_tangent_prepass(
+    physics::_GeneralProjected, ref_fe, x_el, dt, u_el, states, props_el,
+)
     vv = volumetric_variable(physics)
     PD = Val(projection_degree(physics))
     NC = _num_projection_functions(PD)
     T  = eltype(u_el)
     NDOF = length(u_el)
     NQ = RFE.num_cell_quadrature_points(ref_fe)
-    pts, _, Minv, p̄, everted, u_safe = _general_passes(physics, ref_fe, x_el, dt, u_el, states,
-                                                        props_el, Val(false))
-    Kq = column < 0 ? zero(SMatrix{NDOF, NDOF, T}) : zero(SVector{NDOF, T})
-    Y_E = zero(SMatrix{NDOF, NC, T})
-    Y_H = zero(SMatrix{NDOF, NC, T})
-    Z_θ = zero(SMatrix{NDOF, NC, T})
-    Z_p = zero(SMatrix{NDOF, NC, T})
-    Racc = zero(SMatrix{NC, NC, T})
+    θ̄, Minv, everted = _project(physics, ref_fe, x_el, u_el)
+    u_safe = everted ? zero(u_el) : u_el
+    θ̄_safe = everted ? zero(θ̄) : θ̄
+    D  = zero(SMatrix{NDOF, NC, T})
+    b̄  = zero(SVector{NC, T})
     for q in 1:NQ
-        P̃, p̃, J̃, s, χ = pts[q]
+        _, p̃, J̃, _, χ = _general_point(physics, ref_fe, x_el, dt, u_safe, states, props_el,
+                                       θ̄_safe, q, Val(false))
         cell = FEC.map_interpolants(FEC._cell_interpolants(ref_fe, q), x_el)
-        w = cell.JxW
         F = _gradient_at(physics, cell, u_safe)
         F = F + one(F)
-        state_old_q, state_new_q = FEC.state_variables(states, q)
-        A = CM.material_tangent(model, props_el, state_old_q, state_new_q, dt, s * F - one(F), zero(T))
-        A_v = FEC.extract_stiffness(FEC.ThreeDimensional(), A)
-        C, E, h, FinvT, gJ, θ1J, q_f, q_t = _general_point_tangent(vv, F, χ, P̃, p̃, J̃, s, p̄, A_v)
-        if column < 0
-            G = FEC.discrete_gradient(FEC.ThreeDimensional(), cell.∇N_X)
-            Kq = Kq + w * (G * C * G')
-        elseif column == 0
-            Kq = Kq + _diag_qp(cell.∇N_X, C, w)
-        else
-            Kq = Kq + _block_col_qp(cell.∇N_X, C, w, Val(column))
-        end
-        GE = hcat(ntuple(m -> _scatter_qp(cell.∇N_X, _tensor9(E[:, m]), w), Val(NC))...)
-        Y_E = Y_E + GE
-        Y_H = Y_H + _scatter_qp(cell.∇N_X, _tensor9(FinvT), w * h) * χ'
-        Z_θ = Z_θ + _scatter_qp(cell.∇N_X, _tensor9(gJ), w * θ1J) * χ'
-        Z_p = Z_p + _scatter_qp(cell.∇N_X, _tensor9(q_f), w) * χ'
-        Racc = Racc + w * (χ * q_t')
+        J = det(F)
+        D = D + _scatter_qp(cell.∇N_X, inv(F)', cell.JxW * _θ1(vv, J) * J) * χ'
+        b̄ = b̄ + (cell.JxW * p̃ / _θ1(vv, J̃)) * χ
     end
-    R = Minv * Racc
-    return Kq, Y_E + Y_H * R, Y_H, Z_θ, Z_p, Minv, everted
+    return θ̄_safe, Minv, Minv * b̄, D, everted, u_safe
+end
+
+# The material's stress and tangent at F̃ = s F, from one call.
+@inline function _general_point_material(physics, props_el, states, q, dt, F, s)
+    T = eltype(F)
+    state_old_q, state_new_q = FEC.state_variables(states, q)
+    F̃ = s * F
+    P̃, A = CM.pk1_stress_and_material_tangent(physics.constitutive_model, props_el,
+                                               state_old_q, state_new_q, dt, F̃ - one(F̃), zero(T))
+    return P̃, FEC.extract_stiffness(FEC.ThreeDimensional(), A), F̃
 end
 
 @inline function FEC.stiffness(
     physics::_GeneralProjected, ref_fe, x_el, t, dt, u_el, u_el_old,
     states::FEC.ElementState, props_el,
 )
-    T = eltype(u_el)
-    Kq, Y_θ, Y_H, Z_θ, Z_p, Minv, everted = _general_tangent_parts(
-        physics, ref_fe, x_el, dt, u_el, states, props_el, Val(-1))
-    K = Kq + Y_θ * Minv * Z_θ' + Y_H * Minv * Z_p'
+    vv = volumetric_variable(physics)
+    NC = _num_projection_functions(Val(projection_degree(physics)))
+    T  = eltype(u_el)
+    NDOF = length(u_el)
+    θ̄, Minv, p̄, D, everted, u_safe = _general_tangent_prepass(physics, ref_fe, x_el, dt, u_el,
+                                                             states, props_el)
+    DM = D * Minv
+    Kq = zero(SMatrix{NDOF, NDOF, T})
+    Y_E = zero(SMatrix{NDOF, NC, T})
+    Z_p = zero(SMatrix{NDOF, NC, T})
+    Racc = zero(SMatrix{NC, NC, T})
+    for q in 1:RFE.num_cell_quadrature_points(ref_fe)
+        cell, F, J̃, s, χ = _general_point_kinematics(physics, ref_fe, x_el, u_safe, θ̄, q)
+        P̃, A_v, F̃ = _general_point_material(physics, props_el, states, q, dt, F, s)
+        p̃ = (P̃ ⊡ F̃) / (3 * J̃)
+        C, u, a_t, d_t, FinvT, q_f, q_t = _general_point_tangent(vv, F, χ, P̃, p̃, J̃, s, p̄, A_v)
+        w = cell.JxW
+        G = FEC.discrete_gradient(FEC.ThreeDimensional(), cell.∇N_X)
+        Kq = Kq + w * (G * _materialize(C) * G')
+        Y_E = Y_E + _scatter_qp(cell.∇N_X, _tensor9(u), w) * a_t' +
+                    _scatter_qp(cell.∇N_X, _tensor9(FinvT), w) * d_t'
+        Z_p = Z_p + _scatter_qp(cell.∇N_X, _tensor9(q_f), w) * χ'
+        Racc = Racc + w * (χ * q_t')
+    end
+    # The three corrections as one product of two NDOF × 2NC matrices:
+    # (Y_E + DM R̂) DMᵀ + DM Z_pᵀ.
+    K = Kq + hcat(Y_E + DM * Racc, DM) * hcat(DM, Z_p)'
     return everted ? T(NaN) * K : K
 end
 
 # Diagonal (column = 0) or column `column` of every node's 3×3 diagonal block
-# of the element tangent: the quadrature-point part plus the entries of the
-# two corrections, (Y M⁻¹)[k, :] · Z[kc, :].
+# of the element tangent.  With DM = D M⁻¹ known before the material loop,
+# the contribution of each quadrature point to the entries (k, kc) of
+#     K = Σ_q w_q G_q C_q G_qᵀ + Y_E DMᵀ + DM R̂ DMᵀ + DM Z_pᵀ,
+#     R̂ = Σ_q w_q χ_q q_tᵀ,
+# is added to the result at that point, so that only DM, R̂ and the result
+# are held across the loop.
 @inline function _general_block_entries(
     physics::_GeneralProjected, ref_fe, x_el, dt, u_el, states, props_el, ::Val{column},
 ) where {column}
-    T = eltype(u_el)
+    vv = volumetric_variable(physics)
+    NC = _num_projection_functions(Val(projection_degree(physics)))
+    T  = eltype(u_el)
     NDOF = length(u_el)
-    d, Y_θ, Y_H, Z_θ, Z_p, Minv, everted = _general_tangent_parts(
-        physics, ref_fe, x_el, dt, u_el, states, props_el, Val(column))
+    θ̄, Minv, p̄, D, everted, u_safe = _general_tangent_prepass(physics, ref_fe, x_el, dt, u_el,
+                                                             states, props_el)
+    DM = D * Minv
+    d = zero(SVector{NDOF, T})
+    Racc = zero(SMatrix{NC, NC, T})
+    for q in 1:RFE.num_cell_quadrature_points(ref_fe)
+        cell, F, J̃, s, χ = _general_point_kinematics(physics, ref_fe, x_el, u_safe, θ̄, q)
+        P̃, A_v, F̃ = _general_point_material(physics, props_el, states, q, dt, F, s)
+        p̃ = (P̃ ⊡ F̃) / (3 * J̃)
+        C, u, a_t, d_t, FinvT, q_f, q_t = _general_point_tangent(vv, F, χ, P̃, p̃, J̃, s, p̄, A_v)
+        w = cell.JxW
+        Cm = _materialize(C)
+        dq = column == 0 ? _diag_qp(cell.∇N_X, Cm, w) : _block_col_qp(cell.∇N_X, Cm, w, Val(column))
+        su = _scatter_qp(cell.∇N_X, _tensor9(u), w)
+        sF = _scatter_qp(cell.∇N_X, _tensor9(FinvT), w)
+        sq = _scatter_qp(cell.∇N_X, _tensor9(q_f), w)
+        DMa = DM * a_t
+        DMd = DM * d_t
+        DMχ = DM * χ
+        d = d + dq + SVector{NDOF, T}(ntuple(Val(NDOF)) do k
+            n = (k - 1) ÷ 3 + 1
+            kc = column == 0 ? k : 3 * (n - 1) + column
+            su[k] * DMa[kc] + sF[k] * DMd[kc] + sq[kc] * DMχ[k]
+        end)
+        Racc = Racc + w * (χ * q_t')
+    end
     # Bound once before the closure (see `_projected_block_entries`).
     d_q = d
-    YθM = Y_θ * Minv
-    YHM = Y_H * Minv
-    Zθ, Zp = Z_θ, Z_p
-    NC = size(Minv, 1)
+    DMR = DM * Racc
     out = SVector{NDOF, T}(ntuple(Val(NDOF)) do k
         n = (k - 1) ÷ 3 + 1
         kc = column == 0 ? k : 3 * (n - 1) + column
         acc = zero(T)
         for m in 1:NC
-            acc = acc + YθM[k, m] * Zθ[kc, m] + YHM[k, m] * Zp[kc, m]
+            acc = acc + DMR[k, m] * DM[kc, m]
         end
         d_q[k] + acc
     end)
