@@ -314,6 +314,11 @@ kernels: action 13.98 -> 4.59 (V100), 9.24 -> 2.71 (A100), 3.68 -> 1.17
 (H100), 18.63 -> 10.93 ms (L4); diagonal 19.31 -> 11.68, 13.55 -> 7.06,
 4.41 -> 3.17 and 23.12 -> 24.17 ms.  Marking only the J2 methods inline
 (ConstitutiveModels 5fd1082) gave the general diagonal 32 registers on the
-A100 (19.99 -> 28.69 ms) and is not kept.  The production runs do not use
-`always_inline` yet.
+A100 (19.99 -> 28.69 ms) and is not kept.  The launcher (`bin/carina`) now
+compiles the CUDA kernels with `always_inline` through
+`bin/cuda_always_inline.jl`, and so do run.jl, kernel_timing.jl and
+implicit_timing.jl (`--no-always-inline` restores CUDA.jl's default in
+implicit_timing.jl).  AMDGPU.jl compiles with `always_inline = true` by
+default, which is why marking the J2 methods inline changed nothing on the
+RX 7600 (general diagonal 38.92 against 38.9 ms).
 

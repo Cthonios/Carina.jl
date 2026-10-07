@@ -4,7 +4,8 @@
 #
 #   julia -t <N> --project=. benchmark/tet15-p1/taylor/implicit_timing.jl --h 0.75
 #        [--device cpu|rocm|cuda] [--warm 400] [--reps 20] [--tag <text>]
-#        [--always-inline]   (CUDA: inline every device-function call)
+#        [--no-always-inline]   (CUDA: CUDA.jl's default compilation, every
+#                                device-function call a separate function)
 #
 # A GPU run needs the vendor package loaded in the calling session, as for
 # run.jl:  julia --project=bin -e 'using CUDA; append!(ARGS, [...]);
@@ -45,11 +46,14 @@ const RFE = Carina.RFE
 
 function parse_args(args)
     opts = Dict("--h" => "0.75", "--device" => "cpu", "--warm" => "400", "--reps" => "20",
-                "--tag" => "", "--always-inline" => "false")
+                "--tag" => "", "--always-inline" => "true")
     i = 1
     while i <= length(args)
         if args[i] == "--always-inline"
             opts["--always-inline"] = "true"; i += 1; continue
+        end
+        if args[i] == "--no-always-inline"
+            opts["--always-inline"] = "false"; i += 1; continue
         end
         haskey(opts, args[i]) || error("unknown option $(args[i])")
         opts[args[i]] = args[i + 1]; i += 2

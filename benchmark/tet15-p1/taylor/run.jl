@@ -243,7 +243,10 @@ function run_carina(element, h)
     deck = joinpath(dir, "taylor.yaml")
     open(io -> write(io, carina_deck(element, h, out_file)), deck, "w")
     t0 = time()
-    sim = Carina.run(deck; backend = backend_of(DEVICE[]))
+    backend = backend_of(DEVICE[])
+    # invokelatest: backend_of may define methods (bin/rocm_workgroup_bound.jl,
+    # bin/cuda_always_inline.jl) in a newer world than this call runs in.
+    sim = Base.invokelatest(Carina.run, deck; backend)
     wall = time() - t0
     rows = taylor_history(out_file)
     write_history(joinpath(dir, "history.tsv"), rows)

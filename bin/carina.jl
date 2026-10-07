@@ -12,6 +12,7 @@ import CUDA
 import AMDGPU
 import KernelAbstractions as KA
 include("rocm_workgroup_bound.jl")
+include("cuda_always_inline.jl")
 import YAML
 import Carina
 
@@ -22,7 +23,7 @@ function best_device()
     catch
     end
     try
-        CUDA.functional() && return CUDA.CUDABackend()
+        CUDA.functional() && return CARINA_CUDA_BACKEND
     catch
     end
     return KA.CPU()
@@ -37,7 +38,7 @@ function resolve_backend(device::AbstractString)
         return best_device()
     elseif s == "cuda"
         CUDA.functional() || error("--device cuda: no functional NVIDIA GPU found.")
-        return CUDA.CUDABackend()
+        return CARINA_CUDA_BACKEND
     elseif s == "rocm"
         AMDGPU.functional() || error("--device rocm: no functional AMD GPU found.")
         return AMDGPU.ROCBackend()

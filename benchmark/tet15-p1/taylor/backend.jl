@@ -3,32 +3,27 @@
 
 # The backend of a device name, as bin/carina.jl resolves it: the vendor
 # package must have been loaded by the caller (the Carina library does not
-# depend on it), and a ROCm run attaches the workgroup-size bound of
-# bin/rocm_workgroup_bound.jl before any kernel is compiled.
+# depend on it), a ROCm run attaches the workgroup-size bound of
+# bin/rocm_workgroup_bound.jl and a CUDA run the inlining of
+# bin/cuda_always_inline.jl before any kernel is compiled.  Both are included
+# here, inside a call, so the caller runs the simulation through
+# `Base.invokelatest` to see the methods they define.
 #
-# always_inline = true (CUDA only) asks CUDA.jl to inline every device-function
-# call of the kernels, as CUDABackend(; always_inline = true) does.
-function backend_of(device; always_inline::Bool = false)
+# always_inline = false (CUDA only) keeps CUDA.jl's default, every
+# device-function call compiled as a separate function; it applies only if
+# bin/cuda_always_inline.jl has not been included in the process.
+function backend_of(device; always_inline::Bool = true)
     device == "cpu" && return Carina.KA.CPU()
     pkg = device == "rocm" ? :AMDGPU : device == "cuda" ? :CUDA :
           error("unknown device $device; expected cpu, rocm or cuda")
     isdefined(Main, pkg) || error("--device $device needs `using $pkg` in the calling session")
     mod = getfield(Main, pkg)
     mod.functional() || error("--device $device: no functional GPU found")
-    always_inline && device != "cuda" && error("--always-inline applies to --device cuda only")
     if device == "rocm"
         include(joinpath(pkgdir(Carina), "bin", "rocm_workgroup_bound.jl"))
         return mod.ROCBackend()
     end
-    if always_inline
-        # FiniteElementContainers launches its kernels with the backend it
-        # derives from its arrays, KA.get_backend(::CuArray) = CUDABackend(),
-        # whose always_inline is false; the backend passed to the simulation
-        # does not reach those launches.  For this process only, the backend
-        # of a CuArray is redefined to the inlining one.
-        backend = mod.CUDABackend(; always_inline = true)
-        @eval Carina.KA.get_backend(::$(mod.CuArray)) = $backend
-        return backend
-    end
-    return mod.CUDABackend()
+    always_inline || return mod.CUDABackend()
+    include(joinpath(pkgdir(Carina), "bin", "cuda_always_inline.jl"))
+    return Base.invokelatest(() -> Main.CARINA_CUDA_BACKEND)
 end

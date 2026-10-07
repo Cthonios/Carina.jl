@@ -976,9 +976,13 @@ split diagonal by $28$ to $48\%$ (except on the L4, $+4.5\%$); against the
 former kernel the general diagonal is then $3.9$ (A100), $5.3$ (V100),
 $5.0$ (H100) and $1.3$ (L4) times faster. Marking only the material
 functions inline is not safe: on the A100 the compiler then gave the general
-diagonal $32$ registers and it became $44\%$ slower. The production runs do
-not yet use \code{always\_inline}, because the finite-element library
-launches its kernels with a backend derived from its arrays.
+diagonal $32$ registers and it became $44\%$ slower. Since the
+finite-element library launches its kernels with a backend derived from its
+arrays, the launcher of Carina makes that backend the inlining one for CUDA
+arrays (\code{bin/cuda\_always\_inline.jl}), so that runs on NVIDIA cards are
+compiled with \code{always\_inline}; AMDGPU.jl compiles with it by default,
+which is why inlining the material functions changed nothing on the
+RX~7600.
 
 \begin{remark}[The volumetric variable is a modeling choice]
 \label{rem:thetachoice}

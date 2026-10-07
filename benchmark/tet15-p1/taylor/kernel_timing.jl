@@ -103,9 +103,15 @@ end
 
 function main(args)
     opts = parse_args(args)
+    backend = backend_of(opts["--device"])
+    # invokelatest: backend_of may define methods (bin/cuda_always_inline.jl)
+    # in a newer world than the one main() runs in.
+    return Base.invokelatest(timing, opts, backend)
+end
+
+function timing(opts, backend)
     h = parse(Float64, opts["--h"]); form = opts["--form"]
     warm = parse(Int, opts["--warm"]); reps = parse(Int, opts["--reps"])
-    backend = backend_of(opts["--device"])
     sync = backend isa Carina.KA.CPU ? (() -> nothing) : (() -> Carina.KA.synchronize(backend))
     dir = mktempdir()
     path = joinpath(dir, "taylor.yaml")

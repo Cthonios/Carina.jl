@@ -30,6 +30,16 @@ hands it to `Carina.run`. This is what keeps the library itself free of any
 vendor dependency, so Carina can be used on a machine with neither CUDA nor
 ROCm installed.
 
+The launcher also configures the vendor compilers for Carina's kernels:
+`bin/rocm_workgroup_bound.jl` gives the ROCm compiler the workgroup size of
+each kernel, and `bin/cuda_always_inline.jl` makes CUDA.jl inline every
+device-function call of the kernels (CUDA.jl's `always_inline`; AMDGPU.jl
+does so by default).  Without inlining, the NVIDIA compiler assigned some
+element kernels 32 registers per thread and large local frames; with it, the
+diagonal and the matrix-free action of the TET15-P1 kernels run 26 to 71%
+faster on V100, A100, L4 and H100 cards.  Scripts that call `Carina.run`
+directly on a CUDA device should include the same file at the top level.
+
 ## Selecting a device
 
 Three ways, in order of precedence:
