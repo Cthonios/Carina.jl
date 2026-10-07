@@ -1,0 +1,7 @@
+Notes on taylor-results-nvidia.tsv (Rigel, 2026-10-06):
+- rows ascicgpu073 (A100), wall 607.75 s (fixed) and 235.91 s (change 0.02): not to be used.
+  Another user's CPU jobs loaded the host (load average 24-33). The rerun was cancelled by the
+  user in favour of the H100 host ascicgpu080. The A100 histories are valid: identical to the
+  L4 histories frame for frame.
+- rows ascicgpu080 (H100 80GB HBM3, SXM): load average below 2 throughout.
+- all rows: Carina 36b4a9f, -t 8, h = 0.75 mm, 25 029 elements.

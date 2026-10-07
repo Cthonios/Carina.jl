@@ -904,10 +904,11 @@ is the stationarity condition of the energy $\tfrac{\kappa}{2}\theta^2$
 written in the material's $\theta$. The general residual takes the three
 passes above with the fourteen stresses $\tilde{\P}_q$ held on the stack.
 Calling the material again in the third pass instead of storing them gives
-the same residual to rounding and takes longer: on the Taylor bar mesh at
-$h = 0.75$~mm with the $J_2$ model, $20.2$ against $14.5$~ms on a CPU with
-$12$ threads and $14.8$ against $11.3$~ms on an AMD RX~7600; it has not
-been measured on NVIDIA GPUs.
+the same residual to rounding; on the Taylor bar mesh at $h = 0.75$~mm with
+the $J_2$ model it takes $1.30$ times as long on a CPU with $12$ threads,
+$1.35$ on an AMD RX~7600 and $1.48$ on an NVIDIA L4, and $0.87$ times on a
+V100, $0.75$ on an A100 and $0.74$ on an H100
+(\code{benchmark/tet15-p1/taylor/implicit\_timing.jl}). Carina stores them.
 The element matrix and the diagonal and nodal-block kernels of the
 preconditioners assemble \eqref{eq:tangent-general} in closed form. The
 stress $\P_q$ of \eqref{eq:P-general-material} depends on the deformation
@@ -940,9 +941,13 @@ action takes $30$~ms against $21$~ms. Measured on the Taylor bar mesh at $h = 0.
 residual takes $1.36$ times the split form's time on a CPU with $12$
 threads ($16.2$ against $11.9$~ms) and $1.60$ times on an AMD RX~7600
 ($13.6$ against $8.5$~ms); per explicit step of a run the ratio is $1.36$
-on a CPU with $16$ threads, $1.44$ on the RX~7600, $1.60$ on an NVIDIA L4,
-$1.84$ on an A100 and $2.05$ on a V100 (Table~\ref{tab:taylordevices}). The
-split form remains the default for that model.
+on a CPU with $16$ threads, $1.42$ on the RX~7600, $1.71$ on an NVIDIA L4,
+$2.18$ on an A100, $2.27$ on a V100 and $2.43$ on an H100
+(Table~\ref{tab:taylordevices}). The diagonal of the general form takes
+$1.8$ to $2.7$ times its action on the RX~7600, the L4 and the A100, and
+$4.0$ and $4.3$ times on the H100 and the V100, where it is $5.7$ and $5.0$
+times the split form's diagonal. The split form remains the default for that
+model.
 
 \begin{remark}[The volumetric variable is a modeling choice]
 \label{rem:thetachoice}
@@ -3092,9 +3097,10 @@ $16$ cores, with an error $16$ times larger.
 runs on a GPU through the same kernels, with the stable step recomputed on
 the device. At $h = 0.75$~mm with the global stable step, the radius and the
 length of every output frame of the run are the same numbers to every
-written digit on the CPU, on an AMD RX~7600 and on NVIDIA L4, V100 and A100
-cards (the last three on one mesh, the first two on another smoothing of the
-same Cubit mesh, which changes the radius by $2.8\times10^{-7}$ relative),
+written digit on the CPU, on an AMD RX~7600 and on NVIDIA L4, V100, A100
+and H100 cards (the last four on one mesh, the first two on another smoothing
+of the same Cubit mesh, which changes the radius by $2.8\times10^{-7}$
+relative),
 and so are the $221$ stable-step estimates. Table~\ref{tab:taylordevices}
 gives the time per step from the kernel timings and the wall time of the
 run. Three defects were found and corrected in making these runs: the
@@ -3109,9 +3115,13 @@ built its pull-back in mutable buffers that CUDA places on the device heap,
 which is never freed, so the matrix-free solves of the implicit tests failed
 on the L4 after some thousands of tangent calls (the buffers are now
 immutable, and the tangent is $5\%$ faster on every device). The eigenvalue
-estimate of the stable step takes $25$ to $80$ explicit steps' time and runs
-every $200$ steps, so it is $13\%$ of the stepping time on a CPU with $16$
-threads and $25$ to $40\%$ on the GPUs. A fixed longer interval is not
+estimate of the stable step runs $20$ to $40$ power iterations, each two
+residual evaluations, every $200$ steps. Its share of the run, from the
+saving of the adaptive interval below, is $14.8\%$ on the RX~7600, $14.4\%$
+on the L4, $11.4\%$ on the V100 and about $3\%$ on the H100. An earlier
+estimate of $25$ to $40\%$ on the GPUs, from a single timed estimate, was
+too high: timed once right after the warm-up of the timing script, the
+estimate took $1.5$ to $4.4$ times the median of five. A fixed longer interval is not
 safe: the ratio of the eigenvalue step to the element estimate falls by up
 to $11\%$ between two estimates $200$ steps apart while the bar spreads,
 between $8$ and $30~\mu$s, and by up to $23\%$ within $1000$ steps, more
@@ -3125,7 +3135,11 @@ last one and at most $16$ times the given one. With $c = 0.02$ the run at
 $h = 0.75$~mm on the RX~7600 takes $52$ estimates instead of $220$, at
 intervals from $200$ to $3200$ steps, $43\,557$ steps instead of
 $43\,865$, and $443$ instead of $500$~s, with the radius and length
-histories equal to within $7\times10^{-7}$ relative. Applied to the ratios
+histories equal to within $7\times10^{-7}$ relative; the same runs take
+$399$ instead of $449$~s on the L4, $367$ instead of $402$~s on the V100 and
+$155$ instead of $159$~s on the H100 (a difference within the variation
+between runs), with the same histories, frame for frame, on the four NVIDIA
+cards. Applied to the ratios
 recorded with the fixed interval, the rule keeps the largest decrease of the
 ratio within an interval at the one over $200$ steps.
 
@@ -3136,22 +3150,27 @@ from the kernel timings (median of $20$, deformed state with plastic strains
 to $1.0$; includes the stable-step estimates at their intervals), in
 microseconds per element-step, at $h = 0.75$ and $0.38$~mm, the ratio of the
 general form's time to the split form's at $h = 0.75$~mm, and the wall time
-of the run to $80~\mu$s at $h = 0.75$~mm. Carina 9e4bfaf; one process alone
-on each machine. Scripts: \code{benchmark/tet15-p1/taylor/kernel\_timing.jl},
-\code{timing\_table.py}; records in \code{data/}.}
+of the run to $80~\mu$s at $h = 0.75$~mm. GPU rows: Carina 36b4a9f, the
+eigenvalue estimate as the median of five (2026-10-06). CPU rows ($^{*}$):
+Carina 9e4bfaf, the eigenvalue estimate timed once, which overstates the
+time per step (2026-10-04). Wall times: Carina 9e4bfaf, the H100 36b4a9f.
+One process alone on each GPU. Scripts:
+\code{benchmark/tet15-p1/taylor/kernel\_timing.jl}, \code{timing\_table.py};
+records in \code{data/}.}
 \label{tab:taylordevices}
 \small
 \begin{tabular}{lrrrr}
 \toprule
 device & $h = 0.75$ & $h = 0.38$ & general/split & run (s) \\
 \midrule
-AMD Ryzen~9 9900X, 12 threads  & 0.662 & ---   & 1.61 & 839 \\
-2$\times$AMD EPYC 9634, 32 threads & 0.700 & 0.772 & 1.36$^{\dagger}$ & 1283$^{\dagger}$ \\
-2$\times$AMD EPYC 9634, 64 threads & 0.836 & 0.652 & --- & --- \\
-AMD RX 7600                    & 0.496 & ---   & 1.44 & 513 \\
-NVIDIA L4                      & 0.365 & 0.322 & 1.60 & 406 \\
-NVIDIA V100                    & 0.325 & 0.250 & 2.05 & 404 \\
-NVIDIA A100                    & 0.169 & 0.119 & 1.84 & 227 \\
+AMD Ryzen~9 9900X, 12 threads$^{*}$  & 0.662 & ---   & 1.61 & 839 \\
+2$\times$AMD EPYC 9634, 32 threads$^{*}$ & 0.700 & 0.772 & 1.36$^{\dagger}$ & 1283$^{\dagger}$ \\
+2$\times$AMD EPYC 9634, 64 threads$^{*}$ & 0.836 & 0.652 & --- & --- \\
+AMD RX 7600                    & 0.430 & ---   & 1.42 & 513 \\
+NVIDIA L4                      & 0.321 & 0.279 & 1.71 & 406 \\
+NVIDIA V100                    & 0.271 & 0.209 & 2.27 & 404 \\
+NVIDIA A100                    & 0.119 & 0.097 & 2.18 & 227 \\
+NVIDIA H100                    & 0.069 & 0.052 & 2.43 & 159 \\
 \bottomrule
 \end{tabular}
 
@@ -3326,11 +3345,11 @@ element count outweighs the smaller step (\S\ref{sec:taylor}). On a
 deformed mesh an element estimate from node distances does not bound the
 critical step; a step of $0.8$ times $2/\sqrt{\lambda_{\max}}$, with
 $\lambda_{\max}$ the largest eigenvalue of $M_L^{-1}K$, stays below it, at
-a cost of $13\%$ of the stepping time on a CPU and $25$ to $40\%$ on the
-GPUs with the estimate every $200$ steps (Table~\ref{tab:taylordevices}); a
-fixed longer interval is unsafe on the Taylor bar, and the interval set from
-the observed change of the ratio reduces the time of the run on the RX~7600
-by $11\%$ (\S\ref{sec:taylor}). If weak shocks are run with the
+a cost of $3$ to $15\%$ of the run on the GPUs with the estimate every
+$200$ steps (\S\ref{sec:taylor}); a fixed longer interval is unsafe on the
+Taylor bar, and the interval set from the observed change of the ratio
+reduces the time of the run by $11\%$ on the RX~7600 and the L4, $9\%$ on
+the V100 and $3\%$ on the H100. If weak shocks are run with the
 implicit integrator the factor does not apply.
 
 \paragraph{The material.} The element places no requirement on the
