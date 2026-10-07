@@ -18,7 +18,7 @@
 #   step          one explicit step without the stable-step recomputation
 #   element dt    the element estimate of the stable step (every 10 steps in a run)
 #   global dt     the eigenvalue estimate of the stable step (every 200 steps),
-#                 once, with its number of power iterations
+#                 the median of 5, each after a garbage collection on a device
 # and the time stepping of a full run to 80 us is estimated from them with the
 # step count of the run on the same mesh.  One JSON record per invocation is
 # appended to kernel-timing.jsonl in this directory; the table is printed.
@@ -135,8 +135,16 @@ function main(args)
     t_step = median_time(step!, sync, reps)
     t_el   = median_time(() -> Carina._compute_stable_dt(asm, p, 1.0, U; storage = ig.stable_dt_storage,
                                                            wave_speeds = ig.stable_dt_wave_speeds), sync, reps)
-    sync(); t0 = time_ns(); Carina._global_stable_dt!(ig, p, 1.0); sync()
-    t_gl = (time_ns() - t0) / 1e9
+    # The eigenvalue estimate: the median of five, each preceded by a
+    # collection on a device, which the time includes.
+    # A single estimate timed right after the warm-up carried an overhead the
+    # estimates inside a run do not show (on the H100, 12.8 ms per power
+    # iteration against about 1.2 ms in the runs), and each estimate runs
+    # about 20 iterations from the previous eigenvector, as in a run.
+    t_gl = median_time(() -> begin
+                           on_device && GC.gc(false)
+                           Carina._global_stable_dt!(ig, p, 1.0)
+                       end, sync, 5)
     # One step of a run: the step, the element estimate every 10 steps and the
     # global estimate every 200.
     t_run_step = t_step + t_el / 10 + t_gl / 200
