@@ -276,6 +276,44 @@ The assembled tangent on the Sirius CPU: 138.0 ms split, 131.8 ms general.
 Calling the material again in the third pass is slower than storing the
 stresses on the CPU (1.30 times), the RX 7600 (1.35) and the L4 (1.48), and
 faster on the V100 (0.87), the A100 (0.75) and the H100 (0.74); Carina
-stores them.  The diagonal of the general form takes 2.0 (L4), 1.8
+stores them.  The diagonal of the general form then took 2.0 (L4), 1.8
 (RX 7600), 2.7 (A100), 4.0 (H100) and 4.3 (V100) times its action.
+
+### The general-form diagonal restructured, and inlining
+
+Carina 5f9b897 with ConstitutiveModels 252194c restructures the diagonal and
+nodal-block kernels of the general form: the coupling matrix D is formed
+from the geometry before the material loop, each quadrature point's
+contribution is added to the diagonal at that point (no stored second
+pass), and the material returns stress and tangent from one call.
+`--always-inline` (Carina 096c0e2, CUDA only) compiles the kernels with
+CUDA.jl's `always_inline`, which inlines every device-function call; it is
+applied by redefining `KA.get_backend(::CuArray)` in the timing process,
+because FiniteElementContainers launches its kernels with the backend of its
+arrays.  General-form diagonal and action, ms (records in `data/`,
+`implicit-timing-<host>-{diag-v2,diag-v2-ref,inline-e2c}.jsonl`):
+
+| Device | diagonal: 36b4a9f | 5f9b897 | + always_inline | action: 36b4a9f | 5f9b897 | + always_inline |
+|---|---|---|---|---|---|---|
+| Ryzen 9 9900X, 12 threads | 82–88 | 81–90 | — | 71–76 | 60–69 | — |
+| AMD RX 7600 | 53.1 | 38.9 | — | 30.3 | 26.8 | — |
+| NVIDIA L4 | 54.46 | 58.15 | 41.53 | 27.31 | 25.71 | 21.25 |
+| NVIDIA V100 (ascicgpu16) | 112.44 | 34.63 | 21.03 | 22.98 | 22.78 | 12.58 |
+| NVIDIA A100 | 43.23 | 19.99 | 11.13 | 16.09 | 15.06 | 6.49 |
+| NVIDIA H100 | 25.06 | 8.94 | 4.97 | 6.33 | 6.06 | 3.55 |
+
+The `always_inline` runs used ConstitutiveModels 5fd1082 (J2 methods marked
+inline, not kept); with `always_inline` every call is inlined, so that
+marking does not change the kernels.  The V100 rows are from one GPU of
+ascicgpu16 for all three columns (V100-PCIE-16GB, the GV100 of the reference
+card).  Registers per thread (`CUDA.registers`): the former general
+diagonal 255 (L4) and 32 (H100, local frame 50 KB per thread; not counted
+on the V100 and the A100); the restructured one 128 on every card; with `always_inline` 128
+and a 13.7 KB frame on every card.  `always_inline` also shortens the split
+kernels: action 13.98 -> 4.59 (V100), 9.24 -> 2.71 (A100), 3.68 -> 1.17
+(H100), 18.63 -> 10.93 ms (L4); diagonal 19.31 -> 11.68, 13.55 -> 7.06,
+4.41 -> 3.17 and 23.12 -> 24.17 ms.  Marking only the J2 methods inline
+(ConstitutiveModels 5fd1082) gave the general diagonal 32 registers on the
+A100 (19.99 -> 28.69 ms) and is not kept.  The production runs do not use
+`always_inline` yet.
 

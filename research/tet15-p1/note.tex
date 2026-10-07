@@ -943,11 +943,42 @@ threads ($16.2$ against $11.9$~ms) and $1.60$ times on an AMD RX~7600
 ($13.6$ against $8.5$~ms); per explicit step of a run the ratio is $1.36$
 on a CPU with $16$ threads, $1.42$ on the RX~7600, $1.71$ on an NVIDIA L4,
 $2.18$ on an A100, $2.27$ on a V100 and $2.43$ on an H100
-(Table~\ref{tab:taylordevices}). The diagonal of the general form takes
-$1.8$ to $2.7$ times its action on the RX~7600, the L4 and the A100, and
-$4.0$ and $4.3$ times on the H100 and the V100, where it is $5.7$ and $5.0$
-times the split form's diagonal. The split form remains the default for that
-model.
+(Table~\ref{tab:taylordevices}). The split form remains the default for
+that model.
+
+The diagonal and nodal-block kernels of the preconditioners first held, per
+element, the fourteen stresses of the second pass and four $45\times n_p$
+coupling matrices, and evaluated the material twice per quadrature point
+(the stress in the second pass, the stress and the tangent in the third);
+on the GPUs they took $3.2$ to $5.7$ times the split form's diagonal. Two of
+the four matrices are the same matrix, $\mathbb{D} = \sum_q w_q j_q
+\theta'(J_q) J_q (\mathbb{G}_q \F_q^{-\mathsf T}) \chi_q^{\mathsf T}$, which
+depends on the geometry and $J$ only; with $\mathbb{D} M^{-1}$ formed before
+the material loop, the contribution of each quadrature point is added to the
+diagonal at that point, and the second pass accumulates $\bar{~b}$ without
+storing its stresses. The material returns its stress and tangent from one
+call (one return map for $J_2$), and the point matrix is formed without a
+$9\times9\times9$ product. The general diagonal then took $38.9$ instead of
+$53.1$~ms on the RX~7600, and on NVIDIA cards $8.9$ instead of $25.1$~ms
+(H100), $20.0$ instead of $43.2$~ms (A100), $34.6$ instead of $112.4$~ms
+(V100, the same card for both) and $58.2$ instead of $54.5$~ms (L4); on a
+CPU it is unchanged. The register counts of the compiled kernels explain the
+spread: the NVIDIA compiler receives no register limit, but the kernels call
+the element loop and the material as separate device functions, and the
+compiler chose $128$ registers per thread for the restructured kernel on
+every card, against $255$ (L4) and $32$ (H100) for the former one, whose
+local frame was $50$~kB per thread on the H100. Inlining every call into the
+kernel (CUDA.jl's \code{always\_inline}) gives the same kernel on the V100,
+A100, L4 and H100 ($128$ registers, a local frame of $13.7$~kB instead of
+$22$~kB) and shortens the general diagonal by a further $26$ to $44\%$, the
+general action by $14$ to $57\%$, the split action by $41$ to $71\%$ and the
+split diagonal by $28$ to $48\%$ (except on the L4, $+4.5\%$); against the
+former kernel the general diagonal is then $3.9$ (A100), $5.3$ (V100),
+$5.0$ (H100) and $1.3$ (L4) times faster. Marking only the material
+functions inline is not safe: on the A100 the compiler then gave the general
+diagonal $32$ registers and it became $44\%$ slower. The production runs do
+not yet use \code{always\_inline}, because the finite-element library
+launches its kernels with a backend derived from its arrays.
 
 \begin{remark}[The volumetric variable is a modeling choice]
 \label{rem:thetachoice}
