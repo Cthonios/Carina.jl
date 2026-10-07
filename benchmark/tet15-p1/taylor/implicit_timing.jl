@@ -4,6 +4,7 @@
 #
 #   julia -t <N> --project=. benchmark/tet15-p1/taylor/implicit_timing.jl --h 0.75
 #        [--device cpu|rocm|cuda] [--warm 400] [--reps 20] [--tag <text>]
+#        [--always-inline]   (CUDA: inline every device-function call)
 #
 # A GPU run needs the vendor package loaded in the calling session, as for
 # run.jl:  julia --project=bin -e 'using CUDA; append!(ARGS, [...]);
@@ -44,9 +45,12 @@ const RFE = Carina.RFE
 
 function parse_args(args)
     opts = Dict("--h" => "0.75", "--device" => "cpu", "--warm" => "400", "--reps" => "20",
-                "--tag" => "")
+                "--tag" => "", "--always-inline" => "false")
     i = 1
     while i <= length(args)
+        if args[i] == "--always-inline"
+            opts["--always-inline"] = "true"; i += 1; continue
+        end
         haskey(opts, args[i]) || error("unknown option $(args[i])")
         opts[args[i]] = args[i + 1]; i += 2
     end
@@ -214,7 +218,7 @@ function main(args)
     opts = parse_args(args)
     h = parse(Float64, opts["--h"])
     warm = parse(Int, opts["--warm"]); reps = parse(Int, opts["--reps"])
-    backend = backend_of(opts["--device"])
+    backend = backend_of(opts["--device"]; always_inline = opts["--always-inline"] == "true")
     sync = backend isa Carina.KA.CPU ? (() -> nothing) : (() -> Carina.KA.synchronize(backend))
     e = ExodusDatabase(joinpath(DIR, "meshes", "taylor-h$(h)-tet15.g"), "r")
     nelem = sum(size(b.conn, 2) for b in read_sets(e, Block)); close(e)
@@ -226,11 +230,14 @@ function main(args)
     @printf("  %-8s %10s %10s %10s %10s %10s   (ms)\n", "form", "residual", "action",
             "diagonal", "matrix", "recompute")
     for form in ("split", "general")
-        r = time_form(h, form, backend, sync, warm, reps)
+        # invokelatest: backend_of may have redefined KA.get_backend (--always-inline)
+        # in a newer world than the one main() runs in.
+        r = Base.invokelatest(time_form, h, form, backend, sync, warm, reps)
         rec = (; host = gethostname(), date = string(now()), tag = opts["--tag"],
                device = opts["--device"], backend = string(typeof(backend)),
                threads = Threads.nthreads(), julia = string(VERSION),
                carina = strip(read(`git -C $DIR rev-parse --short HEAD`, String)),
+               always_inline = opts["--always-inline"],
                h, form, elements = nelem, warm_steps = warm, reps, r...)
         line = "{" * join(("\"$k\": " * json(v) for (k, v) in pairs(rec)), ", ") * "}"
         open(io -> println(io, line), joinpath(DIR, "implicit-timing.jsonl"), "a")
