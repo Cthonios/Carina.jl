@@ -151,11 +151,14 @@ Records made before Carina 4300630 timed the eigenvalue estimate once, right
 after the warm-up, and overstated it: every estimate runs about 20 power
 iterations, but the single timed estimate took 1.5 to 4.4 times the median
 of five on the GPUs, and with the median the time per run step fell by 7 to
-36%.  The GPU rows below are the median-of-five records of 2026-10-06
-(Carina 36b4a9f with the corrected script).  The CPU rows are the records of
-2026-10-04 (Carina 9e4bfaf) with the single estimate, which therefore
-overstate their time per run step; they were not remeasured because both
-CPUs carried other jobs on 2026-10-06.
+36%.  On a CPU the two agree: 459.6 ms single against 457.1 ms median on the
+Sirius CPU.  The GPU rows below and the Sirius CPU rows are median-of-five
+records of 2026-10-06 (Carina 36b4a9f with the corrected script, and
+178e811 on the idle Sirius CPU); the Rigel CPU rows are the records of
+2026-10-04 (Carina 9e4bfaf) with the single estimate.  Between days the time
+of the explicit step on the Sirius CPU varies by up to 8%: alternating Carina
+9e4bfaf and 178e811 with the same dependencies gave residuals of 9.47 to
+9.93 ms and steps of 14.0 to 15.3 ms for both commits.
 
 Conditions: ConstitutiveModels 273af9e, `OPENBLAS_NUM_THREADS=1`, each run
 alone on its GPU, nothing pinned; the same h = 0.75 and 0.38 mm meshes on the
@@ -179,7 +182,7 @@ ascicgpu hosts); Julia 1.13.0 everywhere.
 | ascicgpu22 | NVIDIA V100-PCIE-32GB | 16 | 0.38 | split | 190727 | 31.20 | 33.02 | 1.59 | 1352.26 | 39.94 | 0.209 |
 | rigel | NVIDIA L4 | 16 | 0.38 | split | 190727 | 40.30 | 45.10 | 2.42 | 1569.74 | 53.19 | 0.279 |
 | rigel | 2 x AMD EPYC 9634 | 16 | 0.75 | general | 25029 | 21.27 | 30.75 | 3.94 | 945.33 | 35.87 | 1.433 |
-| sirius | AMD Ryzen 9 9900X | 12 | 0.75 | general | 25029 | 15.51 | 22.58 | 1.56 | 799.73 | 26.73 | 1.068 |
+| sirius | AMD Ryzen 9 9900X | 12 | 0.75 | general | 25029 | 15.45 | 20.46 | 1.50 | 782.81 | 24.53 | 0.980 |
 | ascicgpu073 | NVIDIA A100-PCIE-40GB | 16 | 0.75 | general | 25029 | 5.04 | 5.43 | 0.18 | 213.67 | 6.51 | 0.260 |
 | ascicgpu080 | NVIDIA H100 80GB HBM3 | 16 | 0.75 | general | 25029 | 3.24 | 3.48 | 0.11 | 142.19 | 4.20 | 0.168 |
 | ascicgpu22 | NVIDIA V100-PCIE-32GB | 16 | 0.75 | general | 25029 | 12.24 | 12.80 | 0.31 | 509.64 | 15.38 | 0.615 |
@@ -188,7 +191,7 @@ ascicgpu hosts); Julia 1.13.0 everywhere.
 | rigel | 2 x AMD EPYC 9634 | 16 | 0.75 | split | 25029 | 13.92 | 22.65 | 4.07 | 671.96 | 26.42 | 1.056 |
 | rigel | 2 x AMD EPYC 9634 | 32 | 0.75 | split | 25029 | 7.64 | 15.10 | 2.97 | 422.89 | 17.52 | 0.700 |
 | rigel | 2 x AMD EPYC 9634 | 64 | 0.75 | split | 25029 | 6.49 | 18.58 | 3.31 | 400.06 | 20.92 | 0.836 |
-| sirius | AMD Ryzen 9 9900X | 12 | 0.75 | split | 25029 | 8.95 | 14.12 | 1.52 | 459.57 | 16.57 | 0.662 |
+| sirius | AMD Ryzen 9 9900X | 12 | 0.75 | split | 25029 | 9.33 | 15.18 | 1.47 | 457.12 | 17.61 | 0.704 |
 | ascicgpu073 | NVIDIA A100-PCIE-40GB | 16 | 0.75 | split | 25029 | 2.12 | 2.49 | 0.17 | 96.65 | 2.99 | 0.119 |
 | ascicgpu080 | NVIDIA H100 80GB HBM3 | 16 | 0.75 | split | 25029 | 1.17 | 1.42 | 0.12 | 58.48 | 1.73 | 0.069 |
 | ascicgpu22 | NVIDIA V100-PCIE-32GB | 16 | 0.75 | split | 25029 | 5.11 | 5.62 | 0.30 | 224.83 | 6.78 | 0.271 |
@@ -217,8 +220,8 @@ on every GPU from h = 0.75 to 0.38 mm (H100 0.069 to 0.052 μs, A100 0.119 to
 0.097, V100 0.271 to 0.209, L4 0.321 to 0.279): 25 029 elements do not fill
 the larger GPUs.  The general form costs 1.42 times the split form per run
 step on the RX 7600, 1.71 on the L4, 2.18 on the A100, 2.27 on the V100 and
-2.43 on the H100; on the CPUs (records of 2026-10-04) 1.36 (Rigel, 16
-threads) and 1.61 (Sirius, 12 threads).  On the Rigel CPU the best thread
+2.43 on the H100; on the CPUs 1.36 (Rigel, 16 threads) and 1.39 (Sirius,
+12 threads).  On the Rigel CPU the best thread
 count is 32 at h = 0.75 mm and 64 at h = 0.38 mm.
 
 The eigenvalue estimate.  In the Taylor runs at h = 0.75 mm every estimate
@@ -257,20 +260,19 @@ preconditioner) and, on a CPU, the assembled tangent, for the split and the
 general form (J2, θ = J − 1), and the general residual with the material
 called again in the third pass instead of storing its fourteen stresses
 (`recompute`).  Median of 20, ms, Carina 36b4a9f (Sirius 44de54e, the
-same kernels); records in `data/implicit-timing-<host>.jsonl`.  The Sirius
-CPU row was measured on 2026-10-06, when other jobs may have run on that
-machine.
+same kernels; the Sirius CPU row at 178e811 on the idle machine); records in
+`data/implicit-timing-<host>.jsonl`.
 
 | Device | split residual | split action | split diagonal | general residual | general action | general diagonal | recompute |
 |---|---|---|---|---|---|---|---|
-| Sirius CPU, 12 threads | 11.86 | 71.35 | 87.10 | 19.53 | 84.50 | 100.50 | 25.30 |
+| Sirius CPU, 12 threads | 11.71 | 65.84 | 69.44 | 19.52 | 76.20 | 86.71 | 25.31 |
 | AMD RX 7600 | 8.95 | 20.81 | 21.60 | 12.59 | 30.35 | 53.29 | 16.99 |
 | NVIDIA L4 | 6.15 | 18.67 | 22.95 | 10.89 | 27.31 | 54.46 | 16.10 |
 | NVIDIA V100 | 5.32 | 15.38 | 20.11 | 12.30 | 23.70 | 101.40 | 10.71 |
 | NVIDIA A100 | 3.01 | 9.41 | 13.56 | 7.73 | 16.09 | 43.23 | 5.82 |
 | NVIDIA H100 | 1.17 | 3.71 | 4.37 | 3.26 | 6.33 | 25.06 | 2.42 |
 
-The assembled tangent on the Sirius CPU: 177.8 ms split, 176.1 ms general.
+The assembled tangent on the Sirius CPU: 138.0 ms split, 131.8 ms general.
 Calling the material again in the third pass is slower than storing the
 stresses on the CPU (1.30 times), the RX 7600 (1.35) and the L4 (1.48), and
 faster on the V100 (0.87), the A100 (0.75) and the H100 (0.74); Carina

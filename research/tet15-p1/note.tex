@@ -3150,10 +3150,11 @@ from the kernel timings (median of $20$, deformed state with plastic strains
 to $1.0$; includes the stable-step estimates at their intervals), in
 microseconds per element-step, at $h = 0.75$ and $0.38$~mm, the ratio of the
 general form's time to the split form's at $h = 0.75$~mm, and the wall time
-of the run to $80~\mu$s at $h = 0.75$~mm. GPU rows: Carina 36b4a9f, the
-eigenvalue estimate as the median of five (2026-10-06). CPU rows ($^{*}$):
-Carina 9e4bfaf, the eigenvalue estimate timed once, which overstates the
-time per step (2026-10-04). Wall times: Carina 9e4bfaf, the H100 36b4a9f.
+of the run to $80~\mu$s at $h = 0.75$~mm. GPU rows and the Ryzen row:
+Carina 36b4a9f and 178e811, the eigenvalue estimate as the median of five
+(2026-10-06). EPYC rows ($^{*}$): Carina 9e4bfaf, the eigenvalue estimate
+timed once (2026-10-04), which on a CPU agrees with the median (on the Ryzen
+$459.6$ against $457.1$~ms). Wall times: Carina 9e4bfaf, the H100 36b4a9f.
 One process alone on each GPU. Scripts:
 \code{benchmark/tet15-p1/taylor/kernel\_timing.jl}, \code{timing\_table.py};
 records in \code{data/}.}
@@ -3163,7 +3164,7 @@ records in \code{data/}.}
 \toprule
 device & $h = 0.75$ & $h = 0.38$ & general/split & run (s) \\
 \midrule
-AMD Ryzen~9 9900X, 12 threads$^{*}$  & 0.662 & ---   & 1.61 & 839 \\
+AMD Ryzen~9 9900X, 12 threads  & 0.704 & ---   & 1.39 & 839 \\
 2$\times$AMD EPYC 9634, 32 threads$^{*}$ & 0.700 & 0.772 & 1.36$^{\dagger}$ & 1283$^{\dagger}$ \\
 2$\times$AMD EPYC 9634, 64 threads$^{*}$ & 0.836 & 0.652 & --- & --- \\
 AMD RX 7600                    & 0.430 & ---   & 1.42 & 513 \\
