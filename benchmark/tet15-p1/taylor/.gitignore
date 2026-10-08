@@ -1,3 +1,5 @@
 meshes/
 smooth/
 runs/
+sierra/ct-*/
+sierra/*.g

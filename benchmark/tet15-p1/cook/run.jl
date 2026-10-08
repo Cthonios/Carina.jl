@@ -38,6 +38,9 @@
 # Usage (from the Carina root; the threads serve Carina's element loops):
 #   julia -t 12 --project=. benchmark/tet15-p1/cook/run.jl [--h 8,4] [--cases elastic,plastic]
 #        [--elements tet10,tet15,tet15-p1,tet15-p0,lcm-tet10,lcm-ct] [--stress] [--no-line-search] [--report]
+#   julia --project=. benchmark/tet15-p1/cook/run.jl --h 8,4,2 --meshes-only
+#        builds meshes/cook-h<h>.g (TETRA10, Cubit) and meshes/cook-h<h>-tet15.g
+#        (Carina.tetra15_mesh) for each h and stops.
 # Results are appended to results.tsv; --report writes RESULTS.md from it.
 
 using Carina
@@ -50,6 +53,7 @@ const DIR    = @__DIR__
 const MESHES = joinpath(DIR, "meshes")
 const RUNS   = joinpath(DIR, "runs")
 const CUBIT  = "/usr/local/cubit/cubit"
+const MESHES_ONLY = Ref(false)   # --meshes-only: build the TETRA10 and TETRA15 meshes and stop
 # Host-specific paths and settings; the environment variables override them
 # on another host (Rigel):
 #   COOK_ALBANY         Albany executable
@@ -526,6 +530,8 @@ function main(args)
     while i <= length(args)
         if args[i] == "--report"
             report(); return
+        elseif args[i] == "--meshes-only"
+            MESHES_ONLY[] = true; i += 1; continue
         elseif args[i] == "--stress"
             STRESS[] = true; i += 1; continue
         elseif args[i] == "--no-line-search"
@@ -536,6 +542,12 @@ function main(args)
     end
     hs = [parse(Float64, s) for s in split(opts["--h"], ",")]
     hs = [isinteger(h) ? Int(h) : h for h in hs]
+    if MESHES_ONLY[]
+        for h in hs
+            println(tet10_mesh(h), "\n", tet15_mesh(h))
+        end
+        return
+    end
     for case in split(opts["--cases"], ","), h in hs, element in split(opts["--elements"], ",")
         run_case(String(case), String(element), h)
     end

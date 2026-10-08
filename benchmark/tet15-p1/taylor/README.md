@@ -49,6 +49,38 @@ TET15-P1).  At h = 1.5 mm smoothing raises the smallest shape quality
 q = 12 (3V)^(2/3) / Σ l² from 0.648 to 0.708 and the mean from 0.879 to
 0.895.
 
+The meshes are not in git (`meshes/` is ignored; the h = 0.19 mm TETRA15
+mesh has 6.7 million nodes); they are regenerated from the files here.  The Cubit size
+that gave each level its element count is recorded in `mesh-sizes.tsv`,
+from which `run.jl` starts, so that Cubit reproduces the four-node mesh:
+at h = 1.5 mm the regenerated mesh has the coordinates and connectivity of
+the one used, to the last bit.  The smoothing is not reproduced bit for
+bit: two smoothing runs of the same h = 0.75 mm Cubit mesh, on two
+machines, gave meshes whose radius histories differ by 2.8e-7 relative.  A
+regenerated mesh therefore reproduces the results below to that order, and
+a comparison of two elements is exact as long as both run on the same
+files.  The h = 0.19 mm level was meshed on Rigel; its size is not
+recorded, and run.jl searches for it.
+
+| h (mm) | elements | paper | TETRA10 nodes | TETRA15 nodes | Cubit size |
+|---|---|---|---|---|---|
+| 1.5 | 3 522 | 3 495 | 5 601 | 16 587 | 1.38968 |
+| 0.75 | 25 029 | 24 739 | 36 666 | 113 331 | 0.72460 |
+| 0.38 | 190 727 | 187 819 | 267 150 | 845 573 | 0.36591 |
+| 0.19 | 1 521 212 | 1 533 115 | 2 083 320 | 6 672 877 | not recorded |
+
+To regenerate the meshes of all four levels (Cubit and Norma installed;
+`TAYLOR_CUBIT`, `TAYLOR_NORMA` and `TAYLOR_NORMA_THREADS` locate them):
+
+```
+julia -t 16 --project=. benchmark/tet15-p1/taylor/run.jl --h 1.5,0.75,0.38,0.19 \
+    --stages mesh,smooth,convert
+```
+
+which writes `meshes/taylor-h<h>-tet4.g` (Cubit), `smooth/taylor-h<h>-smooth.e`
+(Norma), `meshes/taylor-h<h>-tet10.g` (the composite tetrahedron) and
+`meshes/taylor-h<h>-tet15.g` (TET15-P1), in meters.
+
 ## Running
 
 From the Carina root, with Cubit and Norma installed:
@@ -114,7 +146,7 @@ mass at rest (the final radius was 5.45 mm on every mesh); and the stable
 time step recomputed during a run used the reference mesh, not the
 current one.
 
-## Composite tetrahedron (Sierra/SM)
+## Composite tetrahedron and TET15-P1 in Sierra/SM
 
 On the same `meshes/taylor-h<h>-tet10.g`: the explicit dynamics of Sierra/SM
 with the composite tetrahedron of Foulk et al. (2021) at its default
@@ -122,6 +154,47 @@ stabilization α = 0.1, the J2 model with linear hardening of the same
 constants, the initial velocity on node set `all`, u_z = 0 on node set
 `impact`, the symmetry conditions on the quarter bar, output every 1 μs to
 80 μs.  The same `history.tsv` is extracted from its output.
+
+The files of those runs are in `sierra/`:
+
+- `ct-template.i`, the input deck: the copper of the problem with the
+  `fefp` J2 model of LAME (linear hardening), a total Lagrange section with
+  `formulation = composite_tet` and `vem exponent = 0.0` (as in the deck of
+  the paper), no bulk viscosity, the wall and the initial velocity, output
+  and a heartbeat every 1 μs.  `{MESH}`, `{OUT}`, `{HB}` and a `{VEM}` line
+  are substituted by the run script.
+- `rename-sidesets.jl`: IOSS rejects a node set and a side set of the same
+  name (`impact`), so Sierra reads a copy of the mesh with `_face` appended
+  to the side-set names; coordinates, connectivity and node sets are
+  unchanged.
+- `run-ct.sh <h> <ranks> [alpha0|off]`, from this directory: renames the
+  side sets, writes the deck, runs `adagio` on `<ranks>` MPI ranks, joins
+  the output with `epu`, and writes `sierra/ct-h<h>[-<variant>]/` with the
+  deck, the log and `sierra-ct-h<h>-history.tsv` (`history.jl`).  It
+  expects Sierra at `~/sierra/code/bin` and OpenMPI at `/usr/lib64/openmpi`;
+  the variants set the VEM stabilization parameter (`alpha0`) or both VEM
+  parameters (`off`) to zero.
+
+TET15-P1 in Sierra/SM runs on `meshes/taylor-h<h>-tet15.g`, the same
+elements with the face and interior nodes that `Carina.tetra15_mesh` adds
+(Exodus TETRA15 node order), renamed by `rename-sidesets.jl` in the same
+way, with the section of the TET15-P1 implementation in place of
+`composite_tet`.  The node sets, side sets, material constants, loading and
+output are those of `ct-template.i`.
+
+Reference final values at 80 μs, from `data/` (radius of the impact face and
+length of the bar, mm):
+
+| h (mm) | composite tetrahedron, Sierra/SM | TET15-P1, Carina | TET15-P0, Carina |
+|---|---|---|---|
+| 1.5 | 7.2904, 24.439 at 41.6 μs (the run stopped) | 7.2399, 21.425 | 7.4415, 21.551 |
+| 0.75 | 7.2820, 21.476 | 7.2225, 21.421 | 7.4747, 21.533 |
+| 0.38 | 7.2453, 21.439 | 7.2255, 21.420 | — |
+| 0.19 | 7.2326, 21.430 | — | — |
+
+The composite tetrahedron converges from above, with an extrapolated limit
+of 7.2259 mm (order 1.53 in h); TET15-P1 is within 0.05% of that limit at
+h = 0.75 and 0.38 mm.
 
 ## Results
 

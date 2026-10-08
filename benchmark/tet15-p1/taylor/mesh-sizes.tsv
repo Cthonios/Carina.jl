@@ -1,0 +1,10 @@
+# Cubit size parameter of taylor.jou for each level of the study, as found by
+# run.jl's search for an element count within 3% of the paper's (Foulk et al.
+# 2021, Figure 14), with the Cubit installed at /usr/local/cubit on sirius,
+# 2026-09-29 and 30.  run.jl starts from the
+# recorded size and searches only if the count it gets is not within 3%.
+# A level without a recorded size is searched from 0.9 h.
+h	cubit_size	elements	paper_elements
+1.5	1.38968224898738	3522	3495
+0.75	0.7245989939727251	25029	24739
+0.38	0.36590853231842985	190727	187819

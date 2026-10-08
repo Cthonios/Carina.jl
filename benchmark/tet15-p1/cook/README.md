@@ -86,6 +86,61 @@ named in `run.jl`:
   composite tetrahedron stops converging near the collapse load (0.158 at
   h = 4, 0.137 at h = 2), which the other elements pass.
 
+## Meshes and the comparison in another code
+
+The meshes are not in git (`meshes/` is ignored); `cook.jou` regenerates them
+exactly, since the Cubit size is h itself and there is no smoothing.  To build
+the TETRA10 meshes of the composite tetrahedron (`meshes/cook-h<h>.g`, Cubit)
+and the TETRA15 meshes of TET15-P1 (`meshes/cook-h<h>-tet15.g`,
+`Carina.tetra15_mesh`, Exodus TETRA15 node order) and stop:
+
+```
+julia --project=. benchmark/tet15-p1/cook/run.jl --h 8,4,2 --meshes-only
+```
+
+| h | elements | TETRA10 nodes | TETRA15 nodes |
+|---|---|---|---|
+| 8 | 327 | 647 | 1 721 |
+| 4 | 1 860 | 3 208 | 9 127 |
+| 2 | 14 475 | 22 059 | 66 813 |
+
+Sets, in both meshes: node set `clamp` (the face x = 0), side set `load` and
+node set `load_nodes` (the face x = 48); block `membrane`.  The names do not
+collide, so Sierra/SM reads the meshes as they are (the Taylor meshes need
+renamed side sets, `../taylor/sierra/rename-sidesets.jl`).  Units are
+consistent and unnamed (length as in `cook.jou`, stress as E).
+
+A run in another code, for the composite tetrahedron on the TETRA10 mesh and
+for TET15-P1 on the TETRA15 mesh, reproduces this one with:
+
+- the three displacement components fixed on node set `clamp`;
+- a traction q in +y on side set `load`, a dead load per unit reference
+  area, increased linearly over ten equal quasi-static load steps (more
+  steps where Newton fails; the result is the state at full load);
+- the Simo-Hughes J2 model with linear isotropic hardening and the constants
+  of the table under "Problem" (elastic case: σ_y = 1e10, so that it does
+  not yield);
+- the measured quantity: the mean of u_y over the nodes of node set
+  `load_nodes` at full load (`results.tsv` also has the maximum).
+
+The volumetric part of the J2 energy differs between the codes used here:
+κ(J − 1) for the pressure in Carina, κ(J − 1/J)/2 in Albany.  At
+ν = 0.4999 the two pointwise TET10 runs agree to six digits, and at ν = 0.29
+the difference is below the reported digits; another code should state its
+own.  Reference values (mean u_y of the loaded face at full load):
+
+| h | composite tetrahedron (Albany-LCM) | TET15-P1 (Carina) | TET10 pointwise (both) |
+|---|---|---|---|
+| elastic, 8 | 8.4596 | 8.4122 | 8.1960 |
+| elastic, 4 | 8.4643 | 8.4551 | 8.3241 |
+| elastic, 2 | 8.4772 | 8.4716 | 8.4203 |
+| plastic, 8 | 0.2716 | 0.2706 | 0.2689 |
+| plastic, 4 | 0.2725 | 0.2721 | 0.2710 |
+| plastic, 2 | 0.2728 | 0.2724 | 0.2720 |
+
+The pointwise TET10 run is the check that the other code reads the same
+problem: it should give the same values to the digits shown.
+
 ## Running
 
 From the Carina root, with Cubit at `/usr/local/cubit/cubit` and Albany at

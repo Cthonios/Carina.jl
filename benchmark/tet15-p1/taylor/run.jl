@@ -92,12 +92,24 @@ function count_tets(path)
     return n
 end
 
-# Cubit mesh with the element count of the paper within 3%.
+# The Cubit size recorded for level h in mesh-sizes.tsv (tracked), or nothing.
+function recorded_size(h)
+    for line in eachline(joinpath(DIR, "mesh-sizes.tsv"))
+        (startswith(line, "#") || startswith(line, "h\t") || isempty(strip(line))) && continue
+        f = split(line, '\t')
+        parse(Float64, f[1]) == h && return parse(Float64, f[2])
+    end
+    return nothing
+end
+
+# Cubit mesh with the element count of the paper within 3%: from the size
+# recorded in mesh-sizes.tsv when there is one, else searched from 0.9 h.
 function mesh(h)
     quarter, target = LEVELS[h]
     mkpath(MESHES)
     sizes_file = joinpath(MESHES, "sizes.tsv")
-    s = h * 0.9
+    r = recorded_size(h)
+    s = r === nothing ? h * 0.9 : r
     n = 0
     for attempt in 1:5
         log = joinpath(MESHES, "cubit-$(tag(h)).log")
@@ -109,6 +121,8 @@ function mesh(h)
         abs(n / target - 1) < 0.03 && break
         s *= (n / target)^(1 / 3)
     end
+    abs(n / target - 1) < 0.03 ||
+        @warn "mesh h=$h: $n elements after five attempts, not within 3% of the paper's $target"
     open(io -> println(io, "$h\t$s\t$n\t$target"), sizes_file, "a")
 end
 
