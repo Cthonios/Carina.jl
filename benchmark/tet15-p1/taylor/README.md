@@ -59,15 +59,16 @@ bit: two smoothing runs of the same h = 0.75 mm Cubit mesh, on two
 machines, gave meshes whose radius histories differ by 2.8e-7 relative.  A
 regenerated mesh therefore reproduces the results below to that order, and
 a comparison of two elements is exact as long as both run on the same
-files.  The h = 0.19 mm level was meshed on Rigel; its size is not
-recorded, and run.jl searches for it.
+files.  The h = 0.19 mm level was meshed on Rigel, and regenerated there on
+2026-10-08 from the recorded size with the same element count, node counts
+and shape quality (smallest 0.691, mean 0.912 after smoothing).
 
 | h (mm) | elements | paper | TETRA10 nodes | TETRA15 nodes | Cubit size |
 |---|---|---|---|---|---|
 | 1.5 | 3 522 | 3 495 | 5 601 | 16 587 | 1.38968 |
 | 0.75 | 25 029 | 24 739 | 36 666 | 113 331 | 0.72460 |
 | 0.38 | 190 727 | 187 819 | 267 150 | 845 573 | 0.36591 |
-| 0.19 | 1 521 212 | 1 533 115 | 2 083 320 | 6 672 877 | not recorded |
+| 0.19 | 1 521 212 | 1 533 115 | 2 083 320 | 6 672 877 | 0.17902 |
 
 To regenerate the meshes of all four levels (Cubit and Norma installed;
 `TAYLOR_CUBIT`, `TAYLOR_NORMA` and `TAYLOR_NORMA_THREADS` locate them):
