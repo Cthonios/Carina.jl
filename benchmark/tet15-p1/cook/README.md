@@ -178,6 +178,14 @@ TETRA15 38 s (105), 65 s (112) and 294 s (119); the composite tetrahedron
 TET15-P1 was accepted at a relative residual of 2.2e-6, the residual floor
 near 1e-6 that Carina also reaches on this problem.
 
+The prototype writes one stress per element; `extract_pressure.jl` reads it
+(element variables `stress_xx`, ..., nodal `displacement_x`, ...) as one
+value per element.  At h = 2 its element pressures correlate with the
+element means of Carina's TET15-P1 to 0.999999 (RMS difference 0.0054
+against max |p| = 30.3).  Without the projection the two fields are not
+comparable element by element: Carina's pressure oscillates in sign inside
+each element, and the prototype's single value is its average.
+
 ## Running
 
 From the Carina root, with Cubit at `/usr/local/cubit/cubit` and Albany at

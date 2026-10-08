@@ -28,7 +28,8 @@
 # the 4-point rule (TETRA10) the polynomials are the linear functions, which
 # interpolate the four values.  With one value per element (the composite
 # tetrahedron of Albany, whose volume-averaged J makes the pressure equal at
-# its five points) the pressure is that constant.  Carina and Albany
+# its five points, and the element stress that Sierra/SM writes) the
+# pressure is that constant.  Carina and Albany
 # use the same 4-point rule in the same point order (checked against each
 # other on the TETRA10 results); the points and weights are those of
 # ReferenceFiniteElements.
@@ -101,6 +102,12 @@ function qp_pressure(exo, step, block, names)
         end
         error("unrecognized layout of the Albany stress output")
     end
+    if any(==("stress_xx"), names)                         # Sierra/SM
+        # Element variable stress: one (element-averaged) tensor per element,
+        # stress_xx, stress_yy, ...; returned as one value per element.
+        return [-sum(read_values(exo, ElementVariable, step, block, "stress_$(c)$(c)")
+                     for c in ("x", "y", "z")) ./ 3]
+    end
     error("no stress output; rerun with --stress")
 end
 
@@ -127,7 +134,8 @@ function extract(dir)
             offset += size(b.conn, 2)
         end
         vn = read_names(exo, NodalVariable)
-        base = any(==("displ_x"), vn) ? "displ" : "disp"
+        base = any(==("displ_x"), vn) ? "displ" :
+               any(==("displacement_x"), vn) ? "displacement" : "disp"   # Albany, Sierra/SM, Carina
         ux, uy, uz = (read_values(exo, NodalVariable, step, "$(base)_$c") for c in ("x", "y", "z"))
         for (k, id) in enumerate(Int.(read_id_map(exo, NodeMap)))
             u_of[id] = (ux[k], uy[k], uz[k])

@@ -2953,7 +2953,24 @@ Carina, a difference of $0.02\%$ or less in the mean and in the maximum;
 without the projection the two codes' TETRA15 agree to $0.05\%$. The
 composite tetrahedron of Sierra/SM is within $0.4\%$ of Albany's at $h = 8$
 and $4$, and its Newton iteration with that solver stalled at $h = 2$
-(\code{benchmark/tet15-p1/cook/README.md}).
+(\code{benchmark/tet15-p1/cook/README.md}). The prototype writes one stress
+per element; its element pressures at $h = 2$ correlate with the element
+means of Carina's TET15-P1 to $0.999999$, with an RMS difference of
+$0.0054$ against a largest $|p|$ of $30.3$ (Figure~\ref{fig:cooksierra}).
+Without the projection the two fields are not comparable element by
+element: Carina's pressure oscillates in sign inside each element, and the
+prototype's single value is its average.
+
+\begin{figure}[tbp]
+\centering
+\includegraphics[height=0.55\textheight]{figures/cook-pressure-sierra-h2.png}
+\caption{Cook's membrane, elastic case, $h = 2$: pressure on the front face
+at full load, on the color scale of Figure~\ref{fig:elastic-h2}. Top,
+TET15-P1 in Carina (the quadratic of each element) and in a prototype
+implementation in Sierra/SM (one value per element); bottom, TETRA15 without
+the projection in the two codes.}
+\label{fig:cooksierra}
+\end{figure}
 
 \paragraph{What the benchmark establishes.} The element of this note does
 not lock at $\nu = 0.4999$ on any of the three meshes, agrees in the tip
@@ -3244,7 +3261,10 @@ TETRA15 at $h = 1.5$~mm ends at $7.1268$~mm, $1.5\%$ below, which is the
 volumetric locking the projection removes. The global estimate of the stable
 step did not converge on these meshes in the prototype, and the element
 estimate, conservative by the factor $0.5$, makes its step $7$ times smaller
-than the composite tetrahedron's at $1~\mu$s; TET15-P1 took $271$ and
+than the composite tetrahedron's at $1~\mu$s. Its pressure at $12~\mu$s,
+one value per element, has the distribution of Carina's on every mesh, with
+a largest value of $1.56$, $1.62$ and $1.63$~GPa against Carina's $1.67$,
+$1.58$ and $1.56$~GPa (Figure~\ref{fig:taylorpressuresierra}). TET15-P1 took $271$ and
 $6\,473$~s at $h = 0.75$ and $0.38$~mm on $96$ and $160$ MPI ranks, against
 $90$ and $626$~s for the composite tetrahedron
 (\code{benchmark/tet15-p1/taylor/README.md}).
@@ -3257,6 +3277,16 @@ in Sierra/SM on the same meshes. Left, the radius of the impact face against
 time, with the composite tetrahedron at $h = 0.19$~mm; right, the relative
 difference of the two codes' radii at every level.}
 \label{fig:taylorsierra}
+\end{figure}
+
+\begin{figure}[tbp]
+\centering
+\includegraphics[width=\textwidth]{figures/taylor-pressure-sierra-face.png}
+\caption{Taylor bar: pressure on the impact face at $12~\mu$s on the scale of
+Figure~\ref{fig:taylorpressure}, for the composite tetrahedron (Sierra/SM),
+TET15-P1 in Carina and TET15-P1 in a prototype implementation in Sierra/SM
+(one value per element; not run at $h = 0.19$~mm).}
+\label{fig:taylorpressuresierra}
 \end{figure}
 
 \paragraph{Pressure field.} Figure~\ref{fig:taylorpressure} shows the
