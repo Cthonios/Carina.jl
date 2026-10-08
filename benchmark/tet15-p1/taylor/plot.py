@@ -3,6 +3,11 @@
 #                           number of elements, for each element
 #   taylor-history.png      radius of the impact face against time on the
 #                           finest mesh of each element
+#   taylor-history-sierra.png  TET15-P1 in Carina and in a prototype
+#                           implementation in Sierra/SM: the radius against
+#                           time at h = 0.75 and 0.38 mm, with the composite
+#                           tetrahedron at h = 0.19 mm, and the relative
+#                           difference of the two codes' radii at every level
 # Usage: python3 plot.py [output directory]   (default: this directory)
 import os
 import sys
@@ -71,3 +76,33 @@ ax.set_xlim(0, 80)
 ax.legend(frameon=False, fontsize=9, loc="lower right")
 fig.tight_layout()
 fig.savefig(os.path.join(OUT, "taylor-history.png"), dpi=200)
+
+# TET15-P1 in Carina against the prototype implementation in Sierra/SM.
+fig, (ax, bx) = plt.subplots(1, 2, figsize=(11.0, 4.2))
+for label, name, color, style, z in [
+        ("composite tetrahedron, h = 0.19 mm", "sierra-ct-h0.19-history.tsv", "C2", "-", 2),
+        ("TET15-P1, Carina, h = 0.75 mm", "tet15-p1-h0.75-history.tsv", "C0", "-", 3),
+        ("TET15-P1, Carina, h = 0.38 mm", "tet15-p1-h0.38-history.tsv", "C0", ":", 3),
+        ("TET15-P1, Sierra/SM prototype, h = 0.75 mm", "sierra-taylor-tet15-p1-h0.75-history.tsv", "C3", "--", 4),
+        ("TET15-P1, Sierra/SM prototype, h = 0.38 mm", "sierra-taylor-tet15-p1-h0.38-history.tsv", "C3", "-.", 4)]:
+    t, r, _ = history(name)
+    ax.plot(t, r, color=color, linestyle=style, linewidth=1.6, zorder=z, label=label)
+ax.axhline(REFERENCE, color="0.4", linestyle="--", linewidth=1,
+           label="Q1/P0 hexahedron, final")
+ax.set_xlabel("time (μs)")
+ax.set_ylabel("radius of the impact face (mm)")
+ax.set_xlim(0, 80)
+ax.legend(frameon=False, fontsize=8.5, loc="lower right")
+for h, color in ((1.5, "C1"), (0.75, "C0"), (0.38, "C3")):
+    tc, rc, _ = history(f"tet15-p1-h{h}-history.tsv")
+    ts, rs, _ = history(f"sierra-taylor-tet15-p1-h{h}-history.tsv")
+    n = min(len(tc), len(ts))
+    bx.plot(tc[:n], 100 * (rs[:n] - rc[:n]) / rc[:n], color=color, linewidth=1.6,
+            label=f"h = {h} mm")
+bx.axhline(0.0, color="0.4", linewidth=0.8)
+bx.set_xlabel("time (μs)")
+bx.set_ylabel("radius, Sierra/SM prototype − Carina (%)")
+bx.set_xlim(0, 80)
+bx.legend(frameon=False, fontsize=9)
+fig.tight_layout()
+fig.savefig(os.path.join(OUT, "taylor-history-sierra.png"), dpi=200)

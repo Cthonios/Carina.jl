@@ -1,0 +1,7 @@
+element	h_mm	radius_80us_mm	length_80us_mm	carina_tet15p1_radius_mm	carina_tet15p1_length_mm	ranks	steps	wall_s	dt_at_1us_s	dt_at_80us_s
+tet15-p1	1.5	7.2344	21.429	7.2399	21.425					
+tet15-p1	0.75	7.2186	21.423	7.2225	21.421	96	50832	271	3.86e-9	1.34e-9
+tet15-p1	0.38	7.2181	21.422	7.2255	21.420	160	187209	6473	1.85e-9	3.38e-10
+tetra15	1.5	7.1268	21.448	7.2399	21.425					
+composite-tet	0.75	7.2820	21.476	7.2225	21.421	96	44260	90	2.76e-8	1.13e-9
+composite-tet	0.38	7.2453	21.439	7.2255	21.420	160	62821	626	1.27e-8	8.54e-10

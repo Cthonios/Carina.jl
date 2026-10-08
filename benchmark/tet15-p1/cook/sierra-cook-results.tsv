@@ -1,0 +1,10 @@
+element	h	elements	uy_mean	uy_max	carina_uy_mean	carina_uy_max	ranks	wall_s	newton_iterations	note
+tet15-p1	8	327	8.41386	8.46630	8.41217	8.46845	1	46	113	
+tet15-p1	4	1860	8.45551	8.49756	8.45511	8.49904	8	45	120	
+tet15-p1	2	14475	8.47224	8.50812	8.47157	8.50882	32	153	511	one step accepted at 2.2e-6 relative residual
+tetra15	8	327	8.22779	8.28150	8.22354	8.28150	1	38	105	
+tetra15	4	1860	8.35114	8.39833	8.34900	8.39834	8	65	112	
+tetra15	2	14475	8.43146	8.46918	8.43004	8.46918	32	294	119	
+composite-tet	8	327	8.42887	8.57001			1	18	110	Albany composite tet 8.4596
+composite-tet	4	1860	8.45304	8.54101			8	18	116	Albany composite tet 8.4643
+composite-tet	2	14475			 	 	32			did not converge (stalled at t = 0.8 of 1.0); Albany composite tet 8.4772

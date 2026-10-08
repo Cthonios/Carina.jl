@@ -2941,6 +2941,20 @@ and $0.407$ for the composite tetrahedron. Scripts:
 \code{benchmark/tet15-p1/cook/extract\_pressure.jl} and
 \code{render\_pressure.py}.
 
+\paragraph{A second implementation.} A prototype implementation of
+TET15-P1 in Sierra/SM was run on the elastic case on the same meshes, with
+a neo-Hookean material of the same $\kappa$ and $\mu$ (deviatoric part as in
+Carina, volumetric pressure $\kappa(J - 1/J)/2$, which differs from Carina's
+at second order in $J - 1$, of order $10^{-4}$ here), the traction applied as
+consistent nodal forces, and a preconditioned conjugate-gradient solver in
+the Newton iteration. The mean tip displacement is $8.4139$, $8.4555$ and
+$8.4722$ at $h = 8$, $4$ and $2$, against $8.4122$, $8.4551$ and $8.4716$ in
+Carina, a difference of $0.02\%$ or less in the mean and in the maximum;
+without the projection the two codes' TETRA15 agree to $0.05\%$. The
+composite tetrahedron of Sierra/SM is within $0.4\%$ of Albany's at $h = 8$
+and $4$, and its Newton iteration with that solver stalled at $h = 2$
+(\code{benchmark/tet15-p1/cook/README.md}).
+
 \paragraph{What the benchmark establishes.} The element of this note does
 not lock at $\nu = 0.4999$ on any of the three meshes, agrees in the tip
 displacement with the composite tetrahedron within $0.6\%$ and in the limit
@@ -3213,6 +3227,37 @@ NVIDIA H100                    & 0.069 & 0.052 & 2.43 & 159 \\
 \smallskip
 $^{\dagger}$at 16 threads.
 \end{table}
+
+\paragraph{A second implementation.} A prototype implementation of
+TET15-P1 in Sierra/SM was run on the same TETRA15 meshes with the
+finite-deformation $J_2$ model of the Sierra material library and linear
+hardening, as in the composite-tetrahedron runs, and an element estimate of
+the stable step, $0.5$ times the smallest node distance over $c_p$. The
+final radius is $7.2344$, $7.2186$ and $7.2181$~mm at $h = 1.5$, $0.75$ and
+$0.38$~mm: $0.08\%$, $0.05\%$ and $0.10\%$ below Carina's, and within
+$0.12\%$ of the composite tetrahedron's extrapolated limit at every level.
+Over the run the radii of the two codes differ by at most $0.16\%$, in the
+first $10~\mu$s, and after $40~\mu$s by a constant $0.05$ to $0.10\%$ that does
+not decrease with $h$ (Figure~\ref{fig:taylorsierra}); the two codes'
+$J_2$ implementations and time steps differ. Without the projection,
+TETRA15 at $h = 1.5$~mm ends at $7.1268$~mm, $1.5\%$ below, which is the
+volumetric locking the projection removes. The global estimate of the stable
+step did not converge on these meshes in the prototype, and the element
+estimate, conservative by the factor $0.5$, makes its step $7$ times smaller
+than the composite tetrahedron's at $1~\mu$s; TET15-P1 took $271$ and
+$6\,473$~s at $h = 0.75$ and $0.38$~mm on $96$ and $160$ MPI ranks, against
+$90$ and $626$~s for the composite tetrahedron
+(\code{benchmark/tet15-p1/taylor/README.md}).
+
+\begin{figure}[tbp]
+\centering
+\includegraphics[width=\textwidth]{figures/taylor-history-sierra.png}
+\caption{Taylor bar: TET15-P1 in Carina and in a prototype implementation
+in Sierra/SM on the same meshes. Left, the radius of the impact face against
+time, with the composite tetrahedron at $h = 0.19$~mm; right, the relative
+difference of the two codes' radii at every level.}
+\label{fig:taylorsierra}
+\end{figure}
 
 \paragraph{Pressure field.} Figure~\ref{fig:taylorpressure} shows the
 pressure $p = -\tfrac13\trace ~\sigma$, positive in compression, on the impact

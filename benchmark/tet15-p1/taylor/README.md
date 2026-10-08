@@ -185,16 +185,69 @@ output are those of `ct-template.i`.
 Reference final values at 80 μs, from `data/` (radius of the impact face and
 length of the bar, mm):
 
-| h (mm) | composite tetrahedron, Sierra/SM | TET15-P1, Carina | TET15-P0, Carina |
-|---|---|---|---|
-| 1.5 | 7.2904, 24.439 at 41.6 μs (the run stopped) | 7.2399, 21.425 | 7.4415, 21.551 |
-| 0.75 | 7.2820, 21.476 | 7.2225, 21.421 | 7.4747, 21.533 |
-| 0.38 | 7.2453, 21.439 | 7.2255, 21.420 | — |
-| 0.19 | 7.2326, 21.430 | — | — |
+| h (mm) | composite tetrahedron, Sierra/SM | TET15-P1, Carina | TET15-P1, Sierra/SM prototype | TET15-P0, Carina |
+|---|---|---|---|---|
+| 1.5 | 7.2904, 24.439 at 41.6 μs (the run stopped) | 7.2399, 21.425 | 7.2344, 21.429 | 7.4415, 21.551 |
+| 0.75 | 7.2820, 21.476 | 7.2225, 21.421 | 7.2186, 21.423 | 7.4747, 21.533 |
+| 0.38 | 7.2453, 21.439 | 7.2255, 21.420 | 7.2181, 21.422 | — |
+| 0.19 | 7.2326, 21.430 | — | — | — |
 
 The composite tetrahedron converges from above, with an extrapolated limit
-of 7.2259 mm (order 1.53 in h); TET15-P1 is within 0.05% of that limit at
-h = 0.75 and 0.38 mm.
+of 7.2259 mm (order 1.53 in h); TET15-P1 in Carina is within 0.05% of that
+limit at h = 0.75 and 0.38 mm.
+
+## TET15-P1 in a prototype implementation in Sierra/SM
+
+A prototype implementation of TET15-P1 in Sierra/SM was run on the same
+TETRA15 meshes (side sets renamed as above), with the finite-deformation J2
+model of the Sierra material library with linear hardening, as in the
+composite-tetrahedron runs, and no bulk viscosity; its time step was an
+element estimate, 0.5 times the smallest node distance over the
+dilatational wave speed.  Results (Rigel session, 2026-10-08; records
+`data/sierra-taylor-results.tsv` and
+`data/sierra-taylor-{tet15-p1,tetra15}-h<h>-history.tsv`; figure
+`plot.py`, `taylor-history-sierra.png`):
+
+- Final radius 7.2344, 7.2186 and 7.2181 mm at h = 1.5, 0.75 and 0.38 mm,
+  0.08%, 0.05% and 0.10% below Carina's TET15-P1 and within 0.12% of the
+  composite tetrahedron's extrapolated limit at every level; the length
+  agrees with Carina's to 0.02%.
+- Over 0 to 80 μs the radius differs from Carina's by at most 0.14%, 0.16%
+  and 0.13% (h = 1.5, 0.75, 0.38 mm), the largest differences in the first
+  10 μs; after 40 μs the difference is constant, −0.08%, −0.05% and −0.10%.
+  It does not decrease with h, and is consistent with the different J2
+  implementations and time steps of the two codes.
+- Without the projection (TETRA15, the volumetric response at each
+  quadrature point) the final radius at h = 1.5 mm is 7.1268 mm, 1.5% below
+  TET15-P1 in the same code: the volumetric locking the projection removes.
+- The composite-tetrahedron runs repeated alongside reproduce the recorded
+  histories of the study to 1.8e-7 relative (h = 0.75 mm) and exactly
+  (h = 0.38 mm).
+
+Cost on two AMD EPYC 9634 sockets, with MPI ranks:
+
+| run | ranks | steps | wall (s) | Δt at 1 μs | Δt at 80 μs |
+|---|---|---|---|---|---|
+| TET15-P1, h = 0.75 mm | 96 | 50 832 | 271 | 3.86e-9 | 1.34e-9 |
+| composite tetrahedron, h = 0.75 mm | 96 | 44 260 | 90 | 2.76e-8 | 1.13e-9 |
+| TET15-P1, h = 0.38 mm | 160 | 187 209 | 6 473 | 1.85e-9 | 3.38e-10 |
+| composite tetrahedron, h = 0.38 mm | 160 | 62 821 | 626 | 1.27e-8 | 8.54e-10 |
+
+Status of the prototype, as found in these runs:
+
+- The global (eigenvalue) estimate of the stable step diverged on the
+  TETRA15 meshes of the Taylor bar, with and without the projection, and
+  those runs stopped; the cause is not established.  With the element
+  estimate every run reached 80 μs.
+- The element estimate is safe but conservative: the critical step of
+  lumped-mass central differences is 1.00 times the smallest node distance
+  over the wave speed on the reference element, 0.85 on a regular
+  tetrahedron and 0.50 to 0.96 on distorted ones, hence the factor 0.5.  At
+  1 μs the step is 7 times smaller than the composite tetrahedron's, and at
+  h = 0.38 mm TET15-P1 takes 3 times as many steps; a sharper estimate is
+  the main means of reducing the explicit cost.
+- The shape functions equal those of Carina's `Tet{EnrichedLagrange,2}` to
+  1.4e-15 after the node relabelling, in the Exodus TETRA15 node order.
 
 ## Results
 

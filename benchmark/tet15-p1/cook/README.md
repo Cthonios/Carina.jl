@@ -141,6 +141,43 @@ own.  Reference values (mean u_y of the loaded face at full load):
 The pointwise TET10 run is the check that the other code reads the same
 problem: it should give the same values to the digits shown.
 
+### TET15-P1 in a prototype implementation in Sierra/SM
+
+A prototype implementation of TET15-P1 in Sierra/SM was run on the elastic
+case (ν = 0.4999) on these meshes (Rigel session, 2026-10-08; record
+`sierra-cook-results.tsv`), with three differences from the runs above:
+
+- the material is a neo-Hookean model with Carina's κ = 4.01e5 and
+  μ = 80.2, whose deviatoric part is Carina's and whose volumetric part,
+  p = κ(J − 1/J)/2, differs from Carina's at second order in J − 1, which is
+  negligible at |J − 1| of order 1e-4;
+- the traction is applied as consistent nodal forces, integrated with a
+  degree-5 rule on the faces (the prototype does not yet take a traction on
+  the 7-node faces of TETRA15), the same treatment as for the composite
+  tetrahedron's 6-node faces;
+- Newton with a preconditioned conjugate-gradient linear solver, relative
+  residual 1e-8, ten load steps.
+
+Mean u_y of the loaded face at full load (maximum in parentheses):
+
+| h (elements) | TET15-P1, Sierra/SM prototype | TET15-P1, Carina | TETRA15, Sierra/SM prototype | TETRA15, Carina | composite tet., Sierra/SM | composite tet., Albany-LCM |
+|---|---|---|---|---|---|---|
+| 8 (327) | 8.4139 (8.4663) | 8.4122 (8.4685) | 8.2278 | 8.2235 | 8.4289 (8.5700) | 8.4596 |
+| 4 (1 860) | 8.4555 (8.4976) | 8.4551 (8.4990) | 8.3511 | 8.3490 | 8.4530 (8.5410) | 8.4643 |
+| 2 (14 475) | 8.4722 (8.5081) | 8.4716 (8.5088) | 8.4315 | 8.4300 | did not converge | 8.4772 |
+
+TET15-P1 agrees between the two codes to 0.02% or better at every level,
+in the mean and in the maximum, and TETRA15 without the projection to 0.05%.
+The composite tetrahedron of Sierra/SM is within 0.4% of Albany's at h = 8
+and 4; at h = 2 its Newton iteration with this solver stalled at 0.8 of the
+load with ten steps and at 0.5 with twenty.  Wall time on two AMD EPYC 9634
+sockets (total Newton iterations over the ten steps): TET15-P1 46 s (113),
+45 s (120) and 153 s (511) at h = 8, 4 and 2 on 1, 8 and 32 MPI ranks;
+TETRA15 38 s (105), 65 s (112) and 294 s (119); the composite tetrahedron
+18 s (110) and 18 s (116) at h = 8 and 4.  At h = 2 one load step of
+TET15-P1 was accepted at a relative residual of 2.2e-6, the residual floor
+near 1e-6 that Carina also reaches on this problem.
+
 ## Running
 
 From the Carina root, with Cubit at `/usr/local/cubit/cubit` and Albany at
