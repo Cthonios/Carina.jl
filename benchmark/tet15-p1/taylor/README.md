@@ -224,11 +224,12 @@ dilatational wave speed.  Results (Rigel session, 2026-10-08; records
 - The composite-tetrahedron runs repeated alongside reproduce the recorded
   histories of the study to 1.8e-7 relative (h = 0.75 mm) and exactly
   (h = 0.38 mm).
-- Pressure at 12 μs (runs to 12 μs with the element stress written; one
-  value per element): largest value on the impact end 1.56, 1.62 and
-  1.63 GPa at h = 1.5, 0.75 and 0.38 mm (Carina 1.67, 1.58, 1.56), radius
-  of the impact face 5.447, 5.444 and 5.446 mm (Carina 5.452, 5.451,
-  5.453).  The renders of `render_pressure.py` at `range=-3e8:1.6e9` were
+- Pressure at 12 μs (runs to 12 μs with the element stress written, and
+  at h = 0.19 mm the 12 μs output of the run to 80 μs; one value per
+  element): largest value on the impact end 1.56, 1.62, 1.63 and 1.63 GPa
+  at h = 1.5, 0.75, 0.38 and 0.19 mm (Carina 1.67, 1.58, 1.56, 1.54),
+  radius of the impact face 5.447, 5.444, 5.446 and 5.452 mm (Carina 5.452,
+  5.451, 5.453, 5.457).  The renders of `render_pressure.py` at `range=-3e8:1.6e9` were
   made where the output is; `compose_pressure.py` takes the rows as its last
   argument, for the grid of the composite tetrahedron, Carina's TET15-P1 and
   the prototype.

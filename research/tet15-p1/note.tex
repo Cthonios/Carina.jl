@@ -3263,8 +3263,9 @@ step did not converge on these meshes in the prototype, and the element
 estimate, conservative by the factor $0.5$, makes its step $7$ times smaller
 than the composite tetrahedron's at $1~\mu$s. Its pressure at $12~\mu$s,
 one value per element, has the distribution of Carina's on every mesh, with
-a largest value of $1.56$, $1.62$ and $1.63$~GPa against Carina's $1.67$,
-$1.58$ and $1.56$~GPa (Figure~\ref{fig:taylorpressuresierra}). TET15-P1 took $271$ and
+a largest value of $1.56$, $1.62$, $1.63$ and $1.63$~GPa against Carina's $1.67$,
+$1.58$, $1.56$ and $1.54$~GPa at $h = 1.5$, $0.75$, $0.38$ and $0.19$~mm
+(Figure~\ref{fig:taylorpressuresierra}). TET15-P1 took $271$ and
 $6\,473$~s at $h = 0.75$ and $0.38$~mm on $96$ and $160$ MPI ranks, against
 $90$ and $626$~s for the composite tetrahedron
 (\code{benchmark/tet15-p1/taylor/README.md}).
@@ -3285,7 +3286,7 @@ difference of the two codes' radii at every level.}
 \caption{Taylor bar: pressure on the impact face at $12~\mu$s on the scale of
 Figure~\ref{fig:taylorpressure}, for the composite tetrahedron (Sierra/SM),
 TET15-P1 in Carina and TET15-P1 in a prototype implementation in Sierra/SM
-(one value per element; not run at $h = 0.19$~mm).}
+(one value per element).}
 \label{fig:taylorpressuresierra}
 \end{figure}
 
