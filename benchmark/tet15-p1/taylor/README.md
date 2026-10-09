@@ -247,8 +247,33 @@ Status of the prototype, as found in these runs:
 
 - The global (eigenvalue) estimate of the stable step diverged on the
   TETRA15 meshes of the Taylor bar, with and without the projection, and
-  those runs stopped; the cause is not established.  With the element
-  estimate every run reached 80 μs.
+  those runs stopped.  With the element estimate every run reached 80 μs.
+  The cause (Rigel, 2026-10-09): the estimate is a power iteration for the
+  largest eigenvalue of M⁻¹K, with K·x formed from the internal force under
+  a trial displacement of fixed size, 1e-5 in model length units (10 μm on
+  these meshes).  Once the iterate concentrates on a few nodes, that
+  displacement inverts quadrature points of the 15-node elements, whose
+  nodes are 0.1 to 0.4 mm apart; the estimate rises from 2.66e15 to
+  6.6e17 s⁻², and with the projection the run stops on a negative volume.
+  The same size makes the composite tetrahedron's first estimate 22% low at
+  h = 0.75 mm, a step 13% larger than intended.
+- A correction, not used in the runs above: the trial displacement is
+  1e-5 of the local element length, and the iteration stops only when the
+  remaining change extrapolated from successive changes is also below
+  5e-4.  With the global estimate at factor 0.8, against the element
+  estimate:
+
+  | case | final radius (mm), global / element | steps |
+  |---|---|---|
+  | TET15-P1, h = 1.5 mm, 80 μs | 7.2349 / 7.2344 | 19 077 / 24 480 (−22%) |
+  | TET15-P1, h = 0.75 mm, 80 μs | 7.2189 / 7.2186 | 43 389 / 50 832 (−15%) |
+  | TETRA15, h = 1.5 mm, 80 μs | 7.1274 / 7.1268 | 20 232 / 22 358 (−10%) |
+  | composite tetrahedron, h = 0.75 mm, 20 μs | 6.2511 / 6.2516 | 1 115 / 1 240 (−10%) |
+
+  The power iterations add 3 to 5% to the number of steps.  The critical
+  step 2/√λ, with λ from the converged global estimate, is 4.45, 6.24,
+  3.10, 1.24 and 1.21 times the element estimate at 0, 5, 20, 40 and 80 μs
+  at h = 1.5 mm, and 4.58, 2.10, 2.48, 1.25 and 1.24 times at h = 0.75 mm.
 - The element estimate is safe but conservative: the critical step of
   lumped-mass central differences is 1.00 times the smallest node distance
   over the wave speed on the reference element, 0.85 on a regular

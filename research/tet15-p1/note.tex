@@ -3258,10 +3258,25 @@ first $10~\mu$s, and after $40~\mu$s by a constant $0.05$ to $0.10\%$ that does
 not decrease with $h$ (Figure~\ref{fig:taylorsierra}); the two codes'
 $J_2$ implementations and time steps differ. Without the projection,
 TETRA15 at $h = 1.5$~mm ends at $7.1268$~mm, $1.5\%$ below, which is the
-volumetric locking the projection removes. The global estimate of the stable
-step did not converge on these meshes in the prototype, and the element
-estimate, conservative by the factor $0.5$, makes its step $7$ times smaller
-than the composite tetrahedron's at $1~\mu$s. Its pressure at $12~\mu$s,
+volumetric locking the projection removes. The element estimate,
+conservative by the factor $0.5$, makes the prototype's step $7$ times
+smaller than the composite tetrahedron's at $1~\mu$s; the critical step
+$2/\sqrt{\lambda}$, with $\lambda$ from a converged global estimate, is $2$ to
+$6$ times the element estimate before $20~\mu$s and $1.2$ times from
+$40~\mu$s on, at $h = 1.5$ and $0.75$~mm. The prototype's global estimate,
+a power iteration for the largest eigenvalue of $M^{-1}K$, diverged on these
+meshes. It forms $K\,x$ from the internal force under a trial displacement
+of fixed size, $10^{-5}$ in model length units ($10~\mu$m here); once the
+iterate concentrates on a few nodes, that displacement inverts quadrature
+points of the 15-node elements, whose nodes are $0.1$ to $0.4$~mm apart, and
+the estimate rises from $2.66\times10^{15}$ to $6.6\times10^{17}$~s$^{-2}$. The
+same size makes the composite tetrahedron's first estimate $22\%$ low at
+$h = 0.75$~mm. With the trial displacement set to $10^{-5}$ of the local
+element length, and the iteration stopped only when the remaining change
+extrapolated from successive changes is below $5\times10^{-4}$, the global
+estimate runs to $80~\mu$s with $22\%$ and $15\%$ fewer steps than the
+element estimate at $h = 1.5$ and $0.75$~mm and a final radius within
+$0.007\%$; the power iterations add $3$ to $5\%$ to the number of steps. Its pressure at $12~\mu$s,
 one value per element, has the distribution of Carina's on every mesh, with
 a largest value of $1.56$, $1.62$, $1.63$ and $1.63$~GPa against Carina's $1.67$,
 $1.58$, $1.56$ and $1.54$~GPa at $h = 1.5$, $0.75$, $0.38$ and $0.19$~mm
