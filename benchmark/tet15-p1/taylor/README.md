@@ -156,32 +156,18 @@ constants, the initial velocity on node set `all`, u_z = 0 on node set
 `impact`, the symmetry conditions on the quarter bar, output every 1 μs to
 80 μs.  The same `history.tsv` is extracted from its output.
 
-The files of those runs are in `sierra/`:
-
-- `ct-template.i`, the input deck: the copper of the problem with the
-  `fefp` J2 model of LAME (linear hardening), a total Lagrange section with
-  `formulation = composite_tet` and `vem exponent = 0.0` (as in the deck of
-  the paper), no bulk viscosity, the wall and the initial velocity, output
-  and a heartbeat every 1 μs.  `{MESH}`, `{OUT}`, `{HB}` and a `{VEM}` line
-  are substituted by the run script.
-- `rename-sidesets.jl`: IOSS rejects a node set and a side set of the same
-  name (`impact`), so Sierra reads a copy of the mesh with `_face` appended
-  to the side-set names; coordinates, connectivity and node sets are
-  unchanged.
-- `run-ct.sh <h> <ranks> [alpha0|off]`, from this directory: renames the
-  side sets, writes the deck, runs `adagio` on `<ranks>` MPI ranks, joins
-  the output with `epu`, and writes `sierra/ct-h<h>[-<variant>]/` with the
-  deck, the log and `sierra-ct-h<h>-history.tsv` (`history.jl`).  It
-  expects Sierra at `~/sierra/code/bin` and OpenMPI at `/usr/lib64/openmpi`;
-  the variants set the VEM stabilization parameter (`alpha0`) or both VEM
-  parameters (`off`) to zero.
+Sierra/SM cannot read a node set and a side set of the same name
+(`impact`), so it reads a copy of each mesh with `_face` appended to the
+side-set names, written by `sierra/rename-sidesets.jl`; coordinates,
+connectivity and node sets are unchanged.  The composite tetrahedron used
+the stabilization of the paper's runs, α = 0.1 with exponent 0, and no bulk
+viscosity.  The Sierra/SM input files are not part of this repository.
 
 TET15-P1 in Sierra/SM runs on `meshes/taylor-h<h>-tet15.g`, the same
 elements with the face and interior nodes that `Carina.tetra15_mesh` adds
 (Exodus TETRA15 node order), renamed by `rename-sidesets.jl` in the same
-way, with the section of the TET15-P1 implementation in place of
-`composite_tet`.  The node sets, side sets, material constants, loading and
-output are those of `ct-template.i`.
+way, with the node sets, side sets, material constants, loading and output
+of the composite-tetrahedron runs.
 
 Reference final values at 80 μs, from `data/` (radius of the impact face and
 length of the bar, mm):
