@@ -177,7 +177,7 @@ length of the bar, mm):
 | 1.5 | 7.2904, 24.439 at 41.6 μs (the run stopped) | 7.2399, 21.425 | 7.2344, 21.429 | 7.4415, 21.551 |
 | 0.75 | 7.2820, 21.476 | 7.2225, 21.421 | 7.2186, 21.423 | 7.4747, 21.533 |
 | 0.38 | 7.2453, 21.439 | 7.2255, 21.420 | 7.2181, 21.422 | — |
-| 0.19 | 7.2326, 21.430 | — | — | — |
+| 0.19 | 7.2326, 21.430 | — | 7.2217, 21.422 | — |
 
 The composite tetrahedron converges from above, with an extrapolated limit
 of 7.2259 mm (order 1.53 in h); TET15-P1 in Carina is within 0.05% of that
@@ -196,10 +196,16 @@ of 0.5; Rigel's correction of 2026-10-09).  Results (Rigel session, 2026-10-08; 
 `data/sierra-taylor-{tet15-p1,tetra15}-h<h>-history.tsv`; figure
 `plot.py`, `taylor-history-sierra.png`):
 
-- Final radius 7.2344, 7.2186 and 7.2181 mm at h = 1.5, 0.75 and 0.38 mm,
-  0.08%, 0.05% and 0.10% below Carina's TET15-P1 and within 0.12% of the
-  composite tetrahedron's extrapolated limit at every level; the length
-  agrees with Carina's to 0.02%.
+- Final radius 7.2344, 7.2186, 7.2181 and 7.2217 mm at h = 1.5, 0.75, 0.38
+  and 0.19 mm: 0.08%, 0.05% and 0.10% below Carina's TET15-P1 on the three
+  meshes Carina ran to 80 μs, and within 0.12% of the composite
+  tetrahedron's extrapolated limit at every level (0.06% below it at
+  h = 0.19 mm, where the composite tetrahedron is 0.09% above).  The
+  sequence is not monotone: the h = 0.19 mm value is 3.6 μm above the
+  h = 0.38 mm value.  The length agrees with Carina's to 0.02%, and is
+  21.422 mm at both finest levels.  The h = 0.19 mm run (2026-10-09 to 11)
+  took 598 681 steps; its kinetic plus internal energy at 80 μs is 239.683 J
+  against 239.686 J of external work.
 - Over 0 to 80 μs the radius differs from Carina's by at most 0.14%, 0.16%
   and 0.13% (h = 1.5, 0.75, 0.38 mm), the largest differences in the first
   10 μs; after 40 μs the difference is constant, −0.08%, −0.05% and −0.10%.
@@ -229,6 +235,11 @@ Cost on two AMD EPYC 9634 sockets, with MPI ranks:
 | composite tetrahedron, h = 0.75 mm | 96 | 44 260 | 90 | 2.76e-8 | 1.13e-9 |
 | TET15-P1, h = 0.38 mm | 160 | 187 209 | 6 473 | 1.85e-9 | 3.38e-10 |
 | composite tetrahedron, h = 0.38 mm | 160 | 62 821 | 626 | 1.27e-8 | 8.54e-10 |
+| TET15-P1, h = 0.19 mm | 168 | 598 681 | 256 030 | 8.41e-10 | 9.50e-11 |
+
+The h = 0.19 mm wall time, 71.1 h, is not a timing record: the run shared
+the machine with other work at the lowest scheduling priority.  Its step
+was nearly constant from about 47 μs on.
 
 Status of the prototype, as found in these runs:
 

@@ -6,7 +6,8 @@
 #   taylor-history-sierra.png  TET15-P1 in Carina and in a prototype
 #                           implementation in Sierra/SM: the radius against
 #                           time at h = 0.75 and 0.38 mm, with the composite
-#                           tetrahedron at h = 0.19 mm, and the relative
+#                           tetrahedron at h = 0.19 mm, the prototype at
+#                           h = 0.19 mm, and the relative
 #                           difference of the two codes' radii at every level
 # Usage: python3 plot.py [output directory]   (default: this directory)
 import os
@@ -84,7 +85,8 @@ for label, name, color, style, z in [
         ("TET15-P1, Carina, h = 0.75 mm", "tet15-p1-h0.75-history.tsv", "C0", "-", 3),
         ("TET15-P1, Carina, h = 0.38 mm", "tet15-p1-h0.38-history.tsv", "C0", ":", 3),
         ("TET15-P1, Sierra/SM prototype, h = 0.75 mm", "sierra-taylor-tet15-p1-h0.75-history.tsv", "C3", "--", 4),
-        ("TET15-P1, Sierra/SM prototype, h = 0.38 mm", "sierra-taylor-tet15-p1-h0.38-history.tsv", "C3", "-.", 4)]:
+        ("TET15-P1, Sierra/SM prototype, h = 0.38 mm", "sierra-taylor-tet15-p1-h0.38-history.tsv", "C3", "-.", 4),
+        ("TET15-P1, Sierra/SM prototype, h = 0.19 mm", "sierra-taylor-tet15-p1-h0.19-history.tsv", "C3", "-", 4)]:
     t, r, _ = history(name)
     ax.plot(t, r, color=color, linestyle=style, linewidth=1.6, zorder=z, label=label)
 ax.axhline(REFERENCE, color="0.4", linestyle="--", linewidth=1,

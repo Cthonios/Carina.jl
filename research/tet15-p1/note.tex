@@ -3252,9 +3252,12 @@ hardening, as in the composite-tetrahedron runs, and a stable step of
 $0.25$ times the smallest node distance over $c_p$ (the prototype's element
 estimate, $0.5$ times that distance over $c_p$, with an input factor of
 $0.5$). The
-final radius is $7.2344$, $7.2186$ and $7.2181$~mm at $h = 1.5$, $0.75$ and
-$0.38$~mm: $0.08\%$, $0.05\%$ and $0.10\%$ below Carina's, and within
-$0.12\%$ of the composite tetrahedron's extrapolated limit at every level.
+final radius is $7.2344$, $7.2186$, $7.2181$ and $7.2217$~mm at $h = 1.5$,
+$0.75$, $0.38$ and $0.19$~mm: $0.08\%$, $0.05\%$ and $0.10\%$ below
+Carina's on the three meshes Carina ran to $80~\mu$s, and within $0.12\%$
+of the composite tetrahedron's extrapolated limit at every level ($0.06\%$
+below it at $h = 0.19$~mm, where the sequence is not monotone: $3.6~\mu$m
+above the $h = 0.38$~mm value).
 Over the run the radii of the two codes differ by at most $0.16\%$, in the
 first $10~\mu$s, and after $40~\mu$s by a constant $0.05$ to $0.10\%$ that does
 not decrease with $h$ (Figure~\ref{fig:taylorsierra}); the two codes'
@@ -3287,7 +3290,8 @@ a largest value of $1.56$, $1.62$, $1.63$ and $1.63$~GPa against Carina's $1.67$
 $1.58$, $1.56$ and $1.54$~GPa at $h = 1.5$, $0.75$, $0.38$ and $0.19$~mm
 (Figure~\ref{fig:taylorpressuresierra}). TET15-P1 took $271$ and
 $6\,473$~s at $h = 0.75$ and $0.38$~mm on $96$ and $160$ MPI ranks, against
-$90$ and $626$~s for the composite tetrahedron
+$90$ and $626$~s for the composite tetrahedron, and $598\,681$ steps at
+$h = 0.19$~mm on $168$ ranks, $71$~h on a machine shared with other work
 (\code{benchmark/tet15-p1/taylor/README.md}).
 
 \begin{figure}[tbp]
@@ -3295,8 +3299,9 @@ $90$ and $626$~s for the composite tetrahedron
 \includegraphics[width=\textwidth]{figures/taylor-history-sierra.png}
 \caption{Taylor bar: TET15-P1 in Carina and in a prototype implementation
 in Sierra/SM on the same meshes. Left, the radius of the impact face against
-time, with the composite tetrahedron at $h = 0.19$~mm; right, the relative
-difference of the two codes' radii at every level.}
+time at $h = 0.75$ and $0.38$~mm in both codes, the prototype at
+$h = 0.19$~mm, and the composite tetrahedron at $h = 0.19$~mm; right, the
+relative difference of the two codes' radii on the three meshes both ran.}
 \label{fig:taylorsierra}
 \end{figure}
 
