@@ -3248,8 +3248,10 @@ $^{\dagger}$at 16 threads.
 \paragraph{A second implementation.} A prototype implementation of
 TET15-P1 in Sierra/SM was run on the same TETRA15 meshes with the
 finite-deformation $J_2$ model of the Sierra material library and linear
-hardening, as in the composite-tetrahedron runs, and an element estimate of
-the stable step, $0.5$ times the smallest node distance over $c_p$. The
+hardening, as in the composite-tetrahedron runs, and a stable step of
+$0.25$ times the smallest node distance over $c_p$ (the prototype's element
+estimate, $0.5$ times that distance over $c_p$, with an input factor of
+$0.5$). The
 final radius is $7.2344$, $7.2186$ and $7.2181$~mm at $h = 1.5$, $0.75$ and
 $0.38$~mm: $0.08\%$, $0.05\%$ and $0.10\%$ below Carina's, and within
 $0.12\%$ of the composite tetrahedron's extrapolated limit at every level.
@@ -3258,12 +3260,15 @@ first $10~\mu$s, and after $40~\mu$s by a constant $0.05$ to $0.10\%$ that does
 not decrease with $h$ (Figure~\ref{fig:taylorsierra}); the two codes'
 $J_2$ implementations and time steps differ. Without the projection,
 TETRA15 at $h = 1.5$~mm ends at $7.1268$~mm, $1.5\%$ below, which is the
-volumetric locking the projection removes. The element estimate,
-conservative by the factor $0.5$, makes the prototype's step $7$ times
-smaller than the composite tetrahedron's at $1~\mu$s; the critical step
-$2/\sqrt{\lambda}$, with $\lambda$ from a converged global estimate, is $2$ to
-$6$ times the element estimate before $20~\mu$s and $1.2$ times from
-$40~\mu$s on, at $h = 1.5$ and $0.75$~mm. The prototype's global estimate,
+volumetric locking the projection removes. The step used makes the
+prototype's step $7$ times smaller than the composite tetrahedron's at
+$1~\mu$s. The critical step $2/\sqrt{\lambda}$, with $\lambda$ from a
+converged global estimate, is $2.2$ to $3.1$ times the element estimate
+alone before $20~\mu$s and $0.60$ to $0.62$ times from $40~\mu$s on, at
+$h = 1.5$ and $0.75$~mm: the element estimate alone is not a bound on the
+deformed meshes, as Carina's node-distance estimate was not
+(\S\ref{sec:taylor}), and the runs were stable through the input factor,
+with a margin of about $1.2$. The prototype's global estimate,
 a power iteration for the largest eigenvalue of $M^{-1}K$, diverged on these
 meshes. It forms $K\,x$ from the internal force under a trial displacement
 of fixed size, $10^{-5}$ in model length units ($10~\mu$m here); once the

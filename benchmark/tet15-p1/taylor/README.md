@@ -188,9 +188,10 @@ limit at h = 0.75 and 0.38 mm.
 A prototype implementation of TET15-P1 in Sierra/SM was run on the same
 TETRA15 meshes (side sets renamed as above), with the finite-deformation J2
 model of the Sierra material library with linear hardening, as in the
-composite-tetrahedron runs, and no bulk viscosity; its time step was an
-element estimate, 0.5 times the smallest node distance over the
-dilatational wave speed.  Results (Rigel session, 2026-10-08; records
+composite-tetrahedron runs, and no bulk viscosity; its time step was 0.25
+times the smallest node distance over the dilatational wave speed (the
+prototype's element estimate, 0.5 times that distance, with an input factor
+of 0.5; Rigel's correction of 2026-10-09).  Results (Rigel session, 2026-10-08; records
 `data/sierra-taylor-results.tsv` and
 `data/sierra-taylor-{tet15-p1,tetra15}-h<h>-history.tsv`; figure
 `plot.py`, `taylor-history-sierra.png`):
@@ -257,16 +258,22 @@ Status of the prototype, as found in these runs:
   | composite tetrahedron, h = 0.75 mm, 20 μs | 6.2511 / 6.2516 | 1 115 / 1 240 (−10%) |
 
   The power iterations add 3 to 5% to the number of steps.  The critical
-  step 2/√λ, with λ from the converged global estimate, is 4.45, 6.24,
-  3.10, 1.24 and 1.21 times the element estimate at 0, 5, 20, 40 and 80 μs
-  at h = 1.5 mm, and 4.58, 2.10, 2.48, 1.25 and 1.24 times at h = 0.75 mm.
-- The element estimate is safe but conservative: the critical step of
-  lumped-mass central differences is 1.00 times the smallest node distance
-  over the wave speed on the reference element, 0.85 on a regular
-  tetrahedron and 0.50 to 0.96 on distorted ones, hence the factor 0.5.  At
-  1 μs the step is 7 times smaller than the composite tetrahedron's, and at
-  h = 0.38 mm TET15-P1 takes 3 times as many steps; a sharper estimate is
-  the main means of reducing the explicit cost.
+  step 2/√λ, with λ from the converged global estimate, is 2.22, 3.12,
+  1.55, 0.62 and 0.60 times the element estimate alone (0.5 times the
+  smallest node distance over the wave speed) at 0, 5, 20, 40 and 80 μs at
+  h = 1.5 mm, and 2.29, 1.05, 1.24, 0.62 and 0.62 times at h = 0.75 mm.
+- The element estimate alone is not safe on the deformed meshes.  Its
+  factor 0.5 comes from the critical step of lumped-mass central
+  differences, 1.00 times the smallest node distance over the wave speed on
+  the reference element, 0.85 on a regular tetrahedron and 0.50 to 0.96 on
+  moderately distorted ones; the impact distorts the elements further, and
+  from 40 μs on the critical step is 0.30 times that distance over the wave
+  speed, as Carina found for its node-distance estimate (0.29).  The runs
+  were stable through the additional input factor of 0.5, with a margin of
+  about 1.2 after 40 μs.  At 1 μs the step used is 7 times smaller than
+  the composite tetrahedron's, and at h = 0.38 mm TET15-P1 takes 3 times
+  as many steps; the global estimate or a sharper element estimate is the
+  means of reducing the explicit cost.
 - The shape functions equal those of Carina's `Tet{EnrichedLagrange,2}` to
   1.4e-15 after the node relabelling, in the Exodus TETRA15 node order.
 
