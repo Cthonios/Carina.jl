@@ -410,7 +410,7 @@ end
 # A Taylor bar run with 340 000 unknowns on an 8 GB RX 7600 stopped after
 # about 5 000 steps with a spurious BoundsError, the form a failed device
 # allocation takes.  The collector is therefore run every
-# `_DEVICE_GC_INTERVAL` steps on a device; a collection costs about a
+# `_DEVICE_GC_INTERVAL` steps on a device; a collection takes about a
 # millisecond, against 8.5 ms per step on that GPU.
 const _DEVICE_GC_INTERVAL = 100
 

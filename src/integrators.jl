@@ -833,8 +833,9 @@ end
 # Rayleigh quotient vᵀKv / vᵀM_L v approaches λ from below, so 2/√λ is
 # approached from above.
 #
-# One estimate costs two internal-force evaluations per iteration, 4 to 10
-# evaluations when warm-started, so it runs every `stable time step eigenvalue
+# One estimate takes two internal-force evaluations per iteration and 20 to
+# 40 iterations when warm-started (`_GLOBAL_DT_MIN_ITERS` to
+# `_GLOBAL_DT_MAX_WARM`), so it runs every `stable time step eigenvalue
 # interval` steps only.  In between, the step follows the element-length
 # estimate, recomputed every `stable time step interval` steps, scaled by the
 # ratio r = (2/√λ) / Δt_element of the last eigenvalue estimate:
@@ -842,10 +843,10 @@ end
 # geometry between estimates; r corrects their error, which on the Taylor bar
 # at h = 0.75 mm ranged from r = 1.14 in the undeformed mesh to r = 0.31 at
 # 40 μs.  CFL < 1 covers the change of r between estimates and the following.
-# K is the consistent tangent of the material at its
-# current state, which during plastic loading is softer than the elastic
-# stiffness the next step may unload onto: on the Taylor bar at h = 0.75 mm the
-# elastic λ was up to 1.22 times the plastic one (2/√λ up to 10% smaller).
+# K is the consistent tangent of the material at its current state, which
+# during plastic loading is softer than the elastic stiffness the next step
+# may unload onto: on the Taylor bar at h = 0.75 mm the elastic λ was up to
+# 1.22 times the plastic one (2/√λ up to 10% smaller).
 const _GLOBAL_DT_TOL      = 1.0e-4
 const _GLOBAL_DT_MIN_ITERS = 20
 const _GLOBAL_DT_MAX_COLD  = 60

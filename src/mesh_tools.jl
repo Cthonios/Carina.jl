@@ -31,8 +31,7 @@
 # Exodus TETRA10 edge order (node 4 + k lies on edge k).
 const _TET_EDGES = ((1, 2), (2, 3), (1, 3), (1, 4), (2, 4), (3, 4))
 
-# Exodus TETRA15 face nodes 11-14: the vertices of each face and the edges
-# (indices into _TET_EDGES) that bound it.
+# Exodus TETRA15 face nodes 11-14: the vertices of each face.
 const _TET15_FACES = ((1, 3, 2), (2, 3, 4), (1, 4, 3), (1, 2, 4))
 
 # Edge index of the edge between vertices a and b.
@@ -137,7 +136,6 @@ function _tetra15_mesh(exo, output::AbstractString)
 
     # Node sets: extend with the new edge and face nodes whose defining nodes
     # are all in the set.
-    nset_ids   = Exodus.read_ids(exo, Exodus.NodeSet)
     nset_names = Exodus.read_names(exo, Exodus.NodeSet)
     nsets      = Exodus.read_sets(exo, Exodus.NodeSet)
     new_nsets  = Vector{Vector{Int}}(undef, length(nsets))
@@ -163,7 +161,6 @@ function _tetra15_mesh(exo, output::AbstractString)
         new_nsets[i] = vcat(Int.(ns.nodes), sort!(collect(added)))
     end
 
-    sset_ids   = Exodus.read_ids(exo, Exodus.SideSet)
     sset_names = Exodus.read_names(exo, Exodus.SideSet)
     ssets      = Exodus.read_sets(exo, Exodus.SideSet)
 

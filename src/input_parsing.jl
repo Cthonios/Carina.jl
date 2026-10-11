@@ -757,17 +757,18 @@ function _parse_integrator(dict, asm, asm_cpu, p_cpu, controller, backend=KA.CPU
             error("Unknown time integrator.stable time step method = \"$method_str\". " *
                   "Supported: \"element\" (element lengths and the dilatational wave " *
                   "speed), \"global\" (largest eigenvalue of M⁻¹K).")
-        method_str == "global" && (CFL_val <= 0.0 || stable_dt_interval <= 0) &&
+        is_global = method_str == "global"
+        is_global && (CFL_val <= 0.0 || stable_dt_interval <= 0) &&
             error("stable time step method = \"global\" requires cfl > 0 and " *
                   "stable time step interval > 0.")
         eig_interval = Int(get(ti_dict, "stable time step eigenvalue interval",
                                20 * stable_dt_interval))
-        method_str == "global" && eig_interval < stable_dt_interval &&
+        is_global && eig_interval < stable_dt_interval &&
             error("stable time step eigenvalue interval = $eig_interval is smaller than " *
                   "stable time step interval = $stable_dt_interval.")
         eig_change = 0.0
         if haskey(ti_dict, "stable time step eigenvalue change")
-            method_str == "global" ||
+            is_global ||
                 error("stable time step eigenvalue change applies to stable time step " *
                       "method = \"global\" only.")
             eig_change = Float64(ti_dict["stable time step eigenvalue change"])

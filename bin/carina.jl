@@ -49,6 +49,11 @@ end
 
 const _USAGE = "Usage: carina <input.yaml> [--device cpu|cuda|rocm|auto] [--threads N]"
 
+function exit_with_usage()
+    println(stderr, _USAGE)
+    exit(1)
+end
+
 function parse_cli(args)
     yaml_file = nothing
     device    = nothing
@@ -61,14 +66,10 @@ function parse_cli(args)
             yaml_file = args[i]
             i += 1
         else
-            println(stderr, _USAGE)
-            exit(1)
+            exit_with_usage()
         end
     end
-    if yaml_file === nothing
-        println(stderr, _USAGE)
-        exit(1)
-    end
+    yaml_file === nothing && exit_with_usage()
     return yaml_file, device
 end
 

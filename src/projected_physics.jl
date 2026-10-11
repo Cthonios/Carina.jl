@@ -315,7 +315,6 @@ end
 # θ̄ and M⁻¹ of the element; `everted` is true if J ≤ 0 at any quadrature
 # point (the kernels then return NaN, as the per-quadrature-point kernels do).
 @inline function _project(physics::ProjectedSolidMechanics, ref_fe, x_el, u_el)
-    model = physics.constitutive_model
     PD = Val(projection_degree(physics))
     NC = _num_projection_functions(PD)
     T  = eltype(x_el)
@@ -515,6 +514,12 @@ _fp32_action_is_effective(::ProjectedSolidMechanics, props_el) = false
 # coupling term κ D M⁻¹ Dᵀ, whose entry k is (D M⁻¹)[k, :] ⋅ D[k, :].
 # --------------------------------------------------------------------------- #
 
+# The column of the entry of row k that the diagonal kernels compute: k for
+# the diagonal (column = 0), and column `column` of the 3×3 block of the node
+# of row k otherwise.
+@inline _block_entry_column(k, ::Val{0}) = k
+@inline _block_entry_column(k, ::Val{column}) where {column} = 3 * ((k - 1) ÷ 3) + column
+
 # One pass over the element for the diagonal kernels.  `column` is 0 for the
 # diagonal and K in 1:3 for column K of each node's 3×3 block.
 @inline function _projected_block_entries(
@@ -553,8 +558,7 @@ _fp32_action_is_effective(::ProjectedSolidMechanics, props_el) = false
     D_e = D
     E = D_e * Minv
     return SVector{NDOF, T}(ntuple(Val(NDOF)) do k
-        n = (k - 1) ÷ 3 + 1
-        kc = column == 0 ? k : 3 * (n - 1) + column
+        kc = _block_entry_column(k, Val(column))
         s = zero(T)
         for m in 1:NC
             s = s + E[k, m] * D_e[kc, m]
@@ -653,9 +657,9 @@ end
     return P̃, p̃, J̃, s, χ
 end
 
-# The first two passes of the residual: θ̄ and M⁻¹, the quantities of the
-# second pass at every quadrature point, p̄, whether the element is everted,
-# and the displacement used (zero where the element is everted).  Generic in
+# The first two passes of the residual: the quantities of the second pass at
+# every quadrature point, p̄, whether the element is everted, and the
+# displacement used (zero where the element is everted).  Generic in
 # the element type of `u_el`, so that it runs on dual numbers.
 @inline function _general_passes(physics::_GeneralProjected, ref_fe, x_el, dt, u_el, states,
                                  props_el, ::Val{scratch}) where {scratch}
@@ -677,7 +681,7 @@ end
         b̄ = b̄ + (JxW * p̃ / _θ1(vv, J̃)) * χ
     end
     p̄ = Minv * b̄
-    return pts, θ̄_safe, Minv, p̄, everted, u_safe
+    return pts, p̄, everted, u_safe
 end
 
 # The three passes of the residual.  Returns the stresses P_q of the third
@@ -686,8 +690,8 @@ end
                                    props_el, ::Val{scratch}) where {scratch}
     vv = volumetric_variable(physics)
     NQ = RFE.num_cell_quadrature_points(ref_fe)
-    pts, _, _, p̄, everted, u_safe = _general_passes(physics, ref_fe, x_el, dt, u_el, states,
-                                                     props_el, Val(scratch))
+    pts, p̄, everted, u_safe = _general_passes(physics, ref_fe, x_el, dt, u_el, states,
+                                               props_el, Val(scratch))
     # Pass 3: P_q = s P̃ − p̃ J̃ F⁻ᵀ + p̄_q θ'(J) J F⁻ᵀ.
     Ps = ntuple(Val(NQ)) do q
         P̃, p̃, J̃, s, χ = pts[q]
@@ -997,8 +1001,7 @@ end
         DMd = DM * d_t
         DMχ = DM * χ
         d = d + dq + SVector{NDOF, T}(ntuple(Val(NDOF)) do k
-            n = (k - 1) ÷ 3 + 1
-            kc = column == 0 ? k : 3 * (n - 1) + column
+            kc = _block_entry_column(k, Val(column))
             su[k] * DMa[kc] + sF[k] * DMd[kc] + sq[kc] * DMχ[k]
         end)
         Racc = Racc + w * (χ * q_t')
@@ -1007,8 +1010,7 @@ end
     d_q = d
     DMR = DM * Racc
     out = SVector{NDOF, T}(ntuple(Val(NDOF)) do k
-        n = (k - 1) ÷ 3 + 1
-        kc = column == 0 ? k : 3 * (n - 1) + column
+        kc = _block_entry_column(k, Val(column))
         acc = zero(T)
         for m in 1:NC
             acc = acc + DMR[k, m] * DM[kc, m]
@@ -1093,14 +1095,12 @@ end
     return _expand_mass(NN)
 end
 
-for kernel in (:lumped_mass,)
-    @eval @inline function FEC.$kernel(
-        physics::ProjectedSolidMechanics, ref_fe, x_el, t, dt, u_el, u_el_old,
-        states::FEC.ElementState, props_el,
-    )
-        return _sum_over_quadrature_points(FEC.$kernel, physics, ref_fe, x_el, t, dt,
-                                           u_el, u_el_old, states, props_el)
-    end
+@inline function FEC.lumped_mass(
+    physics::ProjectedSolidMechanics, ref_fe, x_el, t, dt, u_el, u_el_old,
+    states::FEC.ElementState, props_el,
+)
+    return _sum_over_quadrature_points(FEC.lumped_mass, physics, ref_fe, x_el, t, dt,
+                                       u_el, u_el_old, states, props_el)
 end
 
 @inline function _mass_action_element(physics::ProjectedSolidMechanics, ref_fe, x_el, v_el, props_el)
