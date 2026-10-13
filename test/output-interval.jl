@@ -1,4 +1,4 @@
-# Output on a time period: the top-level `output interval` key (seconds).
+# Output on a time period: the top-level `output interval` key (a time).
 #
 # The controller places its stops on the output grid and the integrator
 # subcycles between them with its own time step, trimming the last substep

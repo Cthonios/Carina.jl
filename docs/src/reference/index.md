@@ -154,3 +154,11 @@ casing mistake warns rather than passing unnoticed.
   validated — so a casing mistake warns.
 - **Quote function expressions** so YAML does not reinterpret them.
 - **Components are `x`, `y`, `z`** everywhere they appear.
+- **No system of units is assumed.** The mesh coordinates, the material
+  constants, the times, the function expressions, and every dimensional
+  tolerance must be given in one consistent system, and the output is in that
+  system. The examples use SI units (m, kg, s, N, Pa). Where a key has
+  dimensions, its table states them as a quantity (a force, a mass per volume,
+  a time), not as a unit. One dimensional key has a default: the solver
+  `absolute tolerance`, `1e-10`, a bound on the residual norm ‖R‖, which is a
+  force; when it is the active criterion, set it for the problem.

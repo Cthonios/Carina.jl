@@ -37,8 +37,8 @@ names defined in the Exodus mesh.
 
 ## Output interval and subcycling
 
-`output interval` sets how often results are written — a **time period in
-seconds**, independently of the integrator's time step. When omitted it equals
+`output interval` sets how often results are written — a **time period**, in the time
+units of the input, independently of the integrator's time step. When omitted it equals
 `time step`, giving one frame per step. It must be a positive number; zero,
 negative, or non-numeric values are a hard error.
 

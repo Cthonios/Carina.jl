@@ -215,7 +215,7 @@ function create_simulation(dict::Dict{String,Any}, basedir::String="";
     elseif raw_oi isa Real && !(raw_oi isa Bool) && Float64(raw_oi) > 0.0
         Float64(raw_oi)
     else
-        error("output interval must be a positive time period (seconds), " *
+        error("output interval must be a positive time period, " *
               "got $(repr(raw_oi)). The integrator subcycles with its own " *
               "time step between output stops.")
     end

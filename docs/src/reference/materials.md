@@ -139,7 +139,7 @@ expects; keys are matched case-insensitively.
 
 | Key | Required | Default | Notes |
 |---|---|---|---|
-| `density` | dynamic runs only | `0.0` | Mass density (kg/m³). |
+| `density` | dynamic runs only | `0.0` | Mass density (mass per volume). |
 
 `density` is read from the material dictionary and is **not** passed through
 the elastic-constant alias table; it is forwarded to ConstitutiveModels under

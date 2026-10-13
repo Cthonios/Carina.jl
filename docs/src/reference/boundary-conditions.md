@@ -70,8 +70,8 @@ The two are distinguished by which key you use.
 
 | Key | Required | Description |
 |---|---|---|
-| `side set` | one of the two | Surface traction, integrated over the face. Units: force per area (Pa). |
-| `node set` | one of the two | Point load, applied directly at each node in the set. Units: force (N). |
+| `side set` | one of the two | Surface traction, integrated over the face. Units: force per area. |
+| `node set` | one of the two | Point load, applied directly at each node in the set. Units: force. |
 | `component` | yes | `x`, `y`, or `z`. |
 | `function` | yes | Expression in `x`, `y`, `z`, `t`. |
 
