@@ -12,6 +12,8 @@ Carina introduces **GPU acceleration** via
 [KernelAbstractions.jl](https://github.com/JuliaGPU/KernelAbstractions.jl),
 targeting CPUs, NVIDIA GPUs, and AMD GPUs from a single code base.
 
+**Documentation:** [https://cthonios.github.io/Carina.jl/dev/](https://cthonios.github.io/Carina.jl/dev/)
+
 ---
 
 ## Simulations
@@ -75,7 +77,7 @@ Analytical solution: Mota, Tezaur & Phlipot, IJNME 123:5036–5071, 2022, eq. 28
 - **Exodus I/O** — mesh input and field output compatible with ParaView
 - **YAML-driven** problem setup — no recompilation needed
 
-See [Features](docs/src/features.md) for the full list, including what is
+See [Features](https://cthonios.github.io/Carina.jl/dev/features/) for the full list, including what is
 planned rather than implemented.
 
 ---
@@ -106,7 +108,7 @@ cd Carina.jl
 julia --project=. -e 'using Pkg; Pkg.instantiate()'
 ```
 
-Full details, including GPU setup, in [Installation](docs/src/installation.md).
+Full details, including GPU setup, in [Installation](https://cthonios.github.io/Carina.jl/dev/installation/).
 
 ---
 
@@ -133,7 +135,7 @@ The device may also be set in the YAML input:
 device: cpu     # default; also cuda, rocm, or auto
 ```
 
-See [Running Carina](docs/src/running.md).
+See [Running Carina](https://cthonios.github.io/Carina.jl/dev/running/).
 
 ---
 
@@ -151,21 +153,24 @@ julia --project=. test/runtests.jl 1 3 5     # by index
 
 ## Documentation
 
-Full documentation lives in [`docs/`](docs/) and is built with
-[Documenter.jl](https://documenter.juliadocs.org/):
+The documentation is published at [https://cthonios.github.io/Carina.jl/dev/](https://cthonios.github.io/Carina.jl/dev/). It is rebuilt
+from the latest commit on `main` and covers:
+
+- [Installation](https://cthonios.github.io/Carina.jl/dev/installation/)
+- [Running Carina](https://cthonios.github.io/Carina.jl/dev/running/)
+- [Features](https://cthonios.github.io/Carina.jl/dev/features/)
+- [Testing](https://cthonios.github.io/Carina.jl/dev/testing/)
+- [Examples](https://cthonios.github.io/Carina.jl/dev/examples/)
+- [Troubleshooting](https://cthonios.github.io/Carina.jl/dev/troubleshooting/)
+- **[Input File Reference](https://cthonios.github.io/Carina.jl/dev/reference/)**: every section and key of the YAML input file
+
+The sources are in [`docs/`](docs/) and are built with
+[Documenter.jl](https://documenter.juliadocs.org/). To build and view them locally:
 
 ```bash
 julia --project=docs -e 'using Pkg; Pkg.instantiate(); include("docs/make.jl")'
 # then open docs/build/index.html
 ```
-
-- [Installation](docs/src/installation.md)
-- [Running Carina](docs/src/running.md)
-- [Features](docs/src/features.md)
-- [Testing](docs/src/testing.md)
-- [Examples](docs/src/examples.md)
-- [Troubleshooting](docs/src/troubleshooting.md)
-- **[Input File Reference](docs/src/reference/index.md)** — every section and key of the YAML input file
 
 ---
 
