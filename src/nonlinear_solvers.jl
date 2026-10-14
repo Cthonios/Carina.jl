@@ -123,9 +123,10 @@ end
 function solve!(ns::NewtonSolver, ig, p)
     evaluate!(ig, p) || (ig.failed[] = true; return)
     setup_jacobian!(ig, p) || return
-    initial_norm = sqrt(sum(abs2, residual(ig)))
+    norm_R0 = sqrt(sum(abs2, residual(ig)))
+    initial_norm = _reference_residual(ig, norm_R0)
     _carina_logf(8, :solve, "Iter [0] |R| = %.2e : |r| = %.2e : %s",
-                 initial_norm, 1.0, _status_str(false))
+                 norm_R0, norm_R0 / initial_norm, _status_str(false))
     ops = _setup_linear_ops(ig, ns.linear_solver, p)
     status_test = _nonlinear_status_test[] !== nothing ? _nonlinear_status_test[] : _build_status_test(ns)
     reset!(status_test)

@@ -148,7 +148,7 @@ const _TI_COMMON_KEYS = Set([
 ])
 
 const _TI_TYPE_KEYS = Dict{String, Set{String}}(
-    "quasi static"       => Set(["initial equilibrium"]),
+    "quasi static"       => Set(["initial equilibrium", "predictor"]),
     "newmark"            => Set(["alpha", "beta", "gamma", "β", "γ"]),
     "central difference" => Set(["gamma", "γ", "CFL", "cfl",
                                  "stable time step interval", "stable time step method",
@@ -705,6 +705,12 @@ function _parse_integrator(dict, asm, asm_cpu, p_cpu, controller, backend=KA.CPU
         sol_dict, ls_dict = _read_solver_dicts(dict)
         min_dt, max_dt, dec, inc = _parse_adaptive_stepping(ti_dict, dt)
         init_eq = Bool(get(ti_dict, "initial equilibrium", false))
+        predictor = lowercase(strip(string(get(ti_dict, "predictor", "none"))))
+        predictor in ("none", "tangent") ||
+            error("Unknown time integrator.predictor = \"$predictor\". Supported: " *
+                  "\"none\" (the first iterate of a step is the previous solution with " *
+                  "the boundary values advanced), \"tangent\" (one solve with the tangent " *
+                  "of the converged state before Newton).")
 
         make_precond = () -> _compute_stiffness_jacobi_precond(asm_cpu, p_cpu, template)
         make_amg     = smoother -> (backend isa KA.CPU ?
@@ -713,13 +719,19 @@ function _parse_integrator(dict, asm, asm_cpu, p_cpu, controller, backend=KA.CPU
         ls = _parse_linear_solver(ls_dict, template, backend, make_precond, make_amg)
         ns = _parse_nonlinear_solver(sol_dict, ls; template=template, make_precond=make_precond)
         _parse_and_store_termination!(sol_dict)
+        predictor == "tangent" && !(ns isa NewtonSolver &&
+                                    ns.linear_solver isa Union{DirectLinearSolver,
+                                                               KrylovLinearSolver}) &&
+            error("time integrator.predictor = \"tangent\" requires solver.type = newton " *
+                  "with a direct or iterative linear solver.")
         return QuasiStaticIntegrator(ns, asm, template;
                                       time_step=dt,
                                       min_time_step=min_dt,
                                       max_time_step=max_dt,
                                       decrease_factor=dec,
                                       increase_factor=inc,
-                                      initial_equilibrium=init_eq)
+                                      initial_equilibrium=init_eq,
+                                      tangent_predictor=predictor == "tangent")
 
     elseif type_str in ("newmark", "newmark-beta", "newmark-beta")
         sol_dict, ls_dict = _read_solver_dicts(dict)

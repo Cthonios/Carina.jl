@@ -77,11 +77,13 @@ time integrator:
   final time:   1.0
   time step:    0.1
   initial equilibrium: false
+  predictor: none
 ```
 
 | Key | Default | Description |
 |---|---|---|
 | `initial equilibrium` | `false` | Solve `R = 0` at `t₀` before advancing. |
+| `predictor` | `none` | `none`: the first iterate of a step is the previous solution with the boundary values advanced. `tangent`: one solve with the tangent of the converged state before Newton, `K_n ΔU = −K_n [0; Δg]` with `Δg = g_{n+1} − g_n` the increment of the prescribed boundary values, which lifts a prescribed-displacement increment through the body instead of leaving it in the boundary elements (the right-hand side is the tangent action on the boundary increment, not the residual at the advanced boundary values, whose second-order part at κ/μ ≫ 1 gives an increment far from the lift); needed when a Dirichlet increment on a nearly incompressible material makes Newton fail from the first iterate (the punch benchmark at κ/μ = 10⁴). The predicted state is kept only if its residual is below the residual before the solve; otherwise Newton starts from the previous solution. The relative convergence test of the step uses the larger of the two residuals as its reference. Requires `solver.type: newton` with a direct or iterative linear solver. |
 
 If `initial equilibrium: true` and that first solve does not converge, the run
 aborts with `Failed to establish initial equilibrium.`

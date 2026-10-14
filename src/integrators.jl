@@ -128,6 +128,8 @@ mutable struct QuasiStaticIntegrator{NS <: AbstractNonlinearSolver, Asm, Vec}
     U_save           ::Vec   # rollback snapshot (used by LBFGS path)
     R_eff            ::Vec   # effective residual for Newton solve
     initial_equilibrium::Bool  # solve for equilibrium at t₀ before time stepping
+    tangent_predictor::Bool    # first iterate of a step from the converged tangent
+    predictor_residual::Float64  # |R| before the predictor's solve (NaN if none)
 end
 
 function QuasiStaticIntegrator(ns::NS, asm, template::Vec;
@@ -136,7 +138,8 @@ function QuasiStaticIntegrator(ns::NS, asm, template::Vec;
                                 max_time_step::Float64=0.0,
                                 decrease_factor::Float64=1.0,
                                 increase_factor::Float64=1.0,
-                                initial_equilibrium::Bool=false) where {NS, Vec}
+                                initial_equilibrium::Bool=false,
+                                tangent_predictor::Bool=false) where {NS, Vec}
     T  = eltype(template)
     mk() = (v = similar(template); fill!(v, zero(T)); v)
     U        = mk()
@@ -144,7 +147,7 @@ function QuasiStaticIntegrator(ns::NS, asm, template::Vec;
     R_eff    = mk()
     return QuasiStaticIntegrator(ns, asm, U, time_step, min_time_step, max_time_step,
                                   decrease_factor, increase_factor, Ref(false), U_save, R_eff,
-                                  initial_equilibrium)
+                                  initial_equilibrium, tangent_predictor, NaN)
 end
 
 # --------------------------------------------------------------------------- #
@@ -311,7 +314,113 @@ end
 
 # ---- predict! ----
 
+# Quasi-static predictor.  Without it the first iterate of a step is the
+# converged solution of the previous step with the boundary values advanced
+# to t_{n+1}, so a prescribed displacement increment Δg is taken entirely by
+# the elements at the boundary: a volumetric strain of order Δg/h, which on a
+# nearly incompressible material gives a pressure of order κ Δg/h and a
+# tangent at that state that does not lead back to equilibrium (the punch
+# benchmark at κ/μ = 1e4 fails in the first step at every h).  With
+# `predictor: tangent` the first iterate is U_n + ΔU with
+#     K_n ΔU = −K_n [0; Δg],
+# the response of the tangent K_n at the converged state to the boundary
+# increment Δg = g_{n+1} − g_n, exact for the linear part of the response.
+# The right-hand side is the tangent action on the vector with Δg in the
+# Dirichlet slots and zeros elsewhere, computed with the matrix-free action
+# kernel; it is not the residual at (U_n, g_{n+1}), although the two agree
+# to first order.  The difference matters: at (U_n, g_{n+1}) the boundary
+# layer carries a volumetric strain Δg/h, and the second-order part of the
+# volumetric force, of order κ (Δg/h)² h² per node, has a component outside
+# the range of the volumetric stiffness, which only μ resists; the solve
+# against that residual then gives displacements of order (Δg/h)(κ/μ) Δg,
+# 400 Δg on the punch at h = a/4, in place of the lift of order Δg (measured
+# 2026-10-14 on that mesh: |ΔU| = 0.348 m against 1.4e-3 m for the lift,
+# with the elastic and the J2 material and with TET15-P1 and TETRA15 alike).
+# Newton then continues from U_n + ΔU with the tangent at the current
+# iterate.
+# The Dirichlet values enter assembly from `p.dirichlet_bcs`, which evolve!
+# has advanced to t_{n+1}; the tangent at the converged state therefore
+# needs them at t_n for the Jacobian setup and for the matrix-free action
+# during the solve, after which they are advanced again.  The residual norm
+# at (U_n, g_{n+1}), before the predictor, is kept as the reference of the
+# relative convergence test, so that the test keeps its meaning of a
+# reduction relative to the step's load increment; against the residual
+# after the predictor it would demand an absolute level far below the one
+# reached without the predictor.  The predicted state is kept only if its
+# residual is below that reference; otherwise it is discarded and Newton
+# starts from the previous solution, as without the predictor.
 predict!(::QuasiStaticIntegrator, p) = nothing
+
+_reference_residual(ig, norm_R) = norm_R
+function _reference_residual(ig::QuasiStaticIntegrator, norm_R)
+    r = ig.predictor_residual
+    return isfinite(r) ? max(norm_R, r) : norm_R
+end
+
+function predict!(ig::QuasiStaticIntegrator{<:NewtonSolver{<:Union{DirectLinearSolver,
+                                                                     KrylovLinearSolver}}}, p)
+    ig.predictor_residual = NaN
+    ig.tangent_predictor || return nothing
+    ls  = ig.nonlinear_solver.linear_solver
+    bcs = p.dirichlet_bcs
+    X   = FEC.coordinates(p)
+    t1  = FEC.current_time(p)
+    t0  = t1 - FEC.time_step(p.times)
+    # The residual at the converged displacement with the boundary values at
+    # t_{n+1}: the reference of the convergence test and of the guard below.
+    # If it is not finite, any finite predicted state is kept.
+    norm_before = evaluate!(ig, p) ? sqrt(sum(abs2, residual(ig))) : Inf
+    # The boundary increment Δg = g(t_{n+1}) − g(t_n) in the Dirichlet slots
+    # of the scratch field of the action, zeros elsewhere.
+    vals1 = copy(bcs.bc_cache.vals)
+    FEC.update_bc_values!(bcs, X, t0)
+    @. bcs.bc_cache.vals = vals1 - bcs.bc_cache.vals
+    fill!(p.hvp_scratch_field.data, zero(eltype(p.hvp_scratch_field.data)))
+    FEC.update_field_dirichlet_bcs!(p.hvp_scratch_field, bcs)
+    # The tangent at the converged state: boundary values at t_n.
+    FEC.update_bc_values!(bcs, X, t0)
+    FEC._update_for_assembly!(p, ig.asm.dof, ig.U)
+    ok = setup_jacobian!(ig, p)
+    if ok
+        # Right-hand side −(K_n [0; Δg]) on the free unknowns.  The action
+        # writes only the free slots of the scratch field, so the Dirichlet
+        # slots keep Δg during this call; they are cleared afterwards so that
+        # the actions of the solve see zeros there.
+        R_eff = residual(ig)
+        _stiffness_matvec_qs!(R_eff, zero(ig.U), ig.asm, ig.U, p)
+        @. R_eff = -R_eff
+        fill!(p.hvp_scratch_field.data, zero(eltype(p.hvp_scratch_field.data)))
+        ops = _setup_linear_ops(ig, ls, p)
+        _reset_forcing!(ls)
+        ΔU, t_solve = _linear_solve!(ls, ig, p, ops)
+    else
+        fill!(p.hvp_scratch_field.data, zero(eltype(p.hvp_scratch_field.data)))
+    end
+    FEC.update_bc_values!(bcs, X, t1)
+    if !ok || ig.failed[]
+        ig.failed[] = false
+        FEC._update_for_assembly!(p, ig.asm.dof, ig.U)
+        _carina_logf(4, :solve, "Predictor: tangent solve failed, skipped")
+        return nothing
+    end
+    U_before = copy(ig.U)
+    apply_increment!(ig, ΔU, p)
+    # The predicted state is kept only if it reduces the residual; otherwise
+    # Newton starts from the previous solution.  One residual evaluation per
+    # step pays for this check.
+    norm_after = evaluate!(ig, p) ? sqrt(sum(abs2, residual(ig))) : NaN
+    kept = norm_after < norm_before
+    if kept
+        ig.predictor_residual = norm_before
+    else
+        copyto!(ig.U, U_before)
+        FEC._update_for_assembly!(p, ig.asm.dof, ig.U)
+    end
+    _carina_logf(8, :solve, "Predictor: |R| = %.2e → %.2e : |ΔU| = %.2e : t_solve = %.2fs : %s",
+                 norm_before, norm_after, sqrt(sum(abs2, ΔU)), t_solve,
+                 kept ? "[KEPT]" : "[REVERTED]")
+    return nothing
+end
 
 function predict!(ig::NewmarkIntegrator, p)
     (; β, γ, U, V, A, U_prev, V_prev, A_prev, U_pred, dU) = ig
