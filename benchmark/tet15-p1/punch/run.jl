@@ -20,7 +20,7 @@
 #   julia -t 32 --project=. benchmark/tet15-p1/punch/run.jl --h 4,8 --case A,B
 #        [--stages mesh,convert,run] [--elements tet15-p1,tetra15] [--device cpu|cuda]
 #        [--preconditioner amg|jacobi] [--first-step 1.220703125e-5] [--ti "key: value"]...
-#        [--constraints point|line]
+#        [--constraints point|line] [--forcing fixed|ew]
 # --h takes the divisors of a (h = a/4, a/8, a/16).  A CUDA run needs the
 # vendor package loaded in the calling session, as for the Taylor driver:
 #   julia --project=bin -e 'using CUDA; append!(ARGS, [...]);
@@ -57,6 +57,7 @@ const PRECOND = Ref("amg")
 const FIRST   = Ref(0.05 / 4096)
 const TI_EXTRA = String[]
 const CONSTRAINTS = Ref("point")   # point: axis-base, pin-base; line: axis, pin
+const FORCING = Ref("fixed")   # fixed | ew (Eisenstat-Walker, floor = tolerance)
 const SA = Ref("axis-base")
 const SP = Ref("pin-base")
 
@@ -149,7 +150,7 @@ solver:
     type: iterative
     tolerance: 1.0e-8
     maximum iterations: 1000
-    preconditioner:
+$(FORCING[] == "ew" ? "    forcing term:\n      type: eisenstat-walker\n" : "")    preconditioner:
       type: $(PRECOND[])
 """
 end
@@ -188,6 +189,18 @@ function count_log(logfile)
         m === nothing || (cg += parse(Int, m[1]))
     end
     return newton, cg
+end
+
+# CG solves in the log, and those that ended at the iteration cap unconverged.
+function count_capped(logfile)
+    solves = capped = 0
+    isfile(logfile) || return (0, 0)
+    for line in eachline(logfile)
+        occursin(r"CG: \d+ iters", line) || continue
+        solves += 1
+        occursin("[STALL]", line) && (capped += 1)
+    end
+    return solves, capped
 end
 
 function run_case(element, case, d)
@@ -248,6 +261,7 @@ function run_case(element, case, d)
         println(io, "run\t$tag")
         println(io, "host\t$(gethostname())")
         println(io, "device\t$(DEVICE[])\nthreads\t$(Threads.nthreads())")
+        println(io, "forcing\t$(FORCING[])")
         println(io, "preconditioner\t$(PRECOND[])\nfirst step\t$(FIRST[])\nconstraints\t$(CONSTRAINTS[])")
         println(io, "status\t$status\nwall_s\t$(round(wall; digits = 1))")
         newton, cg = count_log(first(splitext(deckfile)) * ".log")
@@ -255,7 +269,10 @@ function run_case(element, case, d)
                  count(l -> occursin("[ADVANCE]", l), eachline(first(splitext(deckfile)) * ".log")) : 0
         cuts = isfile(first(splitext(deckfile)) * ".log") ?
                count(l -> occursin("[RECOVER]", l), eachline(first(splitext(deckfile)) * ".log")) : 0
+        solves, capped = count_capped(first(splitext(deckfile)) * ".log")
         println(io, "time steps\t$nsteps\nfailed steps (cut)\t$cuts\nnewton iterations\t$newton\ncg iterations\t$cg")
+        @printf(io, "cg solves\t%d\ncg solves at the cap\t%d (%.1f%%)\n", solves, capped,
+                solves == 0 ? 0.0 : 100 * capped / solves)
         println(io, "output_step\tt\tforce_N\twall_s\tnewton_cumulative\tcg_cumulative")
         for r in rows
             @printf(io, "%d\t%.3f\t%.6e\t%.1f\t%d\t%d\n", r[1], r[2] / 2.0e-4, r[3], r[7], r[8], r[9])
@@ -276,6 +293,8 @@ function parse_args(args)
             PRECOND[] = args[i + 1]
         elseif a == "--first-step"
             FIRST[] = parse(Float64, args[i + 1])
+        elseif a == "--forcing"
+            FORCING[] = args[i + 1]
         elseif a == "--constraints"
             CONSTRAINTS[] = args[i + 1]
         elseif a == "--ti"
