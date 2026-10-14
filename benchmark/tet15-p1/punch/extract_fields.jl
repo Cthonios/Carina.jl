@@ -25,15 +25,18 @@
 #                    and 20
 #   axisymmetry.tsv  the nodes of the top face (z = H in the reference
 #                    configuration), binned by reference radius in bins of
-#                    width a/8: per bin the count, the mean and the standard
-#                    deviation over the angle of u_z at step 20
+#                    width a/8, closed on the right (r_lo, r_hi], so that
+#                    the footprint circle r = a ends a bin: per bin the
+#                    count, the mean and the standard deviation over the
+#                    angle of u_z at step 20
 #   profile.tsv      at step 20, the elements with a vertex on the axis
 #                    (r = 0), by the z of their centroid, and the elements
 #                    with a face on the top face, by the r of their centroid:
 #                    line (axis | top), element id, r, z, p, eqps
-#   reactions.tsv    Sierra/SM only: the reactions at the nodes of the point
-#                    constraints (node sets axis-base and pin-base) and the
-#                    punch force at each step
+#   reactions.tsv    Sierra/SM only: the reactions summed over the node sets of
+#                    the rigid-body constraints (axis-base and pin-base, or
+#                    axis and pin with PUNCH_CONSTRAINTS=line) and the punch
+#                    force at each step
 
 using Exodus
 using LinearAlgebra
@@ -51,8 +54,11 @@ function element_values(exo, k, block, enames)
         p = -(read_values(exo, ElementVariable, k, block, "stress_xx") .+
               read_values(exo, ElementVariable, k, block, "stress_yy") .+
               read_values(exo, ElementVariable, k, block, "stress_zz")) ./ 3
-        e = read_values(exo, ElementVariable, k, block, "eqps")
-        return [Vector{Float64}(p)], [Vector{Float64}(e)]
+        # eqps is written per integration point (eqps_1, ...) when the section
+        # has several; the element value is their mean.
+        eq = any(==("eqps"), enames) ? ["eqps"] : filter(n -> occursin(r"^eqps_\d+$", n), enames)
+        e = sum(Vector{Float64}(read_values(exo, ElementVariable, k, block, n)) for n in eq) ./ length(eq)
+        return [Vector{Float64}(p)], [e]
     end
     nq = count(startswith("sigma_xx_"), enames)                      # Carina
     nq > 0 || error("no stress output")
@@ -163,7 +169,7 @@ function main(file, outdir, prefix, forcefile = "")
     nb = 32                                                   # 4a / (a/8)
     bins = [Float64[] for _ in 1:nb]
     for n in top
-        b = min(nb, floor(Int, hypot(X[1, n], X[2, n]) / (A / 8)) + 1)
+        b = clamp(ceil(Int, hypot(X[1, n], X[2, n]) / (A / 8) - 1.0e-9), 1, nb)   # bins (r_lo, r_hi]
         push!(bins[b], uz[n])
     end
     open(out("axisymmetry.tsv"), "w") do io
@@ -188,14 +194,19 @@ function main(file, outdir, prefix, forcefile = "")
                 @printf(io, "%d\t%.6e\t%.9e\n", s, 2.0e-4 * 0.05s, -f)
             end
         end
-        if all(haskey(nsets, s) for s in ("axis-base", "pin-base")) && "reaction_x" in nnames
-            na, np = Int(nsets["axis-base"].nodes[1]), Int(nsets["pin-base"].nodes[1])
+        if "reaction_x" in nnames
+            # The rigid-body constraints: the point sets axis-base (x, y) and
+            # pin-base (y), or the line sets axis (x, y) and pin (y) when the run
+            # used those (files tagged -lc); the reactions are summed over each set.
+            lc = get(ENV, "PUNCH_CONSTRAINTS", "point") == "line"
+            sa, sp = lc ? ("axis", "pin") : ("axis-base", "pin-base")
+            na, np = Int.(nsets[sa].nodes), Int.(nsets[sp].nodes)
             open(out("reactions.tsv"), "w") do io
-                println(io, "step\taxis_base_rx\taxis_base_ry\tpin_base_ry\tpunch_force")
+                println(io, "step\t$(sa)_rx\t$(sa)_ry\t$(sp)_ry\tpunch_force")
                 for (s, k, f) in zip(0:20, steps, F)
                     rx = read_values(exo, NodalVariable, k, "reaction_x")
                     ry = read_values(exo, NodalVariable, k, "reaction_y")
-                    @printf(io, "%d\t%.6e\t%.6e\t%.6e\t%.6e\n", s, rx[na], ry[na], ry[np], -f)
+                    @printf(io, "%d\t%.6e\t%.6e\t%.6e\t%.6e\n", s, sum(rx[na]), sum(ry[na]), sum(ry[np]), -f)
                 end
             end
         end

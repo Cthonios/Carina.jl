@@ -20,6 +20,7 @@
 #   julia -t 32 --project=. benchmark/tet15-p1/punch/run.jl --h 4,8 --case A,B
 #        [--stages mesh,convert,run] [--elements tet15-p1,tetra15] [--device cpu|cuda]
 #        [--preconditioner amg|jacobi] [--first-step 1.220703125e-5] [--ti "key: value"]...
+#        [--constraints point|line]
 # --h takes the divisors of a (h = a/4, a/8, a/16).  A CUDA run needs the
 # vendor package loaded in the calling session, as for the Taylor driver:
 #   julia --project=bin -e 'using CUDA; append!(ARGS, [...]);
@@ -55,6 +56,9 @@ const DEVICE  = Ref("cpu")
 const PRECOND = Ref("amg")
 const FIRST   = Ref(0.05 / 4096)
 const TI_EXTRA = String[]
+const CONSTRAINTS = Ref("point")   # point: axis-base, pin-base; line: axis, pin
+const SA = Ref("axis-base")
+const SP = Ref("pin-base")
 
 include(joinpath(DIR, "..", "taylor", "backend.jl"))
 
@@ -121,13 +125,13 @@ $(extra)boundary conditions:
     - node set: base
       component: z
       function: "0.0"
-    - node set: axis-base
+    - node set: $(SA[])
       component: x
       function: "0.0"
-    - node set: axis-base
+    - node set: $(SA[])
       component: y
       function: "0.0"
-    - node set: pin-base
+    - node set: $(SP[])
       component: y
       function: "0.0"
     - node set: punch
@@ -187,13 +191,14 @@ function count_log(logfile)
 end
 
 function run_case(element, case, d)
-    tag = "$element-$case-h$d" * (DEVICE[] == "cpu" ? "" : "-" * DEVICE[])
+    SA[], SP[] = CONSTRAINTS[] == "line" ? ("axis", "pin") : ("axis-base", "pin-base")
+    tag = "$element-$case-h$d" * (DEVICE[] == "cpu" ? "" : "-" * DEVICE[]) * (CONSTRAINTS[] == "line" ? "-lc" : "")
     dir = joinpath(RUNS, tag)
     mkpath(dir)
     deckfile = joinpath(dir, "punch.yaml")
     open(io -> write(io, deck(element, case, d, joinpath(dir, "punch.e"))), deckfile, "w")
     punch = node_set(tet15_file(d), "punch")
-    na, np = node_set(tet15_file(d), "axis-base")[1], node_set(tet15_file(d), "pin-base")[1]
+    na, np = node_set(tet15_file(d), SA[]), node_set(tet15_file(d), SP[])
     backend = backend_of(DEVICE[])
     Carina.open_log_file(deckfile)
     t0 = time()
@@ -214,7 +219,7 @@ function run_case(element, case, d)
             F = Base.invokelatest(internal_force, sim)
             fz = sum(F[3, n] for n in punch)
             newton, cg = count_log(first(splitext(deckfile)) * ".log")
-            push!(rows, (k, 2.0e-4 * controller.time, -fz, F[1, na], F[2, na], F[2, np],
+            push!(rows, (k, 2.0e-4 * controller.time, -fz, sum(F[1, na]), sum(F[2, na]), sum(F[2, np]),
                          time() - tk, newton, cg))
             @printf("%s step %2d t = %.3f force %.6e N  wall %.1f s\n", tag, k, controller.time, -fz, time() - tk)
         end
@@ -234,7 +239,7 @@ function run_case(element, case, d)
         end
     end
     open(joinpath(dir, "reactions.tsv"), "w") do io
-        println(io, "step\taxis_base_rx\taxis_base_ry\tpin_base_ry\tpunch_force")
+        println(io, "step\t$(SA[])_rx\t$(SA[])_ry\t$(SP[])_ry\tpunch_force")
         for r in rows
             @printf(io, "%d\t%.6e\t%.6e\t%.6e\t%.6e\n", r[1], r[4], r[5], r[6], r[3])
         end
@@ -243,7 +248,7 @@ function run_case(element, case, d)
         println(io, "run\t$tag")
         println(io, "host\t$(gethostname())")
         println(io, "device\t$(DEVICE[])\nthreads\t$(Threads.nthreads())")
-        println(io, "preconditioner\t$(PRECOND[])\nfirst step\t$(FIRST[])")
+        println(io, "preconditioner\t$(PRECOND[])\nfirst step\t$(FIRST[])\nconstraints\t$(CONSTRAINTS[])")
         println(io, "status\t$status\nwall_s\t$(round(wall; digits = 1))")
         newton, cg = count_log(first(splitext(deckfile)) * ".log")
         nsteps = isfile(first(splitext(deckfile)) * ".log") ?
@@ -271,6 +276,8 @@ function parse_args(args)
             PRECOND[] = args[i + 1]
         elseif a == "--first-step"
             FIRST[] = parse(Float64, args[i + 1])
+        elseif a == "--constraints"
+            CONSTRAINTS[] = args[i + 1]
         elseif a == "--ti"
             push!(TI_EXTRA, args[i + 1])
         elseif haskey(opts, a)
