@@ -1,0 +1,4 @@
+level	h_mm	coarse_size_mm	tet4_elements	tet4_nodes	tet10_nodes	tet15_nodes	min_shape_q	mean_shape_q	footprint_faces	punch_nodes_tet15
+a/4	0.25	1.0	24635	4465	34194	108729	0.599	0.874	104	337
+a/8	0.125	0.5	156450	27245	213014	684439	0.585	0.888	476	1481
+a/16	0.0625	0.25	1110516	189887	1498075	4837409	0.570	0.893	1900	5801
