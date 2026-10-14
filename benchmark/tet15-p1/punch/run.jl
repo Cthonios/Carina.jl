@@ -17,7 +17,7 @@
 #   tetra15    TETRA15, no projection (locks)
 #
 # Time stepping (README, both codes): Δt = 0.05/4096 at the start, doubled
-# after each converged step up to the maximum step of the level, 0.0125 (4/d)
+# after each converged step up to the maximum step of the level, 0.00625 (4/d)
 # for h = a/d; a failed step is halved, down to the maximum step / 1024 (ten
 # halvings); after the first cut of a run the step regrows by 1.5 instead of
 # 2.  The output times t = 0.05k are stops that every step lands on.  Carina's
@@ -74,7 +74,7 @@ include(joinpath(DIR, "..", "taylor", "backend.jl"))
 tet4_file(d)  = joinpath(MESHES, "punch-h$d-tet4.g")
 tet10_file(d) = joinpath(MESHES, "punch-h$d-tet10.g")
 tet15_file(d) = joinpath(MESHES, "punch-h$d-tet15.g")
-max_step(d)   = 0.0125 * 4 / d
+max_step(d)   = 0.00625 * 4 / d
 
 function mesh(d)
     mkpath(MESHES)

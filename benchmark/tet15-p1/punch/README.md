@@ -75,7 +75,7 @@ tangent`) starts each step from the response of the tangent at the converged
 state to the boundary increment, so that the error of the first iterate is
 of second order and the admissible step is set by (Δd/h)² κ/μ below about 1.
 Both codes therefore start at Δt = 0.05/4096 and double the step after each
-converged step up to the maximum step of the level, 0.0125 at a/4, halved per
+converged step up to the maximum step of the level, 0.00625 at a/4, halved per
 refinement level; a failed step is halved (at most ten times), and after a
 cut the step regrows by 1.5.  The 20 output times are stops that every step
 lands on.
