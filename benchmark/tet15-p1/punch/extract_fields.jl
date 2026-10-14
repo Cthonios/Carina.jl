@@ -1,5 +1,5 @@
 # Results of one punch run, from its Exodus output, in the files of the
-# benchmark (gist README of 2026-10-14, "What to report").
+# benchmark, quarter model (gist README of 2026-10-14 22:52Z, "What to report").
 #
 #   julia --project=. benchmark/tet15-p1/punch/extract_fields.jl <results.e> <outdir> <prefix> [force.tsv]
 #
@@ -9,10 +9,12 @@
 # reaction and the global punch_force).  The output times are t = 0, 0.05,
 # ..., 1 (depth d = 0.2a t); step k is the frame at t = 0.05k.  Files written
 # to <outdir>, each named <prefix>-<file>:
-#   force.tsv        step, depth (m), punch force (N, positive in compression):
-#                    from the global punch_force of Sierra/SM (the sum of the
-#                    z reactions on node set punch), or copied from the force
-#                    file of the Carina driver (the optional fourth argument)
+#   force.tsv        step, depth (m), full punch force (N, positive in
+#                    compression), four times the quarter's: from the global
+#                    punch_force of Sierra/SM (the sum of the z reactions on
+#                    node set punch of the quarter) times 4, or copied from
+#                    the force file of the Carina driver, which applies the
+#                    factor itself (the optional fourth argument)
 #   fields-s10.csv,  per element: id, reference centroid x, y, z, pressure
 #   fields-s20.csv   p = -tr(σ)/3 and equivalent plastic strain eqps, the
 #                    element means; for Carina also the 14 quadrature-point
@@ -28,15 +30,12 @@
 #                    width a/8, closed on the right (r_lo, r_hi], so that
 #                    the footprint circle r = a ends a bin: per bin the
 #                    count, the mean and the standard deviation over the
-#                    angle of u_z at step 20
+#                    angle in [0, π/2] of u_z at step 20
 #   profile.tsv      at step 20, the elements with a vertex on the axis
 #                    (r = 0), by the z of their centroid, and the elements
-#                    with a face on the top face, by the r of their centroid:
-#                    line (axis | top), element id, r, z, p, eqps
-#   reactions.tsv    Sierra/SM only: the reactions summed over the node sets of
-#                    the rigid-body constraints (axis-base and pin-base, or
-#                    axis and pin with PUNCH_CONSTRAINTS=line) and the punch
-#                    force at each step
+#                    with a face on the top face and a vertex on the symmetry
+#                    plane y = 0 (node set symm-y), by the r of their
+#                    centroid: line (axis | top), element id, r, z, p, eqps
 
 using Exodus
 using LinearAlgebra
@@ -147,7 +146,8 @@ function main(file, outdir, prefix, forcefile = "")
             onaxis = Set(Int.(nsets["axis"].nodes))
             axis_el = [e for e in 1:ne if any(conn[i, e] in onaxis for i in 1:4)]
             sort!(axis_el; by = e -> C[3, e])
-            top_el = sort!(collect(topfaces); by = e -> rc[e])
+            onsymy = Set(Int.(nsets["symm-y"].nodes))
+            top_el = sort!([e for e in topfaces if any(conn[i, e] in onsymy for i in 1:4)]; by = e -> rc[e])
             open(out("profile.tsv"), "w") do io
                 println(io, "line\tid\tr\tz\tp\teqps")
                 for (line, els) in (("axis", axis_el), ("top", top_el)), e in els
@@ -189,25 +189,10 @@ function main(file, outdir, prefix, forcefile = "")
         F = [read_values(exo, GlobalVariable, k, 1, 1)[findfirst(==("punch_force"), read_names(exo, GlobalVariable))]
              for k in steps]
         open(out("force.tsv"), "w") do io
+            println(io, "# full punch force: 4 x the sum of the z reactions on the footprint nodes of the quarter")
             println(io, "step\tdepth\tforce")
             for (s, f) in zip(0:20, F)
-                @printf(io, "%d\t%.6e\t%.9e\n", s, 2.0e-4 * 0.05s, -f)
-            end
-        end
-        if "reaction_x" in nnames
-            # The rigid-body constraints: the point sets axis-base (x, y) and
-            # pin-base (y), or the line sets axis (x, y) and pin (y) when the run
-            # used those (files tagged -lc); the reactions are summed over each set.
-            lc = get(ENV, "PUNCH_CONSTRAINTS", "point") == "line"
-            sa, sp = lc ? ("axis", "pin") : ("axis-base", "pin-base")
-            na, np = Int.(nsets[sa].nodes), Int.(nsets[sp].nodes)
-            open(out("reactions.tsv"), "w") do io
-                println(io, "step\t$(sa)_rx\t$(sa)_ry\t$(sp)_ry\tpunch_force")
-                for (s, k, f) in zip(0:20, steps, F)
-                    rx = read_values(exo, NodalVariable, k, "reaction_x")
-                    ry = read_values(exo, NodalVariable, k, "reaction_y")
-                    @printf(io, "%d\t%.6e\t%.6e\t%.6e\t%.6e\n", s, sum(rx[na]), sum(ry[na]), sum(ry[np]), -f)
-                end
+                @printf(io, "%d\t%.6e\t%.9e\n", s, 2.0e-4 * 0.05s, -4f)
             end
         end
     end

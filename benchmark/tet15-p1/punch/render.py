@@ -8,9 +8,11 @@
 # Sierra/SM (stress_xx, ...) or the mean over the quadrature points of Carina
 # (sigma_xx_<q>, ...), and eqps or the mean of eqps_<q>.  Writes, for each of
 # p and eqps:
-#   <prefix>-<q>-meridian.png  the meridian plane y = 0 of the deformed body,
-#                              the region |x| <= 2a, z >= H - 2a, seen along +y
-#   <prefix>-<q>-top.png       the deformed top face, r <= 2a, seen along -z
+#   <prefix>-<q>-meridian.png  the symmetry face y = 0 of the deformed quarter,
+#                              the region 0 <= x <= 2a, z >= H - 2a, seen
+#                              along +y
+#   <prefix>-<q>-top.png       the deformed top face, 0 <= x, y <= 2a, seen
+#                              along -z
 # with the element edges of the cut and of the face in black, the ParaView
 # color map Rainbow Uniform between <min> and <max> (values beyond saturate),
 # 1400 px wide.
@@ -48,9 +50,10 @@ e_expr = "(" + "+".join(eq) + ")/%d" % len(eq)
 calc = Calculator(Input=reader, AttributeType="Cell Data", ResultArrayName="p", Function=p_expr)
 calc = Calculator(Input=calc, AttributeType="Cell Data", ResultArrayName="eqps_mean", Function=e_expr)
 
-# The plane y = 0 is a mesh plane (the meshes are cut there), so the half
-# y >= 0 is clipped exactly in the reference configuration and then moved to
-# the deformed one; seen from y < 0 it shows the element faces on the plane.
+# The plane y = 0 is the symmetry face of the quarter; the clip at y = 0 in
+# the reference configuration keeps the whole quarter (and would keep the half
+# y >= 0 of a full mesh), and seen from y < 0 it shows the element faces on
+# the plane.
 pv = list(reader.PointVariables.Available)
 disp = "displacement" if "displacement" in pv else [n for n in pv if n.lower().startswith("disp")][0]
 clip = Clip(Input=calc, ClipType="Plane")
@@ -96,7 +99,7 @@ def shot(source, array, rng, focal, position, up, scale, size, out):
 
 for q, array in (("p", "p"), ("eqps", "eqps_mean")):
     rng = ranges[q]
-    shot(clip, array, rng, [0.0, 0.0, H - 0.95 * A], [0.0, -1.0, H - 0.95 * A], [0.0, 0.0, 1.0],
-         1.05 * A, [1400, 700], "%s-%s-meridian.png" % (prefix, q))
-    shot(surf, array, rng, [0.0, 0.0, H], [0.0, 0.0, H + 1.0], [0.0, 1.0, 0.0],
-         1.05 * 2 * A, [1400, 1400], "%s-%s-top.png" % (prefix, q))
+    shot(clip, array, rng, [A, 0.0, H - 0.95 * A], [A, -1.0, H - 0.95 * A], [0.0, 0.0, 1.0],
+         1.05 * A, [1400, 1400], "%s-%s-meridian.png" % (prefix, q))
+    shot(surf, array, rng, [A, A, H], [A, A, H + 1.0], [0.0, 1.0, 0.0],
+         1.05 * A, [1400, 1400], "%s-%s-top.png" % (prefix, q))

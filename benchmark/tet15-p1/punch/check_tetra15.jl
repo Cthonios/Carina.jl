@@ -1,7 +1,8 @@
 # Check of a punch TETRA15 mesh (m): the vertex, edge and face nodes of the
 # footprint faces (side set "punch") lie on the top plane z = H, the nodes of
 # node set "punch" lie in r <= a, and the edge nodes of the footprint circle
-# lie on the circle r = a.  Prints the largest deviations and the counts.
+# lie on the circle r = a, and the nodes of node sets "symm-x" and "symm-y"
+# lie on x = 0 and y = 0.  Prints the largest deviations and the counts.
 #   julia --project=. benchmark/tet15-p1/punch/check_tetra15.jl <tet15.g>
 using Exodus, Printf
 const A = 1.0e-3; const H = 4.0e-3
@@ -36,5 +37,12 @@ function main(f)
     @printf("  footprint circle edges seen from the faces %d, largest |r - a| of their edge nodes %.2e m\n", ncirc, circ)
     @printf("  node set punch %d nodes, largest r - a %.2e m, largest |z - H| %.2e m\n", length(pn),
             maximum(hypot(X[1, n], X[2, n]) for n in pn) - A, maximum(abs(X[3, n] - H) for n in pn))
+    for (name, c) in (("symm-x", 1), ("symm-y", 2))
+        i = findfirst(==(name), nsn)
+        i === nothing && continue
+        nodes = ns[i].nodes
+        @printf("  node set %s %d nodes, largest |%s| %.2e m\n", name, length(nodes), c == 1 ? "x" : "y",
+                maximum(abs(X[c, n]) for n in nodes))
+    end
 end
 main(ARGS[1])

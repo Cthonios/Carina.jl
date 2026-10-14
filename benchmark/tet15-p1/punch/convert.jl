@@ -1,4 +1,4 @@
-# Punch meshes: from the Cubit four-node mesh to TETRA10, in meters.
+# Punch meshes (quarter model): from the Cubit four-node mesh to TETRA10, in meters.
 #
 #   julia --project=. benchmark/tet15-p1/punch/convert.jl <tet4.g> <tet10.g>
 #
@@ -10,13 +10,12 @@
 # a face of the side set "punch" and a face of the side set "top") is moved
 # radially onto the circle of radius a = 1 mm in the plane z = H = 4 mm.
 # Coordinates are scaled from mm to m.  Node sets gain the midpoints whose two
-# ends are in the set; side sets are kept.  Two one-node sets are added for the
-# point constraints that remove the rigid-body modes the base plane leaves:
-# "axis-base", the base node on the axis (0, 0, 0), and "pin-base", the base
-# node on the half-line y = 0 at r = R, (R, 0, 0).  The script prints the shape
-# quality q = 12 (3V)^(2/3) / sum(l_i^2) of the four-node elements (1 for the
-# regular tetrahedron, 0 for a flat one) and checks that the footprint circle
-# nodes lie on the circle and the footprint nodes on the top plane.
+# ends are in the set; side sets are kept.  The midpoints of edges in a
+# symmetry plane lie in it, being means of two of its vertices.  The script
+# prints the shape quality q = 12 (3V)^(2/3) / sum(l_i^2) of the four-node
+# elements (1 for the regular tetrahedron, 0 for a flat one) and checks that
+# the footprint circle nodes lie on the circle, the footprint nodes on the top
+# plane and the nodes of the symmetry sets on their planes.
 
 using Exodus
 using LinearAlgebra
@@ -123,14 +122,12 @@ function main(tet4, out)
         m = Set{Int}(Int.(ns.nodes))
         vcat(Int.(ns.nodes), sort!([n for (k, n) in mid if k[1] in m && k[2] in m]))
     end
-    point(x) = (d = [norm(X[:, n] .- x) for n in 1:nv]; i = argmin(d);
-                d[i] < 1.0e-9 || error("no vertex at \$x"); i)
-    points = ["axis-base" => point([0.0, 0.0, 0.0]), "pin-base" => point([R_MM, 0.0, 0.0])]
-    @printf("point sets: axis-base node %d, pin-base node %d\n", points[1][2], points[2][2])
-    next_id = maximum(Int(ns.id) for ns in nsets)
-    nsets = vcat(nsets, [NodeSet(Int32(next_id + i), Int32[n]) for (i, (_, n)) in enumerate(points)])
-    nsnames = vcat(String.(nsnames), first.(points))
-    new_nsets = vcat(new_nsets, [[n] for (_, n) in points])
+    for (name, c) in (("symm-x", 1), ("symm-y", 2))
+        i = findfirst(==(name), nsnames)
+        i === nothing && error("node set \"$name\" missing")
+        @printf("node set %s: %d nodes, largest |%s| %.2e mm\n", name, length(new_nsets[i]),
+                c == 1 ? "x" : "y", maximum(abs(xs[n][c]) for n in new_nsets[i]))
+    end
     ip = findfirst(==("punch"), nsnames)
     ip === nothing || @printf("node set punch: %d nodes, largest |z - H| %.2e mm, largest r %.6f mm\n",
                               length(new_nsets[ip]), maximum(abs(xs[n][3] - H_MM) for n in new_nsets[ip]),

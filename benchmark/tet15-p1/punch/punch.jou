@@ -1,12 +1,15 @@
-# Punch indentation: a circular cylinder of radius R = 4a and height H = 4a,
-# a = 1 mm, axis along z, base at z = 0, top face at z = H, indented by a
-# rigid flat punch of radius a centered on the axis.  Units: mm.  Four-node
-# tetrahedra; convert.jl adds the edge and face nodes.
-# The footprint (r <= a on the top face) is a separate surface, imprinted on
-# the top face only.  The planes x = 0 and y = 0 cut the cylinder so that the
-# axis and the base half-line y = 0, x > 0 are curves and carry nodes (node
-# sets "axis" and "pin").  The region r <= 2a, z >= H - 2a is cut out and
-# meshed at size h; the rest at size 4h.
+# Punch indentation, quarter model: the quarter x >= 0, y >= 0 of a circular
+# cylinder of radius R = 4a and height H = 4a, a = 1 mm, axis along z, base
+# at z = 0, top face at z = H, indented by a rigid flat punch of radius a
+# centered on the axis.  Units: mm.  Four-node tetrahedra; convert.jl adds
+# the edge and face nodes.
+# The quarter is the only volume meshed: the cylinder is cut by the planes
+# x = 0 and y = 0 before meshing and the three other quarters are deleted, so
+# that the symmetry planes, the base, the lateral surface, the footprint and
+# the rest of the top face are separate surfaces.  The footprint (r <= a on
+# the top face) is a separate surface, imprinted with a quarter circle on the
+# top face only.  The region r <= 2a, z >= H - 2a is cut out and meshed at
+# size h; the rest at size 4h.
 # Parameters (aprepro): h = element size near the punch, out = output file.
 #   cubit -batch -nographics -nojournal -noecho -information off \
 #     "h=0.25" "out='meshes/punch-h4-tet4.g'" punch.jou
@@ -15,17 +18,19 @@ create cylinder height 4 radius 4
 move volume 1 z 2 include_merged
 webcut volume all with plane xplane offset 0
 webcut volume all with plane yplane offset 0
+delete volume with x_coord < 0
+delete volume with y_coord < 0
 webcut volume all with cylinder radius 2 axis z
 webcut volume all with plane zplane offset 2
-create curve arc radius 1 center location 0 0 4 normal 0 0 1 full
+create curve arc radius 1 center location 0 0 4 normal 0 0 1 start angle 0 stop angle 90
 imprint volume all with curve all with z_coord > 3.999 and z_coord < 4.001 and is_free
 delete curve all with is_free
 imprint volume all
 merge volume all
-# Refined region: the four quarter volumes of r <= 2, z >= 2.
-volume with z_coord > 2 and x_coord > -1.5 and x_coord < 1.5 and y_coord > -1.5 and y_coord < 1.5 size {h}
-volume with z_coord > 2 and x_coord > -1.5 and x_coord < 1.5 and y_coord > -1.5 and y_coord < 1.5 scheme tetmesh
-mesh volume with z_coord > 2 and x_coord > -1.5 and x_coord < 1.5 and y_coord > -1.5 and y_coord < 1.5
+# Refined region: the volume r <= 2, z >= 2.
+volume with z_coord > 2 and x_coord < 1.5 and y_coord < 1.5 size {h}
+volume with z_coord > 2 and x_coord < 1.5 and y_coord < 1.5 scheme tetmesh
+mesh volume with z_coord > 2 and x_coord < 1.5 and y_coord < 1.5
 volume all size {4*h}
 volume all scheme tetmesh
 mesh volume all
@@ -36,20 +41,26 @@ block 1 name "cylinder"
 block 1 element type TETRA4
 nodeset 1 surface with z_coord < 1.0e-6
 nodeset 1 name "base"
-nodeset 2 surface with z_coord > 3.999999 and x_coord > -0.7 and x_coord < 0.7 and y_coord > -0.7 and y_coord < 0.7
+nodeset 2 surface with z_coord > 3.999999 and x_coord < 0.7 and y_coord < 0.7
 nodeset 2 name "punch"
-nodeset 3 curve with x_coord > -1.0e-6 and x_coord < 1.0e-6 and y_coord > -1.0e-6 and y_coord < 1.0e-6
-nodeset 3 name "axis"
-nodeset 4 curve with z_coord < 1.0e-6 and y_coord > -1.0e-6 and y_coord < 1.0e-6 and x_coord > 1.0e-6
-nodeset 4 name "pin"
-sideset 1 surface with z_coord > 3.999999 and x_coord > -0.7 and x_coord < 0.7 and y_coord > -0.7 and y_coord < 0.7
+nodeset 3 surface with x_coord < 1.0e-6
+nodeset 3 name "symm-x"
+nodeset 4 surface with y_coord < 1.0e-6
+nodeset 4 name "symm-y"
+nodeset 5 curve with x_coord < 1.0e-6 and y_coord < 1.0e-6
+nodeset 5 name "axis"
+sideset 1 surface with z_coord > 3.999999 and x_coord < 0.7 and y_coord < 0.7
 sideset 1 name "punch"
-sideset 2 surface with z_coord > 3.999999 and (x_coord < -0.7 or x_coord > 0.7 or y_coord < -0.7 or y_coord > 0.7)
+sideset 2 surface with z_coord > 3.999999 and (x_coord > 0.7 or y_coord > 0.7)
 sideset 2 name "top"
-sideset 3 surface with z_coord > 1.0e-6 and z_coord < 3.999999 and (x_coord < -2.3 or x_coord > 2.3) and (y_coord < -2.3 or y_coord > 2.3)
+sideset 3 surface with z_coord > 1.0e-6 and z_coord < 3.999999 and x_coord > 2.3 and y_coord > 2.3
 sideset 3 name "lateral"
-sideset 4 surface with z_coord < 1.0e-6
-sideset 4 name "base"
+sideset 4 surface with x_coord < 1.0e-6
+sideset 4 name "symm-x"
+sideset 5 surface with y_coord < 1.0e-6
+sideset 5 name "symm-y"
+sideset 6 surface with z_coord < 1.0e-6
+sideset 6 name "base"
 list surface all
 list nodeset all
 list sideset all
