@@ -37,11 +37,31 @@
 #                    with a face on the top face and a vertex on the symmetry
 #                    plane y = 0 (node set symm-y), by the r of their
 #                    centroid: line (axis | top), element id, r, z, p, eqps
+#   nodal-s10.csv,   per vertex node: id, reference x, y, z, nodal p and eqps,
+#   nodal-s20.csv    the common nodal projection of both codes (gist 2026-10-15
+#                    07:33Z): the consistent L2 projection, in the measure of
+#                    the reference configuration, onto the continuous P1 space
+#                    of the element vertices; M u = b with
+#                      M_ij = sum_e sum_q w_q phi_i(xi_q) phi_j(xi_q) detJ_q,
+#                      b_i  = sum_e sum_q w_q phi_i(xi_q) f_q detJ_q,
+#                    phi the barycentric (P1) functions, the 14-point degree-5
+#                    rule of the element, detJ of the element's quadratic
+#                    (10-node) geometry.  f_q is the quadrature-point value for
+#                    Carina and the element value at every point for Sierra/SM
+#                    (its stress is one value per element; its eqps the mean of
+#                    its 14 integration-point values).  The other nodes take
+#                    the P1 field at their position: an edge node the mean of
+#                    its two vertices, a face node of its face's three, the
+#                    center node of the element's four; they are not written,
+#                    as they follow from the vertices.
+#   nodal-all-s20.csv  the same at every node, for render.py (nodal=)
 
 using Exodus
 using LinearAlgebra
 using Printf
+using SparseArrays
 using Statistics
+import ReferenceFiniteElements as RFE
 
 const A = 1.0e-3
 const H = 4.0e-3
@@ -85,6 +105,76 @@ function write_fields(path, ids, C, P, Q)
                 for q in 1:nq; @printf(io, ",%.9e", Q[q][e]); end
             end
             println(io)
+        end
+    end
+end
+
+# The common nodal projection (see the header): the P1 mass matrix, its
+# Cholesky factor and the integration weights w_q phi_i(xi_q) detJ_q per element.
+function p1_projector(X, conn)
+    ne = size(conn, 2)
+    re = RFE.ReferenceFE(RFE.Tet{RFE.Lagrange, 2}(), RFE.GaussLegendre(5))
+    nq = RFE.num_cell_quadrature_points(re)
+    W = zeros(4, nq, ne)                                  # w_q phi_i(xi_q) detJ_q
+    I, J, V = Int[], Int[], Float64[]
+    for e in 1:ne
+        Xe = X[:, conn[1:10, e]]
+        for q in 1:nq
+            xi = RFE.cell_quadrature_point(re, q)
+            phi = (1 - xi[1] - xi[2] - xi[3], xi[1], xi[2], xi[3])
+            dJ = det(Xe * Matrix(RFE.cell_shape_function_gradient(re, q)))
+            dJ > 0 || error("element $e: detJ = $dJ at point $q")
+            wq = RFE.cell_quadrature_weight(re, q) * dJ
+            for i in 1:4
+                W[i, q, e] = wq * phi[i]
+                for j in 1:4
+                    push!(I, conn[i, e]); push!(J, conn[j, e]); push!(V, wq * phi[i] * phi[j])
+                end
+            end
+        end
+    end
+    n = size(X, 2)
+    M = sparse(I, J, V, n, n)
+    verts = sort!(unique(vec(conn[1:4, :])))
+    F = cholesky(Symmetric(M[verts, verts]))
+    # The other nodes: the vertices whose barycentric coordinate (in the
+    # straight-sided tetrahedron of the vertices) is not near zero.
+    others = Dict{Int, Vector{Int}}()
+    for e in 1:ne
+        v = conn[1:4, e]
+        T = X[:, v[2:4]] .- X[:, v[1]]
+        for a in 5:size(conn, 1)
+            haskey(others, conn[a, e]) && continue
+            l = T \ (X[:, conn[a, e]] .- X[:, v[1]])
+            lam = (1 - sum(l), l[1], l[2], l[3])
+            sup = [v[i] for i in 1:4 if lam[i] > 0.1]
+            length(sup) in (2, 3, 4) || error("element $e, node $(conn[a, e]): barycentric $lam")
+            others[conn[a, e]] = sup
+        end
+    end
+    return (; W, F, verts, others, n)
+end
+
+# The projection of the quadrature-point values Q[q][e] onto the nodes.
+function project(pr, Q)
+    b = zeros(pr.n)
+    nq = size(pr.W, 2)
+    for e in axes(pr.W, 3), q in 1:nq, i in 1:4
+        b[pr.conn[i, e]] += pr.W[i, q, e] * Q[length(Q) == 1 ? 1 : q][e]
+    end
+    u = fill(NaN, pr.n)
+    u[pr.verts] = pr.F \ b[pr.verts]
+    for (a, sup) in pr.others
+        u[a] = sum(u[sup]) / length(sup)
+    end
+    return u
+end
+
+function write_nodal(path, X, nmap, verts, p, q)
+    open(path, "w") do io
+        println(io, "id,x,y,z,p,eqps")
+        for a in verts
+            @printf(io, "%d,%.9e,%.9e,%.9e,%.9e,%.9e\n", nmap[a], X[1, a], X[2, a], X[3, a], p[a], q[a])
         end
     end
 end
@@ -137,10 +227,17 @@ function main(file, outdir, prefix, forcefile = "")
     @printf("%s: %d elements, %d frames; region: %d elements, %d interior faces\n",
             file, ne, length(times), count(inregion), length(faces))
 
+    pr = merge(p1_projector(X, conn), (; conn))
+    nmap = Int.(read_id_map(exo, NodeMap))
+    @printf("P1 projection: %d vertices of %d nodes, volume %.9e\n", length(pr.verts), size(X, 2),
+            sum(pr.W[1:4, :, :]))
     stats = Dict{Int, Any}()
     for (s, k) in ((10, k10), (20, k20))
         P, Q = element_values(exo, k, bname, enames)
         write_fields(out("fields-s$s.csv"), emap, C, P, Q)
+        up, uq = project(pr, P), project(pr, Q)
+        write_nodal(out("nodal-s$s.csv"), X, nmap, pr.verts, up, uq)
+        s == 20 && write_nodal(out("nodal-all-s20.csv"), X, nmap, axes(X, 2), up, uq)
         pm, qm = mean_of(P), mean_of(Q)
         stats[s] = (jump_stats(faces, inregion, pm), jump_stats(faces, inregion, qm))
         if s == 20
