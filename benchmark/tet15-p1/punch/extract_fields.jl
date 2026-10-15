@@ -30,7 +30,8 @@
 #                    width a/8, closed on the right (r_lo, r_hi], so that
 #                    the footprint circle r = a ends a bin: per bin the
 #                    count, the mean and the standard deviation over the
-#                    angle in [0, π/2] of u_z at step 20
+#                    angle in [0, π/2] of u_z at step 20; a bin without
+#                    nodes is left out
 #   profile.tsv      at step 20, the elements with a vertex on the axis
 #                    (r = 0), by the z of their centroid, and the elements
 #                    with a face on the top face and a vertex on the symmetry
@@ -176,8 +177,9 @@ function main(file, outdir, prefix, forcefile = "")
         println(io, "r_lo\tr_hi\tcount\tmean_uz\tstd_uz")
         for b in 1:nb
             v = bins[b]
+            isempty(v) && continue
             @printf(io, "%.6e\t%.6e\t%d\t%.9e\t%.9e\n", (b - 1) * A / 8, b * A / 8, length(v),
-                    isempty(v) ? NaN : mean(v), length(v) < 2 ? 0.0 : std(v; corrected = false))
+                    mean(v), length(v) < 2 ? 0.0 : std(v; corrected = false))
         end
     end
 
