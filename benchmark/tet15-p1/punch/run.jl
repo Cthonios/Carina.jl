@@ -46,7 +46,9 @@
 # compressible: the tangent at the bulk modulus set to the shear modulus).
 #
 # Each run writes runs/<element>-<case>-h<d>[-<device>]/ with the deck, the
-# Exodus output (stress and internal variables at every output step), the
+# Exodus output (stress and internal variables at every output step, at the
+# quadrature points and as their consistent-mass L2 projection onto the nodes,
+# sigma_*_n and eqps_n), the
 # Carina log, force.tsv (step, depth, full punch force: four times the sum over
 # the nodes of node set punch of the z component of the assembled internal
 # force of the quarter, positive in compression) and run.log (steps, cuts,
@@ -118,6 +120,7 @@ output interval: 0.05
 output:
   stress: true
   internal variables: true
+  recovery: consistent
 model:
   type: solid mechanics
 $(projection)  material:
