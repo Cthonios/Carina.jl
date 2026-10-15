@@ -100,6 +100,24 @@ Reading:
    Krylov method with the force-scaled stopping test.  It is the second
    step, after the first has been measured on the punch runs.
 
+## Validation of the compressible operator on the quarter mesh
+
+Quarter a/4 TETRA15 mesh (84,387 unknowns), TET15-P1, case A, CPU of
+Sirius, 10 threads, assembled CG with AMG to a relative residual of 1e-8,
+predictor on, the doubling start to t = 0.025 (12 steps, the last four at
+Δt = 6.25e-3 with plastic flow under the punch):
+
+| operator of the hierarchy and smoother | solves | CG iterations | CG per solve | CG per solve at the plastic steps | wall time |
+|---|---|---|---|---|---|
+| `tangent` (present) | 57 | 115,416 | 2025 | 2500 to 3700 | 1 h 16 min |
+| `compressible` (κ' = μ) | 55 | 34,637 | 630 | 700 to 1000 | 23 min |
+
+The ratio is 3.3 in iterations and in time, larger than the 2.5 of the
+elastic state above, because the present operator degrades further at the
+plastic states while the compressible one does not.  On the GPU runs with
+the cap at 1000 the present operator ends most plastic-step solves at the
+cap; the compressible one stays under it.
+
 ## Tangent consistency and the Newton count
 
 The Newton count of the punch runs, 8 to 29 iterations per step, is not a

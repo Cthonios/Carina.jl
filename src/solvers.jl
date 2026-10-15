@@ -116,9 +116,14 @@ mutable struct AMGPreconditioner <: Preconditioner
     base_iters ::Int              # CG iters on first solve after build (0 = unset)
     rebuild    ::Bool             # request hierarchy rebuild at next setup
     nbuilds    ::Int
+    # The operator the hierarchy is built on: the tangent itself, or the
+    # tangent of the material with its bulk modulus set to the shear modulus
+    # (`operator: compressible`); see `_with_compressible_properties`.
+    compressible::Bool
 end
 
-AMGPreconditioner(udofs::Vector{Int}) = AMGPreconditioner(udofs, nothing, -1.0, 0, false, 0)
+AMGPreconditioner(udofs::Vector{Int}; compressible::Bool = false) =
+    AMGPreconditioner(udofs, nothing, -1.0, 0, false, 0, compressible)
 
 # GPU-resident AMG: hierarchy built on the host by the same SA machinery,
 # applied on the device as a V-cycle with a matrix-free fine level
@@ -143,6 +148,12 @@ mutable struct GPUAMGPreconditioner{V} <: Preconditioner
     blk_dof    ::Any              # 3 x nnodes Int32 device: free index per component, <= 0 if constrained
     blk_inv    ::Any              # 3 x 3 x nnodes Float64 device: inverted nodal blocks
     blk_cols   ::Any              # NTuple{3} of free-DOF device vectors: assembled block columns
+    # `operator: compressible`: the hierarchy, the fine diagonal and the fine
+    # smoothing action use the tangent at bulk modulus κ' = μ.  `params_kp`
+    # is the device parameter copy with those properties, sharing every array
+    # of the run's parameters but the properties; nothing until first used.
+    compressible::Bool
+    params_kp  ::Any
 end
 
 # --------------------------------------------------------------------------- #

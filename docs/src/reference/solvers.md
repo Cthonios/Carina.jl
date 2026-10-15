@@ -432,6 +432,13 @@ hierarchy setup is expensive (seconds at 500k DOF), so it is **lagged**: built
 once, then rebuilt only when the effective-mass coefficient changes (a Δt
 change) or when CG iteration growth flags it as stale.
 
+### AMG keys
+
+| Key | Default | Description |
+|---|---|---|
+| `smoother` | `jacobi` | `jacobi` (damped point Jacobi) or `block jacobi` (the inverted 3 × 3 nodal block; GPU V-cycle only). |
+| `operator` | `tangent` | The operator the hierarchy, the fine diagonal and the fine smoothing action are built on. `tangent`: the tangent itself. `compressible`: the tangent of the material with its bulk modulus set to the shear modulus (λ' = μ/3, ν' = 1/8); the Krylov operator stays the tangent, so the solution is unchanged. At κ/μ ≫ 1 the hierarchy built on the tangent coarsens on the volumetric couplings and leaves the deviatoric error to CG; on the punch benchmark at κ/μ = 10⁴ the compressible operator needs 2.5 times fewer CG iterations (research/tet15-p1/precond). Requires a material whose properties include Lamé's first constant and the shear modulus, and the quasi-static integrator. |
+
 AMG combines well with an [Eisenstat–Walker forcing
 term](#Inexact-Newton-forcing-terms): the two are independent, and on a
 530k-DOF quasi-static torsion run on an A100 the forcing term takes a further

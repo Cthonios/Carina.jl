@@ -229,9 +229,11 @@ function _sync_host_dirichlet!(p_cpu, p = _dev_params_ref[])
     return nothing
 end
 
-function _compute_gpu_amg_precond(asm_cpu, template, smoother::Symbol = :jacobi)
+function _compute_gpu_amg_precond(asm_cpu, template, smoother::Symbol = :jacobi,
+                                  compressible::Bool = false)
     smoother in (:jacobi, :block_jacobi) ||
         error("Unknown AMG smoother :$smoother. Expected :jacobi or :block_jacobi.")
+    compressible && _compressible_lame_indices(_cpu_params_ref[])   # fails loudly if a model has no Lamé constants
     inv_d = similar(template); fill!(inv_d, 0.0)
     # Block storage is allocated at the first hierarchy build, where the free
     # DOF structure is read from the assembled operator; the three column
@@ -240,7 +242,92 @@ function _compute_gpu_amg_precond(asm_cpu, template, smoother::Symbol = :jacobi)
         ntuple(_ -> (v = similar(template); fill!(v, 0.0); v), 3) : nothing
     return GPUAMGPreconditioner(collect(asm_cpu.dof.unknown_dofs),
                                 inv_d, nothing, 1.0, -1.0, 0, false, 0,
-                                smoother, nothing, nothing, blk_cols)
+                                smoother, nothing, nothing, blk_cols,
+                                compressible, nothing)
+end
+
+# --------------------------------------------------------------------------- #
+# The compressible operator of the AMG preconditioner (`operator: compressible`)
+#
+# At κ/μ ≫ 1 the smoothed-aggregation hierarchy built on the tangent K(κ)
+# coarsens on the κ-couplings and its damped Jacobi smoother, scaled to the
+# diagonal of K(κ), leaves the deviatoric error to the Krylov iteration: on the
+# punch benchmark (research/tet15-p1/precond) the CG count grows as κ^0.4,
+# 274 → 1982 for κ/μ from 10² to 10⁵.  The same V-cycle built on K(κ'), the
+# tangent of the material with its bulk modulus set to the shear modulus
+# (κ' = μ, ν' = 1/8), and applied to K(κ) needs 2.5 times fewer iterations at
+# κ/μ = 10⁴ (523 against 1283) and grows slowly with κ.  The hierarchy, the
+# fine diagonal and the fine smoothing action are then evaluated with the
+# material's Lamé constant λ' = κ' − 2μ/3 = μ/3 in place of λ; the Krylov
+# operator is the tangent K(κ) itself, so the solution is unchanged.
+# --------------------------------------------------------------------------- #
+
+# Index of λ and μ in the property vector of each block, from the model's
+# property names.  Errors if a model has no Lamé constants.
+function _compressible_lame_indices(p_cpu)
+    p_cpu === nothing && error("The compressible AMG operator needs the host parameters.")
+    map(enumerate(values(p_cpu.physics))) do (b, physics)
+        names = CM.property_names(physics.constitutive_model)
+        iλ = findfirst(==("Lamé's first constant"), names)
+        iμ = findfirst(==("shear modulus"), names)
+        (iλ === nothing || iμ === nothing) && error(
+            "The compressible AMG operator requires a material with the properties " *
+            "\"Lamé's first constant\" and \"shear modulus\"; block $b has " *
+            "$(typeof(physics.constitutive_model)) with $(names).")
+        (iλ, iμ)
+    end
+end
+
+# Linear indices into the property data of every λ entry, with λ' = μ/3 for
+# each.
+function _compressible_lame_entries(p_cpu)
+    pf = p_cpu.properties
+    entries = Tuple{Int, Float64}[]
+    for (b, (iλ, iμ)) in enumerate(_compressible_lame_indices(p_cpu))
+        ne = pf.isblockconstant[b] == FEC.PROPS_CONST ? 1 : pf.nelems[b]
+        for e in 1:ne
+            pv = FEC.properties(pf, e, b)
+            push!(entries, (pv.start + iλ - 1, pv[iμ] / 3))
+        end
+    end
+    return entries
+end
+
+# Runs `f()` with the host properties at λ' and restores them.
+function _with_compressible_properties(f, p_cpu)
+    data = p_cpu.properties.data
+    entries = _compressible_lame_entries(p_cpu)
+    saved = [data[i] for (i, _) in entries]
+    for (i, λp) in entries
+        data[i] = λp
+    end
+    try
+        return f()
+    finally
+        for (k, (i, _)) in enumerate(entries)
+            data[i] = saved[k]
+        end
+    end
+end
+
+# The parameters whose tangent the smoother approximates: the run's own, or a
+# copy with the compressible properties that shares every other array.
+_smoothing_params(::Preconditioner, p) = p
+function _smoothing_params(precond::GPUAMGPreconditioner, p)
+    precond.compressible || return p
+    if precond.params_kp === nothing
+        p_cpu = _cpu_params_ref[]
+        props_h = deepcopy(Adapt.adapt(Array, p.properties))
+        for (i, λp) in _compressible_lame_entries(p_cpu)
+            props_h.data[i] = λp
+        end
+        props_d = Adapt.adapt(Base.typename(typeof(p.properties.data)).wrapper, props_h)
+        precond.params_kp = FEC.Parameters(
+            p.ics, p.dirichlet_bcs, p.neumann_bcs, p.periodic_bcs, p.robin_bcs,
+            p.sources, p.times, p.physics, props_d, p.state_old, p.state_new,
+            p.coords, p.field, p.field_old, p.hvp_scratch_field)
+    end
+    return precond.params_kp
 end
 
 # Host-side hierarchy (re)build with the same staleness triggers as the CPU
@@ -259,7 +346,13 @@ function _build_gpu_amg_hierarchy!(precond::GPUAMGPreconditioner, c_M, U_dev)
         U_cpu = Vector{Float64}(Adapt.adapt(Array, U_dev))
         _sync_host_dirichlet!(p_cpu)
         FEC._update_for_assembly!(p_cpu, asm_cpu.dof, U_cpu)
-        FEC.assemble_stiffness!(asm_cpu, FEC.stiffness, U_cpu, p_cpu)
+        if precond.compressible
+            _with_compressible_properties(p_cpu) do
+                FEC.assemble_stiffness!(asm_cpu, FEC.stiffness, U_cpu, p_cpu)
+            end
+        else
+            FEC.assemble_stiffness!(asm_cpu, FEC.stiffness, U_cpu, p_cpu)
+        end
         if c_M != 0.0
             FEC.assemble_mass!(asm_cpu, FEC.mass, U_cpu, p_cpu)
             @. asm_cpu.stiffness_storage += c_M * asm_cpu.mass_storage
@@ -319,17 +412,20 @@ end
 # Per-Newton-iteration updates: refresh the fine diagonal (used by the
 # V-cycle's fine smoother), then lazily rebuild the hierarchy.
 function _update_gpu_amg_precond_qs!(precond::GPUAMGPreconditioner, asm, U, p)
-    FEC.assemble_diagonal!(asm, StiffnessDiagonal(), U, p)
+    ps = _smoothing_params(precond, p)
+    FEC.assemble_diagonal!(asm, StiffnessDiagonal(), U, ps)
     d = FEC.diagonal(asm)
     @. precond.inv_diag = 1.0 / max(abs(d), eps(Float64))
     _build_gpu_amg_hierarchy!(precond, 0.0, U)
-    _refresh_gpu_amg_blocks!(precond, asm, U, p)
+    _refresh_gpu_amg_blocks!(precond, asm, U, ps)
     return nothing
 end
 _update_gpu_amg_precond_qs!(::Preconditioner, args...) = nothing
 
 function _update_gpu_amg_precond_eff!(precond::GPUAMGPreconditioner, asm, U,
                                       c_M, p)
+    precond.compressible && error(
+        "The compressible AMG operator is implemented for the quasi-static integrator only.")
     # The block columns of K + c_M·M need a Newmark analog of
     # StiffnessBlockColumn; until it exists, the block smoother is quasi-static
     # only, and asking for it here is an error rather than a silent fallback
@@ -670,8 +766,10 @@ function _setup_linear_ops(ig::QuasiStaticIntegrator, ls::KrylovLinearSolver, p)
     U = ig.U; n = length(U)
     ls.assembled && return (nothing, nothing)
     matvec! = (y, v) -> _stiffness_matvec_qs!(y, v, ig.asm, U, p)
+    ps = _smoothing_params(ls.precond, p)     # the run's parameters, or the compressible copy
     smooth! = _use_fp32_smoother(ls.precond, ig.asm) ?
-        (y, v) -> _stiffness_matvec_qs_fp32!(y, v, ig.asm, U, p) : matvec!
+        (y, v) -> _stiffness_matvec_qs_fp32!(y, v, ig.asm, U, ps) :
+        ps === p ? matvec! : (y, v) -> _stiffness_matvec_qs!(y, v, ig.asm, U, ps)
     K_op = LinearOperator(Float64, n, n, true, true, matvec!)
     return K_op, _mf_precond_op(ls.precond, n, matvec!, smooth!)
 end
@@ -1173,6 +1271,18 @@ function _linear_solve!(ls::KrylovLinearSolver, ig::QuasiStaticIntegrator, p, op
                 # pay for the symmetrized copy.
                 K_sparse = _precond_reads_matrix(ls.precond) ?
                     Symmetric((K_raw + K_raw') / 2, :L) : K_raw
+                # The compressible AMG operator: at a hierarchy build, the
+                # stiffness is assembled once more at λ' and the run's
+                # stiffness restored afterwards; `A_op` holds its own copy.
+                if ls.precond isa AMGPreconditioner && ls.precond.compressible &&
+                   (ls.precond.P === nothing || ls.precond.rebuild)
+                    K_sparse = _with_compressible_properties(p) do
+                        FEC.assemble_stiffness!(asm, FEC.stiffness, U, p)
+                        Kp = FEC.stiffness(asm)
+                        Symmetric(sparse((Kp + Kp') / 2), :L)
+                    end
+                    FEC.assemble_stiffness!(asm, FEC.stiffness, U, p)
+                end
                 M_op_asm = _build_precond_op(ls.precond, K_sparse, n, x_cur)
                 if af.is_linear
                     _precond_op_cache[] = M_op_asm
