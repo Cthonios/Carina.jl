@@ -25,12 +25,14 @@
 # itself, as Carina's _subcycle! does, with the integrator's increase factor
 # set to 1 and the growth applied here.  The quasi-static tangent predictor
 # (predictor: tangent) starts every step; inexact Newton with Eisenstat-Walker
-# forcing, floor 1e-8; CG with the AMG preconditioner, at most 1000 iterations.
+# forcing, floor 1e-8; CG with the AMG preconditioner, at most 1000 iterations
+# (--cg-cap).
 #
 # Usage (from the Carina root; the threads serve Carina's element loops):
 #   julia -t 32 --project=. benchmark/tet15-p1/punch/run.jl --h 4,8 --case A,B
 #        [--stages mesh,convert,run] [--elements tet15-p1,tetra15] [--device cpu|cuda]
-#        [--preconditioner amg|jacobi] [--ti "key: value"]...
+#        [--preconditioner amg|jacobi] [--cg-cap 1000] [--tag <suffix>]
+#        [--ti "key: value"]...
 # --h takes the divisors of a (h = a/4, a/8, a/16, a/32).  A CUDA run needs the
 # vendor package loaded in the calling session, as for the Taylor driver:
 #   julia --project=bin -e 'using CUDA; append!(ARGS, [...]);
@@ -38,7 +40,7 @@
 # with JULIA_LOAD_PATH="@:$PWD:@stdlib"; backend.jl of the Taylor driver then
 # includes bin/cuda_always_inline.jl, as bin/carina.jl does.
 # --ti adds a line to the time-integrator section of the deck; it may be
-# repeated.
+# repeated.  --tag appends a suffix to the run directory.
 #
 # Each run writes runs/<element>-<case>-h<d>[-<device>]/ with the deck, the
 # Exodus output (stress and internal variables at every output step), the
@@ -68,6 +70,8 @@ const SYMMETRY = 4                  # full force = SYMMETRY x the quarter's
 const DEVICE  = Ref("cpu")
 const PRECOND = Ref("amg")
 const TI_EXTRA = String[]
+const CG_CAP  = Ref(1000)
+const TAG     = Ref("")
 
 include(joinpath(DIR, "..", "taylor", "backend.jl"))
 
@@ -156,7 +160,7 @@ solver:
   linear solver:
     type: iterative
     tolerance: 1.0e-8
-    maximum iterations: 1000
+    maximum iterations: $(CG_CAP[])
     forcing term:
       type: eisenstat-walker
     preconditioner:
@@ -248,7 +252,7 @@ function count_log(logfile)
 end
 
 function run_case(element, case, d)
-    tag = "$element-$case-h$d" * (DEVICE[] == "cpu" ? "" : "-" * DEVICE[])
+    tag = "$element-$case-h$d" * (DEVICE[] == "cpu" ? "" : "-" * DEVICE[]) * TAG[]
     dir = joinpath(RUNS, tag)
     mkpath(dir)
     deckfile = joinpath(dir, "punch.yaml")
@@ -303,7 +307,7 @@ function run_case(element, case, d)
         println(io, "run\t$tag")
         println(io, "host\t$(gethostname())")
         println(io, "device\t$(DEVICE[] == "cpu" ? "cpu" : device_name())\nthreads\t$(Threads.nthreads())")
-        println(io, "preconditioner\t$(PRECOND[])\nforcing\teisenstat-walker (floor 1e-8)\npredictor\ttangent")
+        println(io, "preconditioner\t$(PRECOND[])\ncg cap\t$(CG_CAP[])\nforcing\teisenstat-walker (floor 1e-8)\npredictor\ttangent")
         println(io, "first step\t$FIRST\nmaximum step\t$(max_step(d))")
         println(io, "status\t$status\nwall_s\t$(round(wall; digits = 1))")
         println(io, "time steps\t$steps\ncuts\t$cuts")
@@ -336,6 +340,10 @@ function parse_args(args)
             DEVICE[] = args[i + 1]
         elseif a == "--preconditioner"
             PRECOND[] = args[i + 1]
+        elseif a == "--cg-cap"
+            CG_CAP[] = parse(Int, args[i + 1])
+        elseif a == "--tag"
+            TAG[] = args[i + 1]
         elseif a == "--ti"
             push!(TI_EXTRA, args[i + 1])
         elseif haskey(opts, a)
