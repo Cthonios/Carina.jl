@@ -195,6 +195,34 @@ solver:
         end
     end
 
+    # The host copy of the parameters evaluates the quadrature fields of the
+    # output and assembles the AMG hierarchy of a device run.  The integrator
+    # advances the Dirichlet values of the device copy only, so the host copy
+    # must take them from the device before it evaluates anything; until
+    # 2026-10-15 it kept the values of t₀, and the stress, deformation
+    # gradient and internal variables of every device run were written with
+    # the prescribed displacements at their initial values.  At t = 1 the
+    # prescribed value is 1e-4 + 1e-6 x on the top face, against at most 1e-6
+    # at t₀.
+    if has_gpu
+        @testset "host Dirichlet cache follows the device" begin
+            mktempdir() do dir
+                cp_example(joinpath(example_dir, "cube.g"), joinpath(dir, "cube.g"))
+                path = joinpath(dir, "gpu_bc_implicit_stress.yaml")
+                text = replace(implicit_yaml,
+                               "output mesh file: cube_gpu_bc_qs.e\n" =>
+                               "output mesh file: cube_gpu_bc_qs_stress.e\noutput:\n  stress: true\n")
+                open(io -> write(io, text), path, "w")
+                sim = Carina.run(path; backend=backend)
+                host = sim.params_cpu.dirichlet_bcs.bc_cache
+                dev  = sim.params.dirichlet_bcs.bc_cache
+                @test host.vals == Array(dev.vals)
+                @test host.vals_dot == Array(dev.vals_dot)
+                @test maximum(abs, host.vals) >= 1e-4
+            end
+        end
+    end
+
     has_gpu || @info "No GPU detected — GPU Dirichlet BC comparison skipped"
 end
 
