@@ -32,7 +32,8 @@
 #   julia -t 32 --project=. benchmark/tet15-p1/punch/run.jl --h 4,8 --case A,B
 #        [--stages mesh,convert,run] [--elements tet15-p1,tetra15] [--device cpu|cuda]
 #        [--preconditioner amg|jacobi] [--amg-operator tangent|compressible]
-#        [--cg-cap 1000] [--recovery lumped|consistent|none] [--tag <suffix>]
+#        [--cg-cap 1000] [--forcing eisenstat-walker|none]
+#        [--recovery lumped|consistent|none] [--tag <suffix>]
 #        [--ti "key: value"]...
 # --h takes the divisors of a (h = a/4, a/8, a/16, a/32).  A CUDA run needs the
 # vendor package loaded in the calling session, as for the Taylor driver:
@@ -41,7 +42,8 @@
 # with JULIA_LOAD_PATH="@:$PWD:@stdlib"; backend.jl of the Taylor driver then
 # includes bin/cuda_always_inline.jl, as bin/carina.jl does.
 # --ti adds a line to the time-integrator section of the deck; it may be
-# repeated.  --tag appends a suffix to the run directory.  --amg-operator sets
+# repeated.  --tag appends a suffix to the run directory.  --forcing none
+# solves every CG system to the fixed tolerance 1e-8 instead.  --amg-operator sets
 # the operator the AMG hierarchy is built on (tangent, the default, or
 # compressible: the tangent at the bulk modulus set to the shear modulus).
 #
@@ -76,6 +78,7 @@ const DEVICE  = Ref("cpu")
 const PRECOND = Ref("amg")
 const AMG_OP  = Ref("tangent")
 const RECOVERY = Ref("lumped")
+const FORCING = Ref(true)
 const TI_EXTRA = String[]
 const CG_CAP  = Ref(1000)
 const TAG     = Ref("")
@@ -169,9 +172,7 @@ solver:
     type: iterative
     tolerance: 1.0e-8
     maximum iterations: $(CG_CAP[])
-    forcing term:
-      type: eisenstat-walker
-    preconditioner:
+$(FORCING[] ? "    forcing term:\n      type: eisenstat-walker\n" : "")    preconditioner:
       type: $(PRECOND[])
 $(PRECOND[] == "amg" ? "      operator: $(AMG_OP[])\n" : "")"""
 end
@@ -316,7 +317,7 @@ function run_case(element, case, d)
         println(io, "run\t$tag")
         println(io, "host\t$(gethostname())")
         println(io, "device\t$(DEVICE[] == "cpu" ? "cpu" : device_name())\nthreads\t$(Threads.nthreads())")
-        println(io, "preconditioner\t$(PRECOND[])" * (PRECOND[] == "amg" ? " (operator $(AMG_OP[]))" : "") * "\ncg cap\t$(CG_CAP[])\nforcing\teisenstat-walker (floor 1e-8)\npredictor\ttangent")
+        println(io, "preconditioner\t$(PRECOND[])" * (PRECOND[] == "amg" ? " (operator $(AMG_OP[]))" : "") * "\ncg cap\t$(CG_CAP[])\nforcing\t$(FORCING[] ? "eisenstat-walker (floor 1e-8)" : "none (tolerance 1e-8)")\npredictor\ttangent")
         println(io, "recovery\t$(RECOVERY[])")
         println(io, "first step\t$FIRST\nmaximum step\t$(max_step(d))")
         println(io, "status\t$status\nwall_s\t$(round(wall; digits = 1))")
@@ -353,6 +354,9 @@ function parse_args(args)
             PRECOND[] = args[i + 1]
         elseif a == "--amg-operator"
             AMG_OP[] = args[i + 1]
+        elseif a == "--forcing"
+            FORCING[] = args[i + 1] == "eisenstat-walker" ? true : args[i + 1] == "none" ? false :
+                        error("--forcing takes eisenstat-walker or none")
         elseif a == "--recovery"
             RECOVERY[] = args[i + 1]
         elseif a == "--cg-cap"
