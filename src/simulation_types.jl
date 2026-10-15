@@ -54,12 +54,33 @@ abstract type AbstractRecoveryData end
 
 struct NoRecovery <: AbstractRecoveryData end
 
+# Nodal recovery of quadrature-point fields (stress, internal variables).
+# The projection space is the continuous piecewise-linear space on the
+# vertices of the elements: for elements whose nodes are all vertices (TETRA4,
+# HEX8) that is the element's own basis; for elements with edge, face or
+# interior nodes (TETRA10, TETRA15) the P1 space on the four vertices, with
+# the other nodes interpolated from the vertices afterwards.  The full basis
+# of those elements is not usable: its row-sum lumped mass is zero or
+# negative at vertices, and its consistent mass integrated with the element's
+# own quadrature rule (degree 5 for the fifteen-node tetrahedron, whose basis
+# products reach degree 8) is singular on the interior bubble (found on the
+# punch benchmark, 2026-10-15: recovered stresses of 1e12 Pa against element
+# values of 1e7 Pa, negative recovered plastic strains, and a failed Cholesky
+# factorization).  The P1 mass is integrated exactly by every rule of degree
+# two or more, and its row sums are positive.
+#   vidx   : node → index of its vertex unknown, 0 for a node that is not a vertex
+#   interp : n_nodes × n_v, nodal values from the vertex values (identity rows
+#            for vertices, the vertex shape functions at the node for the others)
 struct LumpedRecovery <: AbstractRecoveryData
-    inv_m_lumped::Vector{Float64}   # 1/M_lumped per scalar DOF (n_nodes)
+    inv_m_lumped::Vector{Float64}   # 1/M_lumped per vertex unknown (n_v)
+    vidx::Vector{Int}
+    interp::SparseArrays.SparseMatrixCSC{Float64, Int}
 end
 
 struct ConsistentRecovery <: AbstractRecoveryData
-    M_factor::Any   # Cholesky or LDLᵀ factorization of scalar mass matrix
+    M_factor::Any   # Cholesky factorization of the vertex P1 mass matrix (n_v × n_v)
+    vidx::Vector{Int}
+    interp::SparseArrays.SparseMatrixCSC{Float64, Int}
 end
 
 # ---------------------------------------------------------------------------

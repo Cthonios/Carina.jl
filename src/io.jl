@@ -217,9 +217,13 @@ function _write_recovered_fields!(sim, step)
     iv_names = need_iv ? _uniform_state_variable_names(params_cpu.physics) : String[]
     NS = length(iv_names)
 
-    # Allocate nodal accumulators
-    stress_nodal = need_stress ? zeros(Float64, 6, n_nodes) : nothing
-    iv_nodal     = NS > 0     ? zeros(Float64, NS, n_nodes) : nothing
+    # Accumulators on the vertex unknowns of the recovery space (see
+    # `LumpedRecovery`); the nodal values follow by `interp`.
+    vidx = recovery_data.vidx
+    n_v  = size(recovery_data.interp, 2)
+    stress_v = need_stress ? zeros(Float64, 6, n_v) : nothing
+    iv_v     = NS > 0     ? zeros(Float64, NS, n_v) : nothing
+    bases = [_vertex_basis(ref_fe) for ref_fe in values(fspace.ref_fes)]
 
     # `params_cpu.properties` is a flat `PropertyField`, not a per-block
     # NamedTuple, so it cannot be zipped alongside the others: `values` on it
@@ -230,6 +234,7 @@ function _write_recovered_fields!(sim, step)
     ))
         nelem   = conns.nelems[b]
         coffset = conns.offsets[b]
+        vb = bases[b]
         for e in 1:nelem
             conn = FEC.connectivity(ref_fe, conns.data, e, coffset)
             x_el = FEC._element_level_fields_flat(params_cpu.coords, ref_fe, conn)
@@ -241,10 +246,10 @@ function _write_recovered_fields!(sim, step)
                 state_old_q = FEC.state_variables(params_cpu.state_old, q, e, b)
                 state_new_q = FEC.state_variables(params_cpu.state_new, q, e, b)
 
-                N = RFE.cell_shape_function_value(ref_fe, q)
+                N = _vertex_shape_at_q(vb, ref_fe, q)
                 cell = FEC.map_interpolants(interps, x_el)
                 JxW = cell.JxW
-                nnpe = RFE.num_cell_dofs(ref_fe)
+                nnpe = vb.nv
 
                 if need_stress
                     ∇u_q = FEC.interpolate_field_gradients(block_physics, cell, u_el)
@@ -257,7 +262,7 @@ function _write_recovered_fields!(sim, step)
                     for i in 1:nnpe
                         NiJxW = N[i] * JxW
                         for c in 1:6
-                            stress_nodal[c, conn[i]] += NiJxW * σ_q.data[c]
+                            stress_v[c, vidx[conn[i]]] += NiJxW * σ_q.data[c]
                         end
                     end
                 end
@@ -266,7 +271,7 @@ function _write_recovered_fields!(sim, step)
                     for i in 1:nnpe
                         NiJxW = N[i] * JxW
                         for s in 1:NS
-                            iv_nodal[s, conn[i]] += NiJxW * state_new_q[s]
+                            iv_v[s, vidx[conn[i]]] += NiJxW * state_new_q[s]
                         end
                     end
                 end
@@ -274,34 +279,29 @@ function _write_recovered_fields!(sim, step)
         end
     end
 
-    # Convert the assembled RHS b into nodal values: lumped divides by the
-    # diagonal mass; consistent solves M σ_nodal = b with the cached factor.
+    # The vertex values: lumped divides by the row sums of the vertex mass;
+    # consistent solves M q = b with the cached factor.  The nodal values of
+    # every node follow from `interp`.
     if recovery_data isa LumpedRecovery
-        for node in 1:n_nodes
-            inv_m = recovery_data.inv_m_lumped[node]
-            if need_stress
-                for c in 1:6
-                    stress_nodal[c, node] *= inv_m
-                end
-            end
-            if NS > 0
-                for s in 1:NS
-                    iv_nodal[s, node] *= inv_m
-                end
-            end
+        for v in 1:n_v
+            inv_m = recovery_data.inv_m_lumped[v]
+            need_stress && (stress_v[:, v] .*= inv_m)
+            NS > 0 && (iv_v[:, v] .*= inv_m)
         end
     elseif recovery_data isa ConsistentRecovery
         if need_stress
             for c in 1:6
-                stress_nodal[c, :] .= recovery_data.M_factor \ stress_nodal[c, :]
+                stress_v[c, :] .= recovery_data.M_factor \ stress_v[c, :]
             end
         end
         if NS > 0
             for s in 1:NS
-                iv_nodal[s, :] .= recovery_data.M_factor \ iv_nodal[s, :]
+                iv_v[s, :] .= recovery_data.M_factor \ iv_v[s, :]
             end
         end
     end
+    stress_nodal = need_stress ? Matrix((recovery_data.interp * stress_v')') : nothing
+    iv_nodal     = NS > 0     ? Matrix((recovery_data.interp * iv_v')')     : nothing
 
     # Write stress
     if need_stress

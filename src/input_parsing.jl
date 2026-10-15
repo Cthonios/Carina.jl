@@ -942,81 +942,153 @@ function _lumped_mass_element_types(asm_cpu)
 end
 
 # Build L2 projection recovery data (CPU-only).
+# The vertex basis of a block for the nodal recovery (see `LumpedRecovery`):
+# `nv` vertices per element, and `shape(ξ)` the values of the vertex shape
+# functions at a reference point.  Elements whose nodes are all vertices use
+# their own shape functions through `shape_at_q`; the others, which must be
+# simplices, use the barycentric coordinates λ = A⁻¹ [ξ; 1] with
+# A = [V; 1 … 1] from the vertex coordinates V.
+struct _VertexBasis{F}
+    nv::Int
+    own::Bool                # the element's own basis is the vertex basis
+    shape::F                 # ξ -> vertex shape values (used when !own)
+end
+
+function _vertex_basis(ref_fe)
+    nnpe = RFE.num_cell_dofs(ref_fe)
+    nv   = RFE.num_vertices_per_cell(RFE.element(ref_fe))
+    nnpe == nv && return _VertexBasis(nv, true, ξ -> error("own basis"))
+    nv == 4 || error(
+        "The nodal recovery of a $(nnpe)-node element with $nv vertices is not " *
+        "implemented; it is defined for simplices and for elements whose nodes are " *
+        "all vertices.")
+    V = SMatrix{3, 4, Float64}(RFE.vertex_coordinates(ref_fe))
+    A = vcat(V, SMatrix{1, 4, Float64}(1.0, 1.0, 1.0, 1.0))
+    Ainv = inv(A)
+    shape = ξ -> Ainv * SVector{4, Float64}(ξ[1], ξ[2], ξ[3], 1.0)
+    return _VertexBasis(nv, false, shape)
+end
+
+@inline function _vertex_shape_at_q(vb::_VertexBasis, ref_fe, q)
+    vb.own && return RFE.cell_shape_function_value(ref_fe, q)
+    return vb.shape(FEC._cell_interpolants(ref_fe, q).ξ)
+end
+
+# Vertex numbering of the mesh and the interpolation of the other nodes.
+function _recovery_vertex_structure(asm_cpu, p_cpu)
+    fspace  = FEC.function_space(asm_cpu.dof)
+    n_nodes = size(p_cpu.coords, 2)
+    conns   = fspace.elem_conns
+    bases   = [_vertex_basis(ref_fe) for ref_fe in fspace.ref_fes]
+    is_vertex = falses(n_nodes)
+    for (b, ref_fe) in enumerate(fspace.ref_fes)
+        nelem = conns.nelems[b]; coffset = conns.offsets[b]; nv = bases[b].nv
+        for e in 1:nelem
+            conn = FEC.connectivity(ref_fe, conns.data, e, coffset)
+            for i in 1:nv
+                is_vertex[conn[i]] = true
+            end
+        end
+    end
+    vidx = zeros(Int, n_nodes); n_v = 0
+    for node in 1:n_nodes
+        is_vertex[node] && (n_v += 1; vidx[node] = n_v)
+    end
+    rows = Int[]; cols = Int[]; vals = Float64[]
+    for node in 1:n_nodes
+        is_vertex[node] && (push!(rows, node); push!(cols, vidx[node]); push!(vals, 1.0))
+    end
+    # The weights of a non-vertex node on the vertices of one element that
+    # holds it are its barycentric coordinates, computed from the physical
+    # coordinates of the node and of the four vertices (for an edge node on a
+    # curved boundary, those of the straight tetrahedron through the vertices).
+    done = copy(is_vertex)
+    for (b, ref_fe) in enumerate(fspace.ref_fes)
+        vb = bases[b]
+        vb.own && continue
+        nnpe = RFE.num_cell_dofs(ref_fe); nv = vb.nv
+        nelem = conns.nelems[b]; coffset = conns.offsets[b]
+        for e in 1:nelem
+            conn = FEC.connectivity(ref_fe, conns.data, e, coffset)
+            x_el = FEC._element_level_fields_flat(p_cpu.coords, ref_fe, conn)
+            A = SMatrix{4, 4, Float64}(
+                x_el[1], x_el[2], x_el[3], 1.0,
+                x_el[4], x_el[5], x_el[6], 1.0,
+                x_el[7], x_el[8], x_el[9], 1.0,
+                x_el[10], x_el[11], x_el[12], 1.0)
+            Ainv = inv(A)
+            for i in (nv + 1):nnpe
+                node = conn[i]
+                done[node] && continue
+                done[node] = true
+                xi = SVector{4, Float64}(x_el[3i - 2], x_el[3i - 1], x_el[3i], 1.0)
+                λ = Ainv * xi
+                for j in 1:nv
+                    push!(rows, node); push!(cols, vidx[conn[j]]); push!(vals, λ[j])
+                end
+            end
+        end
+    end
+    all(done) || error("A node of the mesh belongs to no element.")
+    interp = SparseArrays.sparse(rows, cols, vals, n_nodes, n_v)
+    return bases, vidx, n_v, interp
+end
+
 function _build_recovery_data(recovery::Symbol, asm_cpu, p_cpu)
     recovery == :none && return NoRecovery()
+    recovery in (:lumped, :consistent) || return NoRecovery()
+
+    fspace = FEC.function_space(asm_cpu.dof)
+    conns  = fspace.elem_conns
+    bases, vidx, n_v, interp = _recovery_vertex_structure(asm_cpu, p_cpu)
 
     if recovery == :lumped
-        # Compute geometric lumped "mass" per node: vol_i = Σ_e Σ_q N_i(ξ_q) w_q |J|
-        # This is the volume tributary to each node (no density).
-        # Assembled directly from the element loop on CPU.
-        fspace = FEC.function_space(asm_cpu.dof)
-        n_nodes = size(p_cpu.coords, 2)
-        vol = zeros(Float64, n_nodes)
-        conns = fspace.elem_conns
-
+        # Row sums of the vertex P1 mass without density: the volume
+        # tributary to each vertex, Σ_e Σ_q λ_i(ξ_q) w_q |J|, positive.
+        vol = zeros(Float64, n_v)
         for (b, ref_fe) in enumerate(fspace.ref_fes)
-            nelem = conns.nelems[b]
-            coffset = conns.offsets[b]
+            vb = bases[b]; nelem = conns.nelems[b]; coffset = conns.offsets[b]
             for e in 1:nelem
                 conn = FEC.connectivity(ref_fe, conns.data, e, coffset)
                 x_el = FEC._element_level_fields_flat(p_cpu.coords, ref_fe, conn)
-                nnpe = RFE.num_cell_dofs(ref_fe)
                 for q in 1:RFE.num_cell_quadrature_points(ref_fe)
                     interps = FEC._cell_interpolants(ref_fe, q)
                     cell = FEC.map_interpolants(interps, x_el)
-                    N = RFE.cell_shape_function_value(ref_fe, q)
-                    for i in 1:nnpe
-                        vol[conn[i]] += N[i] * cell.JxW
+                    N = _vertex_shape_at_q(vb, ref_fe, q)
+                    for i in 1:vb.nv
+                        vol[vidx[conn[i]]] += N[i] * cell.JxW
                     end
                 end
             end
         end
-
-        inv_vol = zeros(Float64, n_nodes)
-        for i in 1:n_nodes
-            if vol[i] > 0.0
-                inv_vol[i] = 1.0 / vol[i]
-            end
-        end
-        _carina_log(0, :setup, "L2 lumped recovery initialized")
-        return LumpedRecovery(inv_vol)
-
-    elseif recovery == :consistent
-        # Assemble the scalar consistent mass matrix M_ij = Σ_e Σ_q N_i N_j |J| w_q
-        # (geometry-only / density-free, same basis as the lumped volume above)
-        # and cache its Cholesky factor.  L2 projection then solves
-        # σ_nodal = M⁻¹ b with b_i = Σ_e Σ_q N_i σ(ξ_q) |J| w_q (assembled in io.jl).
-        fspace = FEC.function_space(asm_cpu.dof)
-        n_nodes = size(p_cpu.coords, 2)
-        conns = fspace.elem_conns
-        rows = Int[]; cols = Int[]; vals = Float64[]
-
-        for (b, ref_fe) in enumerate(fspace.ref_fes)
-            nelem = conns.nelems[b]
-            coffset = conns.offsets[b]
-            for e in 1:nelem
-                conn = FEC.connectivity(ref_fe, conns.data, e, coffset)
-                x_el = FEC._element_level_fields_flat(p_cpu.coords, ref_fe, conn)
-                nnpe = RFE.num_cell_dofs(ref_fe)
-                for q in 1:RFE.num_cell_quadrature_points(ref_fe)
-                    interps = FEC._cell_interpolants(ref_fe, q)
-                    cell = FEC.map_interpolants(interps, x_el)
-                    N = RFE.cell_shape_function_value(ref_fe, q)
-                    JxW = cell.JxW
-                    for i in 1:nnpe, j in 1:nnpe
-                        push!(rows, conn[i]); push!(cols, conn[j])
-                        push!(vals, N[i] * N[j] * JxW)
-                    end
-                end
-            end
-        end
-
-        M = SparseArrays.sparse(rows, cols, vals, n_nodes, n_nodes)
-        M_factor = cholesky(Symmetric(M))
-        _carina_log(0, :setup, "L2 consistent recovery initialized")
-        return ConsistentRecovery(M_factor)
+        all(>(0.0), vol) || error("The lumped recovery mass is not positive at every vertex.")
+        _carina_log(0, :setup, "L2 lumped recovery initialized ($(n_v) vertices)")
+        return LumpedRecovery(1.0 ./ vol, vidx, interp)
     else
-        return NoRecovery()
+        # The consistent vertex P1 mass M_ij = Σ_e Σ_q λ_i λ_j w_q |J| and its
+        # Cholesky factor; the projection solves M q = b with b assembled in
+        # io.jl.
+        rows = Int[]; cols = Int[]; vals = Float64[]
+        for (b, ref_fe) in enumerate(fspace.ref_fes)
+            vb = bases[b]; nelem = conns.nelems[b]; coffset = conns.offsets[b]
+            for e in 1:nelem
+                conn = FEC.connectivity(ref_fe, conns.data, e, coffset)
+                x_el = FEC._element_level_fields_flat(p_cpu.coords, ref_fe, conn)
+                for q in 1:RFE.num_cell_quadrature_points(ref_fe)
+                    interps = FEC._cell_interpolants(ref_fe, q)
+                    cell = FEC.map_interpolants(interps, x_el)
+                    N = _vertex_shape_at_q(vb, ref_fe, q)
+                    for i in 1:vb.nv, j in 1:vb.nv
+                        push!(rows, vidx[conn[i]]); push!(cols, vidx[conn[j]])
+                        push!(vals, N[i] * N[j] * cell.JxW)
+                    end
+                end
+            end
+        end
+        M = SparseArrays.sparse(rows, cols, vals, n_v, n_v)
+        M_factor = cholesky(Symmetric(M))
+        _carina_log(0, :setup, "L2 consistent recovery initialized ($(n_v) vertices)")
+        return ConsistentRecovery(M_factor, vidx, interp)
     end
 end
 

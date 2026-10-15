@@ -87,9 +87,25 @@ projected to nodes for visualization. Recovered variables take a trailing `_n`.
 
 | `recovery` | Aliases | Method |
 |---|---|---|
-| `lumped` | — | Diagonal (lumped) projection. Fast, slightly smoothing. **Default.** |
-| `consistent` | `l2` | Full consistent-mass L2 projection. More accurate; requires a Cholesky factorization at setup. |
+| `lumped` | — | Projection with the lumped (row-sum) mass of the vertex space. Fast, slightly smoothing. **Default.** |
+| `consistent` | `l2` | Full consistent-mass L² projection onto the vertex space; requires a Cholesky factorization at setup. |
 | `none` | — | No projection; skip recovered output. |
+
+The projection space is the continuous piecewise-linear space on the vertices
+of the elements. For elements whose nodes are all vertices (`TETRA4`, `HEX8`)
+that is the element's own basis. For elements with edge, face or interior
+nodes (`TETRA10`, `TETRA15`) the projection is onto the four vertices of each
+tetrahedron and the other nodes are interpolated from the vertices afterwards
+(edge nodes the mean of their two vertices, face nodes of their three, the
+interior node of the four). The full basis of those elements is not usable
+for this purpose: its row-sum lumped mass is zero or negative at vertices,
+and its consistent mass integrated with the element's quadrature rule (degree
+5 for the fifteen-node tetrahedron, whose basis products reach degree 8) is
+singular on the interior bubble; before 2026-10-15 both were attempted, and
+on `TETRA15` the lumped output held stresses of 1e12 Pa against element
+values of 1e7 Pa and the consistent one failed to factorize. The vertex mass
+is integrated exactly by every rule of degree two or more and its row sums
+are positive.
 
 | Variable | Written when |
 |---|---|

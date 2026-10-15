@@ -35,6 +35,7 @@ const indexed_test_files = [
     (39, "projected-general.jl"),
     (40, "quasistatic-predictor.jl"),
     (41, "amg-compressible-operator.jl"),
+    (42, "recovery-vertex-space.jl"),
     (1, "mechanics-quasistatic-cube.jl"),
     (2, "mechanics-implicit-dynamic-cube.jl"),
     (3, "mechanics-explicit-dynamic-cube.jl"),
