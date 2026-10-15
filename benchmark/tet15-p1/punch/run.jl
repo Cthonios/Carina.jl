@@ -32,7 +32,7 @@
 #   julia -t 32 --project=. benchmark/tet15-p1/punch/run.jl --h 4,8 --case A,B
 #        [--stages mesh,convert,run] [--elements tet15-p1,tetra15] [--device cpu|cuda]
 #        [--preconditioner amg|jacobi] [--amg-operator tangent|compressible]
-#        [--cg-cap 1000] [--tag <suffix>]
+#        [--cg-cap 1000] [--recovery lumped|consistent|none] [--tag <suffix>]
 #        [--ti "key: value"]...
 # --h takes the divisors of a (h = a/4, a/8, a/16, a/32).  A CUDA run needs the
 # vendor package loaded in the calling session, as for the Taylor driver:
@@ -47,8 +47,8 @@
 #
 # Each run writes runs/<element>-<case>-h<d>[-<device>]/ with the deck, the
 # Exodus output (stress and internal variables at every output step, at the
-# quadrature points and as their consistent-mass L2 projection onto the nodes,
-# sigma_*_n and eqps_n), the
+# quadrature points and as their projection onto the nodes, sigma_*_n and
+# eqps_n, by --recovery: lumped, the default, or consistent), the
 # Carina log, force.tsv (step, depth, full punch force: four times the sum over
 # the nodes of node set punch of the z component of the assembled internal
 # force of the quarter, positive in compression) and run.log (steps, cuts,
@@ -75,6 +75,7 @@ const SYMMETRY = 4                  # full force = SYMMETRY x the quarter's
 const DEVICE  = Ref("cpu")
 const PRECOND = Ref("amg")
 const AMG_OP  = Ref("tangent")
+const RECOVERY = Ref("lumped")
 const TI_EXTRA = String[]
 const CG_CAP  = Ref(1000)
 const TAG     = Ref("")
@@ -120,7 +121,7 @@ output interval: 0.05
 output:
   stress: true
   internal variables: true
-  recovery: consistent
+  recovery: $(RECOVERY[])
 model:
   type: solid mechanics
 $(projection)  material:
@@ -316,6 +317,7 @@ function run_case(element, case, d)
         println(io, "host\t$(gethostname())")
         println(io, "device\t$(DEVICE[] == "cpu" ? "cpu" : device_name())\nthreads\t$(Threads.nthreads())")
         println(io, "preconditioner\t$(PRECOND[])" * (PRECOND[] == "amg" ? " (operator $(AMG_OP[]))" : "") * "\ncg cap\t$(CG_CAP[])\nforcing\teisenstat-walker (floor 1e-8)\npredictor\ttangent")
+        println(io, "recovery\t$(RECOVERY[])")
         println(io, "first step\t$FIRST\nmaximum step\t$(max_step(d))")
         println(io, "status\t$status\nwall_s\t$(round(wall; digits = 1))")
         println(io, "time steps\t$steps\ncuts\t$cuts")
@@ -351,6 +353,8 @@ function parse_args(args)
             PRECOND[] = args[i + 1]
         elseif a == "--amg-operator"
             AMG_OP[] = args[i + 1]
+        elseif a == "--recovery"
+            RECOVERY[] = args[i + 1]
         elseif a == "--cg-cap"
             CG_CAP[] = parse(Int, args[i + 1])
         elseif a == "--tag"
