@@ -6,7 +6,10 @@
     # beyond yield has one stress and one plastic strain at every quadrature
     # point, so every recovered nodal value must equal them, on TETRA15 (edge,
     # face and interior nodes) and on TETRA10, with the lumped and the
-    # consistent recovery.  Before 2026-10-15 the recovery used the full
+    # consistent recovery.  Poisson's ratio 0.3: at ν = 0.49995 the bulk
+    # modulus turns the round-off of the converged displacement into stress
+    # differences of 1e-4 relative that vary with the thread count and the
+    # Julia version (CI, 2026-10-15), which is not what the test measures.  Before 2026-10-15 the recovery used the full
     # basis of these elements: on TETRA15 the lumped mass was zero or negative
     # at some nodes and the consistent mass failed to factorize.
     examples = joinpath(@__DIR__, "..", "examples", "mechanics", "quasistatic")
@@ -25,7 +28,7 @@ model:
       cube: j2 plasticity
     j2 plasticity:
       elastic modulus: 2.9999e9
-      Poisson's ratio: 0.49995
+      Poisson's ratio: 0.3
       density: 8930.0
       yield stress: 1.0e6
       hardening modulus: 1.0e7
@@ -89,11 +92,10 @@ solver:
                 @test length(σzz) == size(sim.params_cpu.coords, 2)
                 @test all(isfinite, σzz) && all(isfinite, eqps)
                 # Homogeneous state: one value at every node, to the
-                # non-uniformity left by the Newton tolerance (a residual of
-                # 1 N on a stress of 1e6 Pa gives 1e-5 relative on TETRA10),
-                # and in the plastic range.
-                @test maximum(σzz) - minimum(σzz) <= 1e-4 * abs(sum(σzz) / length(σzz))
-                @test maximum(eqps) - minimum(eqps) <= 1e-4 * (sum(eqps) / length(eqps))
+                # non-uniformity left by the Newton tolerance, and in the
+                # plastic range.
+                @test maximum(σzz) - minimum(σzz) <= 1e-5 * abs(sum(σzz) / length(σzz))
+                @test maximum(eqps) - minimum(eqps) <= 1e-5 * (sum(eqps) / length(eqps))
                 @test sum(eqps) / length(eqps) > 1e-4
                 @test sum(σzz) / length(σzz) > 1e6
                 # Interpolation: the values at the non-vertex nodes lie between
