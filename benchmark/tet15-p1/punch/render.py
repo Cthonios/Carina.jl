@@ -1,6 +1,7 @@
 # Render a punch run with ParaView, from its Exodus output, at step 20 (t = 1):
 #
 #   pvpython render.py <results.e> <out prefix> p=<min>:<max> eqps=<min>:<max> [nodal=<csv>]
+#        [bar=off]
 #
 # (pvpython takes an argument that starts with '-' for an option of its own,
 # so each range is one argument.)  The element values are the element means:
@@ -18,7 +19,11 @@
 # 1400 px wide.  With nodal=<csv> (the nodal-all-s20.csv of extract_fields.jl:
 # id, x, y, z, p, eqps at every node), p and eqps are instead those nodal
 # values, interpolated over the elements, and the files are
-# <prefix>-<q>-nodal-{meridian,top}.png.
+# <prefix>-<q>-nodal-{meridian,top}.png, drawn without the element edges.
+# With bar=off the color bar is left out, for tiles composed into a grid with
+# one color bar drawn separately; the camera, the image size and the flat
+# lighting are fixed, the same for every run and level, so the tiles of all
+# runs share one frame.
 import os
 import re
 import sys
@@ -31,6 +36,7 @@ A, H = 1.0e-3, 4.0e-3
 path, prefix = sys.argv[1], sys.argv[2]
 opts = dict(a.split("=", 1) for a in sys.argv[3:])
 nodal = opts.pop("nodal", None)
+show_bar = opts.pop("bar", "on") != "off"
 ranges = dict((k, tuple(float(v) for v in r.split(":"))) for k, r in opts.items())
 
 reader = ExodusIIReader(FileName=[path])
@@ -110,7 +116,7 @@ def shot(source, array, rng, focal, position, up, scale, size, out):
     for r in list(view.Representations):
         r.Visibility = 0
     d = Show(source, view)
-    d.Representation = "Surface With Edges"
+    d.Representation = "Surface" if array.endswith("_n") else "Surface With Edges"
     d.EdgeColor = [0.0, 0.0, 0.0]
     d.Ambient, d.Diffuse, d.Specular = 1.0, 0.0, 0.0      # flat colors, no shading
     ColorBy(d, ("POINTS" if array.endswith("_n") else "CELLS", array))
@@ -118,11 +124,12 @@ def shot(source, array, rng, focal, position, up, scale, size, out):
     lut.ApplyPreset("Rainbow Uniform", True)
     lut.AutomaticRescaleRangeMode = "Never"
     lut.RescaleTransferFunction(*rng)
-    d.SetScalarBarVisibility(view, True)
+    d.SetScalarBarVisibility(view, show_bar)
     bar = GetScalarBar(lut, view)
     bar.TitleColor = bar.LabelColor = [0.0, 0.0, 0.0]
     bar.Title = {"p": "p (Pa)", "eqps_mean": "eqps", "p_n": "nodal p (Pa)", "eqps_n": "nodal eqps"}[array]
     bar.ComponentTitle = ""
+    bar.Visibility = int(show_bar)
     view.CameraFocalPoint = focal
     view.CameraPosition = position
     view.CameraViewUp = up
