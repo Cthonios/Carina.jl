@@ -31,7 +31,8 @@
 # Usage (from the Carina root; the threads serve Carina's element loops):
 #   julia -t 32 --project=. benchmark/tet15-p1/punch/run.jl --h 4,8 --case A,B
 #        [--stages mesh,convert,run] [--elements tet15-p1,tetra15] [--device cpu|cuda]
-#        [--preconditioner amg|jacobi] [--cg-cap 1000] [--tag <suffix>]
+#        [--preconditioner amg|jacobi] [--amg-operator tangent|compressible]
+#        [--cg-cap 1000] [--tag <suffix>]
 #        [--ti "key: value"]...
 # --h takes the divisors of a (h = a/4, a/8, a/16, a/32).  A CUDA run needs the
 # vendor package loaded in the calling session, as for the Taylor driver:
@@ -40,7 +41,9 @@
 # with JULIA_LOAD_PATH="@:$PWD:@stdlib"; backend.jl of the Taylor driver then
 # includes bin/cuda_always_inline.jl, as bin/carina.jl does.
 # --ti adds a line to the time-integrator section of the deck; it may be
-# repeated.  --tag appends a suffix to the run directory.
+# repeated.  --tag appends a suffix to the run directory.  --amg-operator sets
+# the operator the AMG hierarchy is built on (tangent, the default, or
+# compressible: the tangent at the bulk modulus set to the shear modulus).
 #
 # Each run writes runs/<element>-<case>-h<d>[-<device>]/ with the deck, the
 # Exodus output (stress and internal variables at every output step), the
@@ -69,6 +72,7 @@ const SYMMETRY = 4                  # full force = SYMMETRY x the quarter's
 
 const DEVICE  = Ref("cpu")
 const PRECOND = Ref("amg")
+const AMG_OP  = Ref("tangent")
 const TI_EXTRA = String[]
 const CG_CAP  = Ref(1000)
 const TAG     = Ref("")
@@ -165,7 +169,7 @@ solver:
       type: eisenstat-walker
     preconditioner:
       type: $(PRECOND[])
-"""
+$(PRECOND[] == "amg" ? "      operator: $(AMG_OP[])\n" : "")"""
 end
 
 # Node indices (1-based, in the mesh order) of a node set.
@@ -227,12 +231,12 @@ end
 
 # Counts from the Carina log: Newton iterations, CG iterations, CG solves and
 # those that ended unconverged at the cap, and the predictor lines (kept,
-# reverted, and the residual reduction of each).
+# reverted, and the residual reduction of each), and the AMG hierarchy builds.
 function count_log(logfile)
-    c = (newton = 0, cg = 0, solves = 0, capped = 0, kept = 0, reverted = 0, skipped = 0)
+    c = (newton = 0, cg = 0, solves = 0, capped = 0, kept = 0, reverted = 0, skipped = 0, builds = 0)
     red = Float64[]
     isfile(logfile) || return c, red
-    newton = cg = solves = capped = kept = reverted = skipped = 0
+    newton = cg = solves = capped = kept = reverted = skipped = builds = 0
     for line in eachline(logfile)
         occursin(r"Iter \[[1-9][0-9]*\]", line) && (newton += 1)
         m = match(r"CG: (\d+) iters", line)
@@ -247,8 +251,9 @@ function count_log(logfile)
             b !== nothing && a !== nothing && push!(red, b / a)
         end
         occursin("Predictor: tangent solve failed", line) && (skipped += 1)
+        occursin("AMG hierarchy build #", line) && (builds += 1)
     end
-    return (; newton, cg, solves, capped, kept, reverted, skipped), red
+    return (; newton, cg, solves, capped, kept, reverted, skipped, builds), red
 end
 
 function run_case(element, case, d)
@@ -307,13 +312,14 @@ function run_case(element, case, d)
         println(io, "run\t$tag")
         println(io, "host\t$(gethostname())")
         println(io, "device\t$(DEVICE[] == "cpu" ? "cpu" : device_name())\nthreads\t$(Threads.nthreads())")
-        println(io, "preconditioner\t$(PRECOND[])\ncg cap\t$(CG_CAP[])\nforcing\teisenstat-walker (floor 1e-8)\npredictor\ttangent")
+        println(io, "preconditioner\t$(PRECOND[])" * (PRECOND[] == "amg" ? " (operator $(AMG_OP[]))" : "") * "\ncg cap\t$(CG_CAP[])\nforcing\teisenstat-walker (floor 1e-8)\npredictor\ttangent")
         println(io, "first step\t$FIRST\nmaximum step\t$(max_step(d))")
         println(io, "status\t$status\nwall_s\t$(round(wall; digits = 1))")
         println(io, "time steps\t$steps\ncuts\t$cuts")
         println(io, "newton iterations\t$(cnt.newton)\ncg iterations\t$(cnt.cg)")
         @printf(io, "cg solves\t%d\ncg solves at the cap\t%d (%.1f%%)\n", cnt.solves, cnt.capped,
                 cnt.solves == 0 ? 0.0 : 100 * cnt.capped / cnt.solves)
+        println(io, "amg hierarchy builds\t$(cnt.builds)")
         println(io, "predictor kept\t$(cnt.kept)\npredictor reverted\t$(cnt.reverted)\npredictor solve failed\t$(cnt.skipped)")
         if !isempty(red)
             s = sort(red)
@@ -340,6 +346,8 @@ function parse_args(args)
             DEVICE[] = args[i + 1]
         elseif a == "--preconditioner"
             PRECOND[] = args[i + 1]
+        elseif a == "--amg-operator"
+            AMG_OP[] = args[i + 1]
         elseif a == "--cg-cap"
             CG_CAP[] = parse(Int, args[i + 1])
         elseif a == "--tag"
