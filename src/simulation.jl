@@ -290,6 +290,7 @@ function create_simulation(dict::Dict{String,Any}, basedir::String="";
     @carina_timed "Assembly cache" _init_assembly_cache!(asm_cpu, all_linear_elastic)
     _cpu_asm_ref[]    = asm_cpu
     _cpu_params_ref[] = p_cpu
+    _dev_params_ref[] = p
     _backend_ref[]    = backend
     integrator = @carina_phase "Building integrator and solver" _parse_integrator(
                                dict, asm, asm_cpu, p_cpu, controller, backend)

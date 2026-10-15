@@ -215,6 +215,20 @@ _amg_track_iters!(::Preconditioner, _) = nothing
 # GPU AMG: host-built SA hierarchy, device V-cycle (src/gpu_amg.jl)
 # --------------------------------------------------------------------------- #
 
+# The time integrator updates the Dirichlet values of the device parameters
+# only; the host copy keeps those of the initial time.  Host-side assembly on
+# the state of a device run (the AMG hierarchy, the output) takes the current
+# values from the device first, or it sees the constrained DOFs at their
+# initial values.
+function _sync_host_dirichlet!(p_cpu, p = _dev_params_ref[])
+    (p === nothing || p === p_cpu) && return nothing
+    src, dst = p.dirichlet_bcs.bc_cache, p_cpu.dirichlet_bcs.bc_cache
+    copyto!(dst.vals, Adapt.adapt(Array, src.vals))
+    copyto!(dst.vals_dot, Adapt.adapt(Array, src.vals_dot))
+    copyto!(dst.vals_dot_dot, Adapt.adapt(Array, src.vals_dot_dot))
+    return nothing
+end
+
 function _compute_gpu_amg_precond(asm_cpu, template, smoother::Symbol = :jacobi)
     smoother in (:jacobi, :block_jacobi) ||
         error("Unknown AMG smoother :$smoother. Expected :jacobi or :block_jacobi.")
@@ -243,6 +257,7 @@ function _build_gpu_amg_hierarchy!(precond::GPUAMGPreconditioner, c_M, U_dev)
 
     t = @elapsed begin
         U_cpu = Vector{Float64}(Adapt.adapt(Array, U_dev))
+        _sync_host_dirichlet!(p_cpu)
         FEC._update_for_assembly!(p_cpu, asm_cpu.dof, U_cpu)
         FEC.assemble_stiffness!(asm_cpu, FEC.stiffness, U_cpu, p_cpu)
         if c_M != 0.0

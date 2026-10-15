@@ -44,6 +44,7 @@ const _precond_op_cache    = Ref{Any}(nothing)
 const _gpu_cholesky_L      = Ref{Any}(nothing)  # GPU sparse lower triangular factor
 const _cpu_asm_ref         = Ref{Any}(nothing)  # CPU assembler reference for GPU Cholesky
 const _cpu_params_ref      = Ref{Any}(nothing)  # CPU params reference for GPU Cholesky
+const _dev_params_ref      = Ref{Any}(nothing)  # device params: the Dirichlet values of host-side assembly
 const _backend_ref         = Ref{KA.Backend}(KA.CPU())  # active KernelAbstractions backend
 const _nonlinear_status_test = Ref{Any}(nothing)  # parsed termination criteria
 # Whether the AMG smoother's Float32 action is honored by every model in the
@@ -66,6 +67,7 @@ function _init_assembly_cache!(asm, is_linear::Bool)
     _gpu_cholesky_L[]                = nothing
     _cpu_asm_ref[]                   = nothing
     _cpu_params_ref[]                = nothing
+    _dev_params_ref[]                = nothing
     _fp32_smoother_ok[]              = nothing
     _tangent_is_symmetric[]          = nothing
     _direct_chol[]                   = nothing

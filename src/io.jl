@@ -407,6 +407,7 @@ function write_output!(sim::SingleDomainSimulation, step::Int)
         # h1_cpu already computed above.
         state_old_cpu = Adapt.adapt(Array, params.state_old)
         state_new_cpu = Adapt.adapt(Array, params.state_new)
+        _sync_host_dirichlet!(params_cpu, params)
 
         _write_element_fields!(post_processor, params_cpu, h1_cpu,
                                state_old_cpu, state_new_cpu, asm_cpu, output_spec, step)
