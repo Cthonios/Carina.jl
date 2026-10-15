@@ -3364,6 +3364,201 @@ stable step used by Carina is not a bound on distorted elements; the
 eigenvalue estimate replaces it. The equivalent plastic strain was not
 written in these runs and is not compared.
 
+\section{Quasi-static plasticity: indentation by a flat punch}
+\label{sec:punch}
+
+This section measures the element in quasi-static finite-deformation
+plasticity with a plastic zone confined by elastic material at
+$\kappa/\mu = 10^4$, the regime in which the soft mode of the composite
+tetrahedron is expected (\S\ref{sec:plastic}), against the composite
+tetrahedron, the prototype implementation of TET15-P1 in Sierra/SM and the
+plain fifteen-node tetrahedron, on the same meshes. The problem has no
+published three-dimensional tetrahedral instance; its definition is the
+reference. The measured quantities are the punch force, the element-to-element
+jumps of the pressure and of the equivalent plastic strain near the punch,
+and the departure of the surface displacement from axisymmetry. The results
+at the coarsest level are reported here; the finer level is in progress.
+
+\paragraph{Problem.} A cylinder of radius $R = 4a$ and height $H = 4a$,
+$a = 1$~mm, rests on a frictionless rigid plane ($u_z = 0$ on the base,
+$u_x$ and $u_y$ free) and is indented on its top face by a frictionless
+rigid flat punch of radius $a$ centered on the axis: $u_z = -d(t)$ on every
+node of the footprint faces, including the nodes on the circle $r = a$, with
+$u_x$ and $u_y$ free, and $d(t) = 0.2a\,t$ for $t \in [0, 1]$, with output
+at the twenty times $t = 0.05, 0.10, \dots, 1$. Under a flat punch every
+footprint node stays in compression and the material outside piles up beside
+the punch without meeting it, so this is frictionless contact without a
+contact algorithm, with the contact set fixed to the footprint. The
+computational domain is the quarter $x \ge 0$, $y \ge 0$, with $u_x = 0$ on
+the plane $x = 0$ and $u_y = 0$ on the plane $y = 0$; these conditions
+remove the rigid-body translations in $x$ and $y$ and the rotation about $z$,
+so that both codes solve the same discrete problem with no further
+constraint, and the full punch force is four times the reaction of the
+quarter. The material is the $J_2$ model with linear isotropic hardening:
+$\mu = 10^9$~Pa, $\kappa = 10^{13}$~Pa ($E = 2.9999 \times 10^9$~Pa,
+$\nu = 0.49995$), yield stress $\sigma_y = 10^6$~Pa, hardening modulus
+$H = 10^7$~Pa (case~A) or $H = 0$ (case~B); the Simo--Hughes model
+(Remark~\ref{rem:whichj2}) in Carina and both the hypoelastic rate form and
+the multiplicative hyperelastic form of the Sierra material library, which
+agree with each other to five or six digits in force and to three in the
+field statistics in every pair of runs. The mean pressure under a smooth
+circular punch on a rigid-perfectly-plastic half-space is about
+$5.7\,\sigma_y/\sqrt{3}$, so the full force approaches about $10.3$~N in
+case~B as the depth grows, modified by the finite body and the pile-up; at
+small depth it is the elastic flat-punch value $8\mu a d$ of an
+incompressible half-space.
+
+\paragraph{Meshes and elements.} The quarter is meshed by Cubit with
+four-node tetrahedra of size $h$ within $r \le 2a$, $z \ge H - 2a$ and $4h$
+elsewhere, the quarter circle of the footprint imprinted on the top face so
+that its edge lies on element edges, and smoothed by Cubit's condition-number
+smoother only, so that the footprint circle and the symmetry planes stay
+exact. Three levels, $h = a/4$, $a/8$ and $a/16$, have $6187$, $38\,818$
+and $277\,530$ tetrahedra, $9146$, $54\,582$ and $380\,564$ nodes as
+\code{TETRA10} meshes and $28\,129$, $172\,391$ and $1\,218\,149$ as
+\code{TETRA15} meshes; the smallest shape quality is $0.58$ to $0.62$. Four
+elements are compared on each mesh: the composite tetrahedron of Sierra/SM
+with its stabilization parameter $\alpha = 0.1$ and with $\alpha = 0$
+(\code{TETRA10} meshes), the prototype implementation of TET15-P1 in Sierra/SM
+and TET15-P1 in Carina (\code{TETRA15} meshes), and the plain fifteen-node
+tetrahedron without the projection in both codes, the locking reference.
+
+\paragraph{Time stepping.} The first iterate of a step from the converged
+solution with only the footprint displacement advanced carries the whole
+increment $\Delta d$ in the first element layer: a volumetric strain
+$\Delta d/h$ and a pressure $\kappa\,\Delta d/h$, $400\mu$ at the nominal
+step of $0.01a$ at $h = a/4$. Newton converges from that state only while
+$(\Delta d/h)(\kappa/\mu)$ is below about $1$, that is $\Delta t$ below
+about $1.2 \times 10^{-4}$ at $h = a/4$ (measured: steps converge at
+$9.8 \times 10^{-5}$ and fail at $1.95 \times 10^{-4}$), which would take
+$10^4$ steps to $t = 1$. Carina therefore starts each step from
+$U_n + \Delta U$ with $K_n \Delta U = -K_n [0; \Delta g]$, the response of
+the tangent at the converged state to the increment $\Delta g$ of the
+prescribed values, computed by the matrix-free action with $\Delta g$ in the
+Dirichlet slots (\code{predictor: tangent}); the right-hand side is not the
+residual at the advanced boundary values, whose second-order part at
+$\kappa/\mu \gg 1$ has a component outside the range of the volumetric
+stiffness that only $\mu$ resists and gives an increment of order
+$(\Delta d/h)(\kappa/\mu)\,\Delta d$, $400\,\Delta d$ at $h = a/4$, in
+place of the lift of order $\Delta d$. From the predicted state the error
+is of second order, and the admissible step is set by
+$(\Delta d/h)^2 \kappa/\mu \lesssim 1$: both codes start at
+$\Delta t = 0.05/4096$, double after each converged step up to a maximum of
+$0.00625$ at $h = a/4$ halved per level, halve a failed step and regrow by
+$1.5$, with the twenty output times as block boundaries; Sierra/SM uses its
+load-step predictor, the previous increment scaled by the ratio of the steps.
+At $0.0125$ on $h = a/4$ Newton needs about fifty iterations with cutbacks;
+at $0.00625$, between two and twenty. The cost of the nonlinear iteration is
+the change of the active set near the punch edge: quadrature points switch
+between elastic and plastic states under the iteration, the merit function
+rises by two orders of magnitude at the full Newton step, and the line
+search accepts $\alpha = 1/8$ or less with a decrease of $2$ to $10\%$ per
+iteration until the active set stops changing. The algorithmic tangent of
+the $J_2$ model, the symmetric part of the derivative of the return map,
+differs from that derivative by $4$ to $6 \times 10^{-5}$ of its norm at a
+homogeneous plastic state in both elements and is not the cause: the
+homogeneous plastic cube converges in two to three iterations per step with
+it. The exact linear solves of a direct solver give the same counts as the
+iterative ones. Applying the Armijo condition to the first Newton iteration
+after a kept prediction lowers the count in case~A from $124$ to $77$
+iterations over the first fifteen steps.
+
+\paragraph{Linear solver.} Carina solves the Newton systems by conjugate
+gradients with the smoothed-aggregation multigrid V-cycle of
+\S\ref{sec:dynamics} applied on the device; Sierra/SM by conjugate gradients
+with a FETI preconditioner on 8 to 16 ranks. At $\kappa/\mu = 10^4$ the
+multigrid hierarchy built on the tangent $K(\kappa)$ coarsens on the
+volumetric couplings and its damped Jacobi smoother, scaled to the diagonal
+of $K(\kappa)$, leaves the deviatoric error to the Krylov iteration: on the
+tangent of the $h = a/4$ full cylinder ($325\,414$ unknowns) the count to a
+relative residual of $10^{-8}$ grows as $\kappa^{0.4}$, $274$, $747$,
+$1283$ and $1982$ for $\kappa/\mu = 10^2$ to $10^5$, against $65$ to $75$
+for the FETI preconditioner on the same meshes. The same V-cycle built on
+$K(\kappa')$, the tangent of the material with its bulk modulus set to
+$\kappa' = \mu$, and applied to $K(\kappa)$ needs $330$, $483$, $523$ and
+$678$; the saddle-point form in displacement and projected pressure with the
+augmented-Lagrangian block preconditioner
+$\mathrm{diag}\bigl(K(\kappa'),\, (1/\kappa + 1/\kappa')M\bigr)$ needs
+$326$ to $340$ independent of $\kappa$ but new device kernels. The first
+is one property substitution in the host assembly of the hierarchy and in
+the fine smoothing action (\code{operator: compressible}); on the quarter
+$h = a/4$ mesh to $t = 0.025$ it takes $34\,637$ conjugate-gradient
+iterations in $55$ solves against $115\,416$ in $57$, and $700$ to $1000$
+iterations per solve at the plastic steps against $2500$ to $3700$.
+
+\paragraph{Results at $h = a/4$.} Table~\ref{tab:punch} gives the full
+punch force at $t = 1$, the jump statistics and the axisymmetry measure. The
+jump of a quantity $q$ across an interior face is $|q_L - q_R|$ of the
+element means of the two elements, normalized by the largest $|q|$ over the
+elements whose centroids lie within $r \le 1.5a$ and $z \ge H - 1.5a$; its
+mean and maximum over those faces at $t = 1$ are reported. The axisymmetry
+measure is the standard deviation over the angle of $u_z$ on the top face in
+radial bins of width $a/8$, relative to the mean pile-up. The two
+implementations of TET15-P1 agree in force to $0.05\%$ at $t = 1$ and to
+$0.17\%$ at every output time, in the jump statistics to the second digit
+and in the axisymmetry measure to the third, and their meridian renders of
+the pressure are indistinguishable by eye; for the plain element the two
+codes agree in force to $0.015\%$, with a lower pressure jump in Carina
+because its element mean is over the fourteen quadrature values where
+Sierra/SM writes one element value. TET15-P1 has the smallest pressure jumps
+of the four elements, half those of the composite tetrahedron in case~A and
+$0.4$ to $0.6$ of them in case~B, with comparable jumps of the plastic
+strain; the plain element is stiffer than TET15-P1 by $12.7\%$ (A) and
+$33.6\%$ (B) with pressure jumps six to seven times larger, the locking
+expected of it. The stabilization $\alpha = 0.1$ raises the force of the
+composite tetrahedron by $3.1\%$ (A) and $4.4\%$ (B) and its mean pressure
+jump by $9\%$ (A) and $42\%$ (B); without it the composite tetrahedron is
+within $0.2\%$ (A) and $0.6\%$ (B) of TET15-P1 in force. The axisymmetry
+measure, $0.10$ to $0.57$, is dominated by the coarse unstructured mesh at
+this level and does not discriminate between elements. The prototype
+implementation needs $65$ to $103$ FETI iterations per solve against $154$
+to $167$ for the composite tetrahedron and about $400$ for the plain
+element.
+
+\begin{table}[tbp]
+\centering
+\caption{Punch indentation, quarter model, $h = a/4$ ($6187$ elements):
+full punch force at $t = 1$ in N, mean and maximum of the normalized
+interior-face jumps of the pressure $p$ and of the equivalent plastic
+strain near the punch at $t = 1$, the axisymmetry measure, and the number
+of step cutbacks. Sierra/SM rows: the hypoelastic model; the multiplicative
+model agrees to the digits shown. Carina rows: V100S, conjugate gradients
+with the multigrid preconditioner at a cap of $1000$ iterations, before the
+compressible operator. Case~B of Carina in progress.}
+\label{tab:punch}
+\begin{tabular}{llr cc cc c r}
+\toprule
+element & code & force & \multicolumn{2}{c}{$p$ jump} & \multicolumn{2}{c}{eqps jump} & axisym. & cuts \\
+ & & & mean & max & mean & max & & \\
+\midrule
+\multicolumn{9}{l}{Case A, $H = 10^7$~Pa} \\
+composite tet., $\alpha = 0.1$ & Sierra/SM & 24.954 & 0.048 & 1.47 & 0.030 & 0.65 & 0.104 & 41 \\
+composite tet., $\alpha = 0$   & Sierra/SM & 24.202 & 0.044 & 1.44 & 0.030 & 0.69 & 0.168 & 49 \\
+TET15-P1                       & Sierra/SM & 24.160 & 0.024 & 0.86 & 0.025 & 0.67 & 0.168 & 12 \\
+TET15-P1                       & Carina    & 24.149 & 0.025 & 0.85 & 0.025 & 0.65 & 0.168 & 1 \\
+plain \code{TETRA15}           & Sierra/SM & 27.225 & 0.176 & 1.97 & 0.034 & 0.56 & 0.144 & 0 \\
+plain \code{TETRA15}           & Carina    & 27.221 & 0.152 & 1.53 & 0.034 & 0.56 & 0.144 & 0 \\
+\midrule
+\multicolumn{9}{l}{Case B, $H = 0$} \\
+composite tet., $\alpha = 0.1$ & Sierra/SM & 14.645 & 0.078 & 1.45 & 0.024 & 0.60 & 0.570 & 57 \\
+composite tet., $\alpha = 0$   & Sierra/SM & 14.025 & 0.055 & 1.08 & 0.023 & 0.63 & 0.315 & 81 \\
+TET15-P1                       & Sierra/SM & 14.116 & 0.033 & 0.99 & 0.018 & 0.80 & 0.279 & 86 \\
+plain \code{TETRA15}           & Sierra/SM & 18.864 & 0.191 & 1.94 & 0.035 & 0.56 & 0.233 & 3 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{What the benchmark establishes so far.} On the coarsest mesh,
+TET15-P1 in two independent implementations gives the same force to
+$0.05\%$ and the same field statistics to the second digit, has the
+smallest element-to-element pressure jumps of the four elements, and takes
+the fewest linear iterations per solve; the composite tetrahedron without
+stabilization gives its force within $0.6\%$ with twice the pressure
+jumps, and its stabilization raises both. The result of the benchmark, the
+change of the jump statistics under refinement from $h = a/4$ to $a/8$, is
+in progress. The definition of the problem, the drivers, the meshes and the
+extraction are in \code{benchmark/tet15-p1/punch}.
+
 \section{Summary of the evidence and open measurements}
 \label{sec:verify}
 
