@@ -62,6 +62,16 @@ end
 #
 # If the Armijo budget is exhausted, the trial with the smallest merit is
 # taken, not the full step.
+#
+# When the quasi-static tangent predictor has been applied and kept, the first
+# Newton iteration is no longer the lift of the load increment, and the
+# exemption does not apply: on the punch benchmark the exempted first
+# iteration after a kept predictor doubled the residual (6.98 → 13.4 at
+# h = a/4, case B), and the line search then needed ten iterations with
+# α ≤ 1/16 to recover.
+
+_predictor_applied(ig) = false
+_predictor_applied(ig::QuasiStaticIntegrator) = isfinite(ig.predictor_residual)
 
 function _backtrack_line_search(ns::NewtonSolver, ig, p, ΔU; predictor::Bool = false)
     α = 1.0
@@ -147,7 +157,7 @@ function solve!(ns::NewtonSolver, ig, p)
         ig.failed[] && return
 
         if ns.use_line_search
-            α = _backtrack_line_search(ns, ig, p, ΔU; predictor = iter == 1)
+            α = _backtrack_line_search(ns, ig, p, ΔU; predictor = iter == 1 && !_predictor_applied(ig))
             norm_step = α * sqrt(sum(abs2, ΔU))
             t_eval = 0.0
         else
