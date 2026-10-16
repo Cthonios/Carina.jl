@@ -3,15 +3,17 @@
 # any material is evaluated at F̃ = (J̃/J)^{1/3} F with J̃ = θ⁻¹(P_h θ(J)).
 #
 # Checks, on the TETRA15 cube:
-#   1. selection of the form and of θ from the input, and the input errors;
-#   2. with the neo-Hookean material (no split), θ = log J and J − 1, both
-#      projections: the residual is the derivative of the energy, the tangent
+#   1. selection of the form from the input, and the input errors (the
+#      projected strain is log J and the former key `volumetric strain` is
+#      an error);
+#   2. with the neo-Hookean material (no split), both projections: the
+#      residual is the derivative of the energy, the tangent
 #      is the derivative of the residual and is symmetric, the matrix-free
 #      action, the diagonal kernels and the Newmark kernels reproduce the
 #      assembled matrices, and Newton converges quadratically;
 #   3. the linear patch test and an explicit run with the general form;
-#   4. the J2 model through the general form with θ = J − 1 reproduces the
-#      split form (energy, residual, tangent, Newton history, displacement and
+#   4. the J2 model through the general form reproduces the split form
+#      (energy, residual, tangent, Newton history, displacement and
 #      internal variables) in an elastic and in a plastic case.  In plastic
 #      flow the J2 tangent is the symmetric part of the derivative of its
 #      stress (BOX 9.2 of Simo and Hughes), so the plastic tangent is
@@ -111,9 +113,9 @@ $(indent(linear_solver, 4))
       - relative residual: 1.0e-12
 """
     end
-    model_keys(; strain = nothing, form = nothing) =
-        (strain === nothing ? "" : "  volumetric strain: $strain\n") *
-        (form === nothing ? "" : "  volumetric form: $form\n")
+    model_keys(; form = nothing, strain = nothing) =
+        (form === nothing ? "" : "  volumetric form: $form\n") *
+        (strain === nothing ? "" : "  volumetric strain: $strain\n")
 
     function build(dir, yaml_text; backend = Carina.KA.CPU())
         cp_example(joinpath(mesh_dir("tet15"), "cube.g"), joinpath(dir, "cube.g"))
@@ -148,44 +150,36 @@ $(indent(linear_solver, 4))
     end
     perturb(U) = U .+ 2.0e-4 .* sin.(0.7 .* (1:length(U)))
 
-    @testset "input: form, volumetric strain and their errors" begin
+    @testset "input: form and its errors" begin
         mktempdir() do dir
             ph = first(values(build(dir, deck()).params_cpu.physics))
             @test ph isa Carina.ProjectedSolidMechanics
             @test Carina.volumetric_form(ph) isa Carina.GeneralForm
-            @test Carina.volumetric_variable(ph) isa Carina.LogJ
         end
-        mktempdir() do dir
-            ph = first(values(build(dir, deck(keys = model_keys(strain = "J - 1"))).params_cpu.physics))
-            @test Carina.volumetric_variable(ph) isa Carina.JMinusOne
-        end
-        mktempdir() do dir   # a split model selects the split form, with its own θ
+        @test Carina.volumetric_variable_name() == "log J"
+        mktempdir() do dir   # a split model whose own θ is log J selects the split form
             ph = first(values(build(dir, deck(material = j2(1.0e12))).params_cpu.physics))
             @test Carina.volumetric_form(ph) isa Carina.SplitForm
-            @test Carina.volumetric_variable(ph) isa Carina.JMinusOne
-        end
-        mktempdir() do dir   # the material's θ written out is accepted
-            ph = first(values(build(dir, deck(material = j2(1.0e12),
-                                              keys = model_keys(strain = "J - 1"))).params_cpu.physics))
-            @test Carina.volumetric_form(ph) isa Carina.SplitForm
+            @test Carina._material_projects_log_j(ph.constitutive_model)
         end
         mktempdir() do dir   # a split model forced to the general form
             ph = first(values(build(dir, deck(material = j2(1.0e12),
                                               keys = model_keys(form = "general"))).params_cpu.physics))
             @test Carina.volumetric_form(ph) isa Carina.GeneralForm
-            @test Carina.volumetric_variable(ph) isa Carina.LogJ
         end
-        mktempdir() do dir   # a split model with a different θ is refused
-            err = try
-                build(dir, deck(material = j2(1.0e12), keys = model_keys(strain = "log J"))); nothing
-            catch e
-                e
+        for strain in ("log J", "J - 1")   # the former key is an error, whatever its value
+            mktempdir() do dir
+                err = try
+                    build(dir, deck(keys = model_keys(strain = strain))); nothing
+                catch e
+                    e
+                end
+                @test err isa ErrorException
+                @test occursin("model.volumetric strain is not a key", err.msg)
             end
-            @test err isa ErrorException
-            @test occursin("block \"cube\"", err.msg)
-            @test occursin("the volumetric strain log J differs from it", err.msg)
-            @test occursin("θ = J - 1", err.msg)
         end
+        # a material without the split, or with another measure, is refused by the
+        # split form; only the first case has a model to test it with
         mktempdir() do dir   # the split form for a model without the split is refused
             err = try
                 build(dir, deck(keys = model_keys(form = "split"))); nothing
@@ -196,31 +190,20 @@ $(indent(linear_solver, 4))
             @test occursin("has none", err.msg)
         end
         model(d) = Dict{String, Any}("model" => merge(Dict{String, Any}("volumetric projection" => "linear"), d))
-        @test Carina._parse_volumetric_strain(model(Dict("volumetric strain" => "log J"))) === Carina.LogJ()
-        @test Carina._parse_volumetric_strain(model(Dict("volumetric strain" => "J-1"))) === Carina.JMinusOne()
-        @test Carina._parse_volumetric_strain(model(Dict{String, Any}())) === nothing
-        err = try
-            Carina._parse_volumetric_strain(model(Dict("volumetric strain" => "ln J"))); nothing
-        catch e
-            e
-        end
-        @test err isa ErrorException
-        @test occursin("\"log J\", \"J - 1\"", err.msg)
+        @test Carina._check_no_volumetric_strain(model(Dict{String, Any}())) === nothing
+        @test_throws ErrorException Carina._check_no_volumetric_strain(model(Dict("volumetric strain" => "log J")))
         @test Carina._parse_volumetric_form(model(Dict("volumetric form" => "General"))) === :general
         @test Carina._parse_volumetric_form(model(Dict{String, Any}())) === :automatic
         @test_throws ErrorException Carina._parse_volumetric_form(model(Dict("volumetric form" => "mixed")))
-        # either key without a projection is an error
-        @test_throws ErrorException Carina._parse_volumetric_strain(
-            Dict{String, Any}("model" => Dict{String, Any}("volumetric strain" => "log J")))
+        # the form key without a projection is an error
         @test_throws ErrorException Carina._parse_volumetric_form(
             Dict{String, Any}("model" => Dict{String, Any}("volumetric form" => "general")))
     end
 
-    @testset "neo-Hookean, θ = $strain, $projection projection: consistency" for
-            strain in ("log J", "J - 1"), projection in ("constant", "linear")
+    @testset "neo-Hookean, $projection projection: consistency" for
+            projection in ("constant", "linear")
         mktempdir() do dir
-            sim, _ = run!(build(dir, deck(projection = projection,
-                                          keys = model_keys(strain = strain))))
+            sim, _ = run!(build(dir, deck(projection = projection)))
             ig  = sim.integrator
             asm = ig.asm
             p   = sim.params
@@ -348,7 +331,7 @@ $(indent(linear_solver, 4))
         end
     end
 
-    # J2 through the general form with θ = J − 1 against the split form.
+    # J2 through the general form against the split form (both project log J).
     # The plastic case is one load step from the virgin state.  After a
     # plastic step the points that yielded lie on the yield surface, and at
     # the start of the next step the J2 return map decides between its
@@ -365,7 +348,7 @@ $(indent(linear_solver, 4))
             mktempdir() do dir_g
                 sim_s, hist_s = run!(build(dir_s, deck(material = j2(yield), time_step = dt)))
                 sim_g, hist_g = run!(build(dir_g, deck(material = j2(yield), time_step = dt,
-                                       keys = model_keys(strain = "J - 1", form = "general"))))
+                                       keys = model_keys(form = "general"))))
                 @test Carina.volumetric_form(first(values(sim_s.params_cpu.physics))) isa Carina.SplitForm
                 @test Carina.volumetric_form(first(values(sim_g.params_cpu.physics))) isa Carina.GeneralForm
                 eqps = maximum(sim_s.params.state_old.data[10:10:end])

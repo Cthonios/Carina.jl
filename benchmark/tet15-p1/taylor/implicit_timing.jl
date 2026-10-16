@@ -19,7 +19,7 @@
 # it.  The state is copied into a quasi-static problem on the same device
 # (iterative solver, Jacobi preconditioner), whose assembler the kernels use.
 #
-# Measured for each form (J2, θ = J − 1, for which both forms give the same
+# Measured for each form (J2, for which both forms give the same
 # residual and tangent), each the median of --reps repetitions after one
 # warm-up call, with the device synchronized before and after:
 #   residual      the internal force
@@ -96,7 +96,6 @@ model:
   type: solid mechanics
   volumetric projection: linear
   volumetric form: $form
-  volumetric strain: J - 1
   material:
     blocks:
       bar: j2 plasticity

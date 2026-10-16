@@ -101,41 +101,27 @@
 # The volumetric variable θ(J) of the element
 # --------------------------------------------------------------------------- #
 
-"""
-    VolumetricVariable
+# The element projects θ = log J, the volumetric part of the logarithmic
+# strain, in both forms.  The measure is part of the definition of the
+# element: inside a projected element the pointwise J departs from 1 at the
+# order of the strain, since only its projection is constrained, so the
+# projections of two measures differ at second order in that departure and
+# give different elements (0.25 % of the punch force on the coarsest mesh of
+# the benchmark, research/tet15-p1).  Sierra/SM TET15-P1 projects the same
+# measure.  A material with the volumetric-isochoric split enters the split
+# form only if its own volumetric strain is log J.
 
-The volumetric strain measure θ(J) whose L² projection the element computes:
-`LogJ()` (θ = log J) or `JMinusOne()` (θ = J − 1).  `MaterialVolumetricVariable()`
-stands for the measure of a material with the volumetric-isochoric split that
-is neither of the two; the split form then evaluates θ through the material.
-"""
-abstract type VolumetricVariable end
-struct LogJ <: VolumetricVariable end
-struct JMinusOne <: VolumetricVariable end
-struct MaterialVolumetricVariable <: VolumetricVariable end
+@inline _θ(J)    = log(J)
+@inline _θ1(J)   = one(J) / J
+@inline _θ2(J)   = -one(J) / (J * J)
+@inline _θinv(t) = exp(t)
 
-@inline _θ(::LogJ, J)    = log(J)
-@inline _θ1(::LogJ, J)   = one(J) / J
-@inline _θ2(::LogJ, J)   = -one(J) / (J * J)
-@inline _θinv(::LogJ, t) = exp(t)
+volumetric_variable_name() = "log J"
 
-@inline _θ(::JMinusOne, J)    = J - one(J)
-@inline _θ1(::JMinusOne, J)   = one(J)
-@inline _θ2(::JMinusOne, J)   = zero(J)
-@inline _θinv(::JMinusOne, t) = t + one(t)
-
-volumetric_variable_name(::LogJ) = "log J"
-volumetric_variable_name(::JMinusOne) = "J - 1"
-volumetric_variable_name(::MaterialVolumetricVariable) = "the material's own measure"
-
-# The measure θ(J) of a material with the split, identified by its values at
-# two Jacobians.
-function _material_volumetric_variable(cm::CM.AbstractConstitutiveModel)
-    Js = (0.6, 1.4)
-    all(J -> isapprox(CM.volumetric_strain(cm, J), J - 1; rtol = 1e-12), Js) && return JMinusOne()
-    all(J -> isapprox(CM.volumetric_strain(cm, J), log(J); rtol = 1e-12), Js) && return LogJ()
-    return MaterialVolumetricVariable()
-end
+# Whether the measure θ(J) of a material with the split is log J, identified
+# by its values at two Jacobians.
+_material_projects_log_j(cm::CM.AbstractConstitutiveModel) =
+    all(J -> isapprox(CM.volumetric_strain(cm, J), log(J); rtol = 1e-12), (0.6, 1.4))
 
 # --------------------------------------------------------------------------- #
 # The physics
@@ -158,33 +144,27 @@ volumetric_form_name(::SplitForm) = "split"
 volumetric_form_name(::GeneralForm) = "general"
 
 """
-    ProjectedSolidMechanics(cm, degree; form = :automatic, volumetric_strain = nothing)
+    ProjectedSolidMechanics(cm, degree; form = :automatic)
 
 Solid mechanics in the mean-dilatation formulation: the volumetric strain
-θ(J) is replaced by its L² projection onto the element-wise polynomials of
-degree `degree` (0 or 1) in the reference coordinates.
+θ = log J is replaced by its L² projection onto the element-wise polynomials
+of degree `degree` (0 or 1) in the reference coordinates.
 
 `form` is `:split`, `:general` or `:automatic`.  The split form requires the
 volumetric-isochoric split of `cm`
-(`ConstitutiveModels.has_volumetric_isochoric_split`) and evaluates the
-volumetric energy κ/2 θ² at the projected strain, with θ the material's own
-measure.  The general form accepts any material and evaluates it at the
-deformation gradient whose volume is the projected one.  `:automatic`
-selects the split form when `cm` has the split and the general form
+(`ConstitutiveModels.has_volumetric_isochoric_split`) with log J as the
+material's own volumetric strain, and evaluates the volumetric energy
+κ/2 θ² at the projected strain.  The general form accepts any material and
+evaluates it at the deformation gradient whose volume is the projected one.
+`:automatic` selects the split form when `cm` admits it and the general form
 otherwise.
-
-`volumetric_strain` is `LogJ()`, `JMinusOne()` or `nothing`.  For the general
-form it selects θ, and `nothing` means `LogJ()`.  For the split form θ is the
-material's, and a value that differs from it is an error, since the
-pressure κ θ̄ of the split form is the stationarity condition of κ/2 θ²
-written in the material's θ.
 
 The kernels are assembled by element (`FiniteElementContainers.assembly_granularity`
 is `ByElement()`), since the projection couples the quadrature points of an
 element.
 """
 struct ProjectedSolidMechanics{Model <: CM.AbstractConstitutiveModel, NP, NS, PD,
-                               Form <: VolumetricForm, VV <: VolumetricVariable} <: FEC.AbstractPhysics{3, NP, NS}
+                               Form <: VolumetricForm} <: FEC.AbstractPhysics{3, NP, NS}
     constitutive_model::Model
 end
 
@@ -192,50 +172,40 @@ const _SplitProjected   = ProjectedSolidMechanics{<:Any, <:Any, <:Any, <:Any, Sp
 const _GeneralProjected = ProjectedSolidMechanics{<:Any, <:Any, <:Any, <:Any, GeneralForm}
 
 function ProjectedSolidMechanics(cm::CM.AbstractConstitutiveModel, degree::Int;
-                                 form::Symbol = :automatic,
-                                 volumetric_strain::Union{Nothing, VolumetricVariable} = nothing)
+                                 form::Symbol = :automatic)
     degree in (0, 1) || error(
         "The projection degree must be 0 (element-wise constant) or 1 (element-wise " *
         "linear); got $degree.")
     form in (:automatic, :split, :general) || error(
         "The volumetric form must be :automatic, :split or :general; got :$form.")
-    has_split = CM.has_volumetric_isochoric_split(cm)
-    form == :split && !has_split && error(
-        "The split form of the projected volumetric formulation requires a constitutive " *
-        "model with an exact volumetric-isochoric split and a quadratic volumetric energy " *
-        "(ConstitutiveModels.has_volumetric_isochoric_split); $(typeof(cm)) has none.  " *
-        "Use the general form.")
-    volumetric_strain isa MaterialVolumetricVariable && error(
-        "The volumetric strain of the projected element must be log J or J - 1.")
-    split = form == :split || (form == :automatic && has_split)
-    if split
-        own = _material_volumetric_variable(cm)
-        if volumetric_strain !== nothing && volumetric_strain !== own
-            error("The split form evaluates the volumetric energy κ/2 θ² in the volumetric " *
-                  "strain of the material, θ = $(volumetric_variable_name(own)) for " *
-                  "$(typeof(cm)); the volumetric strain " *
-                  "$(volumetric_variable_name(volumetric_strain)) differs from it.  Remove " *
-                  "the volumetric strain, set it to the material's, or select the general form.")
-        end
-        F, VV = SplitForm, typeof(own)
-    else
-        F, VV = GeneralForm, typeof(volumetric_strain === nothing ? LogJ() : volumetric_strain)
+    has_split = CM.has_volumetric_isochoric_split(cm) && _material_projects_log_j(cm)
+    if form == :split && !has_split
+        CM.has_volumetric_isochoric_split(cm) || error(
+            "The split form of the projected volumetric formulation requires a constitutive " *
+            "model with an exact volumetric-isochoric split and a quadratic volumetric energy " *
+            "(ConstitutiveModels.has_volumetric_isochoric_split); $(typeof(cm)) has none.  " *
+            "Use the general form.")
+        error("The split form evaluates the volumetric energy κ/2 θ² of the material at the " *
+              "projected strain and requires the material's volumetric strain to be log J, " *
+              "the measure the element projects; the volumetric strain of $(typeof(cm)) is " *
+              "another measure.  Use the general form.")
     end
+    split = form == :split || (form == :automatic && has_split)
+    F = split ? SplitForm : GeneralForm
     NP = CM.num_properties(cm)
     NS = CM.num_state_variables(cm)
-    return ProjectedSolidMechanics{typeof(cm), NP, NS, degree, F, VV}(cm)
+    return ProjectedSolidMechanics{typeof(cm), NP, NS, degree, F}(cm)
 end
 
 FEC.assembly_granularity(::ProjectedSolidMechanics) = FEC.ByElement()
 
 projection_degree(::ProjectedSolidMechanics{Model, NP, NS, PD}) where {Model, NP, NS, PD} = PD
 volumetric_form(::ProjectedSolidMechanics{M, NP, NS, PD, F}) where {M, NP, NS, PD, F} = F()
-volumetric_variable(::ProjectedSolidMechanics{M, NP, NS, PD, F, VV}) where {M, NP, NS, PD, F, VV} = VV()
 
 # θ(J) of the element: the material's measure in the split form, the
 # element's own in the general form.
 @inline _theta(physics::_SplitProjected, J) = CM.volumetric_strain(physics.constitutive_model, J)
-@inline _theta(physics::_GeneralProjected, J) = _θ(volumetric_variable(physics), J)
+@inline _theta(::_GeneralProjected, J) = _θ(J)
 
 # The per-quadrature-point physics of the same model, for the kernels that
 # the projection does not change (mass, element length, ...).
@@ -639,7 +609,6 @@ end
 # the output kernel, which must not change the internal variables.
 @inline function _general_point(physics::_GeneralProjected, ref_fe, x_el, dt, u_el, states,
                                 props_el, θ̄, q, ::Val{scratch}) where {scratch}
-    vv = volumetric_variable(physics)
     PD = Val(projection_degree(physics))
     interps = FEC._cell_interpolants(ref_fe, q)
     cell = FEC.map_interpolants(interps, x_el)
@@ -647,7 +616,7 @@ end
     F  = ∇u + one(∇u)
     J  = det(F)
     χ  = _projection_basis(PD, interps.ξ)
-    J̃  = _θinv(vv, dot(χ, θ̄))
+    J̃  = _θinv(dot(χ, θ̄))
     s  = cbrt(J̃ / J)
     F̃  = s * F
     state_old_q, state_new_q = FEC.state_variables(states, q)
@@ -663,7 +632,6 @@ end
 # the element type of `u_el`, so that it runs on dual numbers.
 @inline function _general_passes(physics::_GeneralProjected, ref_fe, x_el, dt, u_el, states,
                                  props_el, ::Val{scratch}) where {scratch}
-    vv = volumetric_variable(physics)
     NQ = RFE.num_cell_quadrature_points(ref_fe)
     # Pass 1: θ̄ = P_h θ(J).
     θ̄, Minv, everted = _project(physics, ref_fe, x_el, u_el)
@@ -678,7 +646,7 @@ end
     for q in 1:NQ
         P̃, p̃, J̃, s, χ = pts[q]
         JxW = FEC.map_interpolants(FEC._cell_interpolants(ref_fe, q), x_el).JxW
-        b̄ = b̄ + (JxW * p̃ / _θ1(vv, J̃)) * χ
+        b̄ = b̄ + (JxW * p̃ / _θ1(J̃)) * χ
     end
     p̄ = Minv * b̄
     return pts, p̄, everted, u_safe
@@ -688,7 +656,6 @@ end
 # pass, one per quadrature point, and whether the element is everted.
 @inline function _general_stresses(physics::_GeneralProjected, ref_fe, x_el, dt, u_el, states,
                                    props_el, ::Val{scratch}) where {scratch}
-    vv = volumetric_variable(physics)
     NQ = RFE.num_cell_quadrature_points(ref_fe)
     pts, p̄, everted, u_safe = _general_passes(physics, ref_fe, x_el, dt, u_el, states,
                                                props_el, Val(scratch))
@@ -700,7 +667,7 @@ end
         F = F + one(F)
         J = det(F)
         FinvT = inv(F)'
-        s * P̃ + (dot(χ, p̄) * _θ1(vv, J) * J - p̃ * J̃) * FinvT
+        s * P̃ + (dot(χ, p̄) * _θ1(J) * J - p̃ * J̃) * FinvT
     end
     return Ps, everted
 end
@@ -729,7 +696,6 @@ end
     states::FEC.ElementState, props_el,
 )
     model = physics.constitutive_model
-    vv = volumetric_variable(physics)
     PD = Val(projection_degree(physics))
     NQ = RFE.num_cell_quadrature_points(ref_fe)
     θ̄, _, everted = _project(physics, ref_fe, x_el, u_el)
@@ -740,7 +706,7 @@ end
         cell = FEC.map_interpolants(interps, x_el)
         ∇u = _gradient_at(physics, cell, u_safe)
         F  = ∇u + one(∇u)
-        J̃  = _θinv(vv, dot(_projection_basis(PD, interps.ξ), θ̄_safe))
+        J̃  = _θinv(dot(_projection_basis(PD, interps.ξ), θ̄_safe))
         F̃  = cbrt(J̃ / det(F)) * F
         state_old_q, state_new_q = FEC.state_variables(states, q)
         W = cell.JxW * CM.helmholtz_free_energy(model, props_el, state_old_q, state_new_q, dt,
@@ -850,7 +816,7 @@ end
 
 # The linearization of P_q and of p̃/θ'(J̃) at one quadrature point: the point
 # matrix C; E = u a_tᵀ + F⁻ᵀ d_tᵀ through u, a_t and d_t; F⁻ᵀ; q_f and q_t.
-@inline function _general_point_tangent(vv, F::Tensor{2, 3, T, 9}, χ, P̃, p̃, J̃, s, p̄,
+@inline function _general_point_tangent(F::Tensor{2, 3, T, 9}, χ, P̃, p̃, J̃, s, p̄,
                                         A_v) where {T}
     J     = det(F)
     Finv  = inv(F)
@@ -858,8 +824,8 @@ end
     P̃v    = SVector{9, T}(P̃.data)
     FinvT = SVector{9, T}(Finv'.data)
     gJ    = J * FinvT
-    θ1J, θ2J = _θ1(vv, J), _θ2(vv, J)
-    θ1t, θ2t = _θ1(vv, J̃), _θ2(vv, J̃)
+    θ1J, θ2J = _θ1(J), _θ2(J)
+    θ1t, θ2t = _θ1(J̃), _θ2(J̃)
     γ   = one(T) / θ1t
     a_f = (-s / (3 * J)) * gJ                    # ds along δF
     a_t = (s * γ / (3 * J̃)) * χ                  # ds along dθ̄
@@ -881,13 +847,12 @@ end
 # The geometric quantities of the tangent at quadrature point q: the cell, F,
 # J̃, s and χ.
 @inline function _general_point_kinematics(physics, ref_fe, x_el, u_el, θ̄, q)
-    vv = volumetric_variable(physics)
     interps = FEC._cell_interpolants(ref_fe, q)
     cell = FEC.map_interpolants(interps, x_el)
     F = _gradient_at(physics, cell, u_el)
     F = F + one(F)
     χ = _projection_basis(Val(projection_degree(physics)), interps.ξ)
-    J̃ = _θinv(vv, dot(χ, θ̄))
+    J̃ = _θinv(dot(χ, θ̄))
     s = cbrt(J̃ / det(F))
     return cell, F, J̃, s, χ
 end
@@ -899,7 +864,6 @@ end
 @inline function _general_tangent_prepass(
     physics::_GeneralProjected, ref_fe, x_el, dt, u_el, states, props_el,
 )
-    vv = volumetric_variable(physics)
     PD = Val(projection_degree(physics))
     NC = _num_projection_functions(PD)
     T  = eltype(u_el)
@@ -917,8 +881,8 @@ end
         F = _gradient_at(physics, cell, u_safe)
         F = F + one(F)
         J = det(F)
-        D = D + _scatter_qp(cell.∇N_X, inv(F)', cell.JxW * _θ1(vv, J) * J) * χ'
-        b̄ = b̄ + (cell.JxW * p̃ / _θ1(vv, J̃)) * χ
+        D = D + _scatter_qp(cell.∇N_X, inv(F)', cell.JxW * _θ1(J) * J) * χ'
+        b̄ = b̄ + (cell.JxW * p̃ / _θ1(J̃)) * χ
     end
     return θ̄_safe, Minv, Minv * b̄, D, everted, u_safe
 end
@@ -937,7 +901,6 @@ end
     physics::_GeneralProjected, ref_fe, x_el, t, dt, u_el, u_el_old,
     states::FEC.ElementState, props_el,
 )
-    vv = volumetric_variable(physics)
     NC = _num_projection_functions(Val(projection_degree(physics)))
     T  = eltype(u_el)
     NDOF = length(u_el)
@@ -952,7 +915,7 @@ end
         cell, F, J̃, s, χ = _general_point_kinematics(physics, ref_fe, x_el, u_safe, θ̄, q)
         P̃, A_v, F̃ = _general_point_material(physics, props_el, states, q, dt, F, s)
         p̃ = (P̃ ⊡ F̃) / (3 * J̃)
-        C, u, a_t, d_t, FinvT, q_f, q_t = _general_point_tangent(vv, F, χ, P̃, p̃, J̃, s, p̄, A_v)
+        C, u, a_t, d_t, FinvT, q_f, q_t = _general_point_tangent(F, χ, P̃, p̃, J̃, s, p̄, A_v)
         w = cell.JxW
         G = FEC.discrete_gradient(FEC.ThreeDimensional(), cell.∇N_X)
         Kq = Kq + w * (G * _materialize(C) * G')
@@ -977,7 +940,6 @@ end
 @inline function _general_block_entries(
     physics::_GeneralProjected, ref_fe, x_el, dt, u_el, states, props_el, ::Val{column},
 ) where {column}
-    vv = volumetric_variable(physics)
     NC = _num_projection_functions(Val(projection_degree(physics)))
     T  = eltype(u_el)
     NDOF = length(u_el)
@@ -990,7 +952,7 @@ end
         cell, F, J̃, s, χ = _general_point_kinematics(physics, ref_fe, x_el, u_safe, θ̄, q)
         P̃, A_v, F̃ = _general_point_material(physics, props_el, states, q, dt, F, s)
         p̃ = (P̃ ⊡ F̃) / (3 * J̃)
-        C, u, a_t, d_t, FinvT, q_f, q_t = _general_point_tangent(vv, F, χ, P̃, p̃, J̃, s, p̄, A_v)
+        C, u, a_t, d_t, FinvT, q_f, q_t = _general_point_tangent(F, χ, P̃, p̃, J̃, s, p̄, A_v)
         w = cell.JxW
         Cm = _materialize(C)
         dq = column == 0 ? _diag_qp(cell.∇N_X, Cm, w) : _block_col_qp(cell.∇N_X, Cm, w, Val(column))

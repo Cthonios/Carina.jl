@@ -247,13 +247,13 @@ function _parse_volumetric_projection(dict)
     return _VOLUMETRIC_PROJECTIONS[value]
 end
 
-# `model.volumetric strain` and `model.volumetric form` qualify the projected
-# formulation: the volumetric strain θ(J) whose projection the element
-# computes (log J or J − 1), and the form of the element (split: the
-# volumetric energy κ/2 θ² of a material with the volumetric-isochoric split
-# at the projected strain; general: any material at the deformation gradient
-# with the projected volume).  Both are meaningful only with
-# `model.volumetric projection`, and either one without it is an error.
+# `model.volumetric form` qualifies the projected formulation: the form of
+# the element (split: the volumetric energy κ/2 θ² of a material with the
+# volumetric-isochoric split at the projected strain; general: any material
+# at the deformation gradient with the projected volume).  It is meaningful
+# only with `model.volumetric projection`, and without it is an error.  The
+# projected strain θ is log J in both forms; `model.volumetric strain` is an
+# error.
 
 function _model_value(dict, key)
     model = get(dict, "model", nothing)
@@ -266,20 +266,17 @@ function _model_value(dict, key)
 end
 
 """
-    _parse_volumetric_strain(dict) -> Union{Nothing, VolumetricVariable}
+    _check_no_volumetric_strain(dict)
 
-The volumetric strain named by `model.volumetric strain`: `LogJ()` for
-`log J`, `JMinusOne()` for `J - 1`, `nothing` when the key is absent.  The
-comparison ignores case and white space.  Unknown values are an error.
+The projected volumetric strain is log J in both forms; `model.volumetric
+strain`, which once selected between log J and J − 1, is an error.
 """
-function _parse_volumetric_strain(dict)
-    raw = _model_value(dict, "volumetric strain")
-    raw === nothing && return nothing
-    value = lowercase(replace(raw, r"\s" => ""))
-    value == "logj" && return LogJ()
-    value == "j-1"  && return JMinusOne()
-    error("Unknown model.volumetric strain = \"$(strip(raw))\". " *
-          "Supported: \"log J\", \"J - 1\".")
+function _check_no_volumetric_strain(dict)
+    model = get(dict, "model", nothing)
+    model isa AbstractDict && haskey(model, "volumetric strain") && error(
+        "model.volumetric strain is not a key: the projected volumetric strain is log J " *
+        "in both forms of the element.  Remove the key.")
+    return nothing
 end
 
 """

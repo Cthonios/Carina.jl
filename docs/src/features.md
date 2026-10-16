@@ -128,9 +128,8 @@ convergence.
   In the split form the isochoric response of a material with the
   volumetric-isochoric split is evaluated pointwise; in the general form
   (`model.volumetric form`) any material is evaluated at the deformation
-  gradient whose volume ratio is the projected one, with the volumetric
-  strain log J or J − 1 (`model.volumetric strain`); see
-  [Model](reference/model.md).
+  gradient whose volume ratio is the projected one.  The projected strain is
+  log J in both forms; see [Model](reference/model.md).
 - **Element types** HEX8, TETRA4, TETRA10 and TETRA15.  TETRA15 is the
   quadratic tetrahedron with one cubic bubble per face and one quartic
   interior bubble in a nodal basis; `bin/tetra15 in.g out.g` converts a
