@@ -3710,10 +3710,17 @@ between $10^{-10}$ and $10^{-8}$, resolved as stiff and harmless. A partition
 into face-connected subdomains (multilevel Kernighan--Lin graph partitioning
 with face adjacency and the connected-domain option) removes the hinges for
 every element; with it the $16$-rank run of case~A at $h = a/4$ reproduces
-the $8$-rank run to $9.2\times10^{-6}$ in force. An element tangent computed
-in closed form would give the hinge rotation a pivot at round-off, which
-FETI-DP detects at the default tolerance; its implementation in Sierra/SM
-TET15-P1 is under study.
+the $8$-rank run to $9.2\times10^{-6}$ in force. An element tangent in
+closed form does not remove the defect: in an unstressed hinged element it
+gives the hinge a pivot at round-off ($10^{-17}$ in a prototype on the
+hinged element of the $a/4$ partition), which FETI-DP detects, but under
+stress the hinge carries its physical initial-stress stiffness, small and
+negative in compression ($-6.4\times10^{-8}$ of the largest entry at a strain
+of $-2.4\times10^{-6}$), the same in every tangent. The connected partition
+is the remedy; the closed form would reduce the cost of the tangent, which
+the probe takes $30\%$, $17\%$ and $4$ to $8\%$ of the step time at
+$h = a/4$, $a/8$ and $a/16$, and costs no Newton iteration in the steady
+regime, where both codes take three per step.
 
 \section{Summary of the evidence and open measurements}
 \label{sec:verify}
