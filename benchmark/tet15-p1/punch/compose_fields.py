@@ -37,13 +37,18 @@ if "--transpose" in args:
 punch = False                 # draw the punch on the tiles (see `draw_punch`)
 if "--punch" in args:
     args.remove("--punch"); punch = True
+levels = None
+if "--levels" in args:
+    i = args.index("--levels"); levels = tuple(args[i + 1].split(",")); del args[i:i + 2]
 d, quantity, view, case, lo, hi, cmap_file, out = args[:8]
 lo, hi = float(lo), float(hi)
 pts = np.array(json.load(open(cmap_file))).reshape(-1, 4)
 x = (pts[:, 0] - pts[0, 0]) / (pts[-1, 0] - pts[0, 0])
 cmap = LinearSegmentedColormap.from_list("preset", list(zip(x, pts[:, 1:])))
 
-LEVELS = ("4", "8")
+LEVELS = ("4", "8")           # mesh levels a/h, in order; --levels 2,4,8,16 overrides
+if levels is not None:
+    LEVELS = levels
 ROWS = (("sierra-ct-a0.1-hypo", "Sierra/SM CT10\nα = 0.1"),
         ("sierra-ct-a0-hypo", "Sierra/SM CT10\nα = 0"),
         ("sierra-tet15-p1-hypo", "Sierra/SM TET15-P1"),
@@ -51,8 +56,9 @@ ROWS = (("sierra-ct-a0.1-hypo", "Sierra/SM CT10\nα = 0.1"),
         ("sierra-tetra15-hypo", "Sierra/SM TETRA15"))
 if len(args) > 8:
     ROWS = tuple(tuple(kv.split("=", 1)) for kv in args[8].split(","))
-ELEMENTS = {"4": 6187, "8": 38818}
-NODES = {"tetra10": {"4": 9146, "8": 54582}, "tetra15": {"4": 28129, "8": 172391}}
+ELEMENTS = {"2": 944, "4": 6187, "8": 38818, "16": 277530}
+NODES = {"tetra10": {"2": 1566, "4": 9146, "8": 54582, "16": 380564},
+         "tetra15": {"2": 4537, "4": 28129, "8": 172391, "16": 1218149}}
 mesh_of = lambda key: "tetra10" if "-ct-" in key else "tetra15"
 thin = lambda n: f"{n:,}".replace(",", " ") if n >= 10000 else str(n)
 LABEL = {"p": "p = −tr σ / 3 (MPa)", "eqps": "equivalent plastic strain",
