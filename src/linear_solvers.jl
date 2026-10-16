@@ -87,7 +87,7 @@ function _symmetric_csc_as_csr(backend::KA.CPU, K::SparseArrays.SparseMatrixCSC)
     c = _csr_view_cache[]
     if c !== nothing && c.n == size(K, 1) && length(c.colval) == length(K.rowval) &&
        c.colptr_ref === K.colptr && c.rowval_ref === K.rowval
-        copyto!(c.csr.nzval, K.nzval)
+        _par_copyto!(c.csr.nzval, K.nzval)
         return c.csr
     end
     csr = _symmetric_csc_as_csr_new(backend, K)
@@ -102,9 +102,9 @@ function _symmetric_csc_as_csr_new(backend, K::SparseArrays.SparseMatrixCSC)
     rowptr = KA.allocate(backend, Int32, length(K.colptr))
     colval = KA.allocate(backend, Int32, length(K.rowval))
     nzval  = KA.allocate(backend, Float64, length(K.nzval))
-    copyto!(rowptr, Int32.(K.colptr))
-    copyto!(colval, Int32.(K.rowval))
-    copyto!(nzval, K.nzval)
+    _par_copyto!(rowptr, Int32.(K.colptr))
+    _par_copyto!(colval, Int32.(K.rowval))
+    _par_copyto!(nzval, K.nzval)
     return DeviceCSR(size(K, 1), size(K, 2), rowptr, colval, nzval)
 end
 
