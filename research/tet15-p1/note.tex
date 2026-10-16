@@ -3574,7 +3574,7 @@ CT10 $\alpha = 0$, case~B, $h = a/8$, where the hypoelastic run stalled.
 \caption{Punch indentation, quarter model: full punch force in N at $t = 1$.
 Carina TET15-P1 projects $\log J$; its rows at $h = a/8$ and in case~B at
 $h = a/4$ are running, and the Sierra/SM rows at $h = a/16$ other than
-CT10 $\alpha = 0$, case~A, are running. Plain \code{TETRA15}: Carina (the
+CT10 in case~A are running. Plain \code{TETRA15}: Carina (the
 Sierra/SM runs at $a/8$ ended at a time limit at $t \approx 0.08$); the two
 codes agree to $0.02\%$ at $a/2$ and $a/4$.}
 \label{tab:punchforce}
@@ -3584,7 +3584,7 @@ codes agree to $0.02\%$ at $a/2$ and $a/4$.}
 \cmidrule(lr){2-5}\cmidrule(lr){6-8}
 element & $a/2$ & $a/4$ & $a/8$ & $a/16$ & $a/2$ & $a/4$ & $a/8$ \\
 \midrule
-CT10, $\alpha = 0.1$        & 25.775 & 24.954 & 24.310 & ---    & 17.373 & 14.645 & 14.076 \\
+CT10, $\alpha = 0.1$        & 25.775 & 24.954 & 24.310 & 24.058 & 17.373 & 14.645 & 14.076 \\
 CT10, $\alpha = 0$          & 24.450 & 24.202 & 24.034 & 24.010 & 15.380 & 14.025 & 14.094 \\
 Sierra/SM TET15-P1          & 24.442 & 24.160 & 24.056 & ---    & 14.666 & 14.116 & 14.044 \\
 Carina TET15-P1             & 24.434 & 24.155 & ---    & ---    & 14.657 & ---    & ---    \\
@@ -3610,8 +3610,8 @@ $64$ and $146$~MPa at $a/2$ and $a/4$.}
 element & & $a/2$ & $a/4$ & $a/8$ & $a/16$ \\
 \midrule
 \multicolumn{6}{l}{Case A} \\
-CT10, $\alpha = 0.1$ & mean / p99         & 0.158 / 1.073 & 0.048 / 0.690 & 0.021 / 0.388 & --- \\
-                     & p99, max $|p|$ (MPa) & 10.6, 9.9   & 14.0, 20.3    & 8.7, 22.4     & --- \\
+CT10, $\alpha = 0.1$ & mean / p99         & 0.158 / 1.073 & 0.048 / 0.690 & 0.021 / 0.388 & 0.008 / 0.142 \\
+                     & p99, max $|p|$ (MPa) & 10.6, 9.9   & 14.0, 20.3    & 8.7, 22.4     & 3.7, 26.4 \\
 CT10, $\alpha = 0$   & mean / p99         & 0.115 / 0.776 & 0.044 / 0.648 & 0.019 / 0.370 & 0.006 / 0.105 \\
                      & p99, max $|p|$ (MPa) & 4.6, 6.0    & 8.1, 12.5     & 5.0, 13.6     & 2.0, 19.2 \\
 TET15-P1             & mean / p99         & 0.065 / 0.505 & 0.025 / 0.253 & 0.010 / 0.117 & --- \\
@@ -3659,9 +3659,11 @@ because the largest $|p|$ rises as the punch edge is resolved ($4.9$, $7.5$,
 $10.4$~MPa). CT10 without stabilization falls by $1.20$, $1.75$ and $3.52$ per
 halving in the normalized 99th percentile, and in MPa rises from $a/2$ to
 $a/4$ and falls by $1.6$ and $2.5$ from $a/4$ to $a/8$ and from $a/8$ to
-$a/16$; its mean falls by $2.6$, $2.3$ and $3.1$. Up to $h = a/8$ its decay is
+$a/16$; its mean falls by $2.6$, $2.3$ and $3.1$. With the stabilization the
+normalized 99th percentile falls by $1.55$, $1.78$ and $2.73$, and in MPa by
+$0.76$, $1.61$ and $2.32$. Up to $h = a/8$ the decay of CT10 is
 pre-asymptotic, and from $a/8$ to $a/16$ it is faster than first order in
-both measures. In case~B the mean of TET15-P1 falls at first order ($2.3$,
+both measures, with and without stabilization. In case~B the mean of TET15-P1 falls at first order ($2.3$,
 $2.0$) and its normalized 99th percentile by $2.4$ and then $1.6$, while
 that of CT10 without stabilization falls by $1.6$ and $1.8$. The equivalent
 plastic strain shows no mode in any element: its jump statistics are of the
@@ -3669,7 +3671,8 @@ same size for all four elements and decay by $2.1$ to $3.6$ per halving.
 
 \paragraph{The stabilization of CT10.} The parameter $\alpha = 0.1$ raises
 the force of CT10 by $5.4\%$, $3.1\%$ and $1.1\%$ at $h = a/2$, $a/4$ and
-$a/8$ in case~A and by $13\%$, $4.4\%$ and $-0.1\%$ in case~B, and its
+$a/8$ and $0.20\%$ at $a/16$ in case~A and by $13\%$, $4.4\%$ and $-0.1\%$ in
+case~B, and its
 normalized 99th percentile by $5$ to $38\%$, with the largest $|p|$ $1.6$ to
 $2.5$ times that without it. On this problem there is no oscillation in CT10
 for the stabilization to remove; it adds stiffness and pressure extremes.
@@ -3679,7 +3682,7 @@ implementations of TET15-P1 agree to the stopping tolerance of the nonlinear
 solve; TET15-P1 does not lock, carries the smallest pressure jumps of the
 elements compared, and its jumps decay under refinement from the coarsest
 level on. The plain element locks and carries a pressure mode that grows
-under refinement. CT10 without stabilization does not show an
+under refinement. CT10, with and without stabilization, does not show an
 element-to-element pressure mode that persists under refinement: on the
 finest level its jumps decay faster than first order. The soft modes of
 constant-pressure elements found in the linearized analysis of
