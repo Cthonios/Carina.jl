@@ -88,8 +88,11 @@ $2.1$ times the split form's time per explicit step on six devices. The
 choice of $\theta(J)$
 is a parameter of the formulation, and two instances of the split form are
 developed, $\theta = \log J$ with the Hencky material and $\theta = J - 1$
-with the $J_2$ plasticity model of Simo and Hughes, the instance
-implemented. The discrete spaces are the
+with the $J_2$ plasticity model of Simo and Hughes. The element implemented
+projects $\theta = \log J$, the volumetric part of the logarithmic strain,
+in both forms, and the $J_2$ model is used with the volumetric energy
+$\tfrac{\kappa}{2}(\log J)^2$ in place of its original
+$\tfrac{\kappa}{2}(J-1)^2$ (Remark~\ref{rem:whichj2}). The discrete spaces are the
 three-dimensional Crouzeix--Raviart pair: the quadratic tetrahedron enriched
 with four cubic face bubbles and one quartic interior bubble, polynomials
 that vanish on a prescribed part of the element boundary, carried by a nodal
@@ -651,8 +654,8 @@ for materials satisfying \eqref{eq:matsplit} with a quadratic
 $W\supvol$, because that is where the pointwise relation holds.
 Table~\ref{tab:split} admits exactly two, and they do
 not agree on the variable: Hencky is quadratic in $\log J$ to
-$1.7\times10^{-15}$, and the Simo--Hughes $J_2$ model, the one implemented
-in Carina, is quadratic in $J-1$ to $5.3\times10^{-15}$. Each is exact in its
+$1.7\times10^{-15}$, and the Simo--Hughes $J_2$ model in its original form is quadratic in
+$J-1$ to $5.3\times10^{-15}$. Each is exact in its
 own variable and wrong by $18\%$ in the other, so material and volumetric
 variable are not independently selectable, and neither choice generalizes to
 the other material. \S\ref{sec:instances} develops both.
@@ -895,12 +898,11 @@ physics type with a form parameter, chosen at setup: the split form when
 the material exposes the split, the general form otherwise, and the
 general form on request for any material (input key \code{volumetric
 form}). The volumetric variable is a property of the element, not of the
-material (input key \code{volumetric strain}, with the values $\log J$ and
-$J - 1$): a material without the split uses $\log J$ unless the key says
-otherwise; a material with the split uses its own $\theta$, and a key that
-differs from it is an error, since the split form's pressure $\kappa\bar\theta$
-is the stationarity condition of the energy $\tfrac{\kappa}{2}\theta^2$
-written in the material's $\theta$. The general residual takes the three
+material, and is $\theta = \log J$ in both forms; the split form applies to
+a material whose own volumetric strain is $\log J$, since its pressure
+$\kappa\bar\theta$ is the stationarity condition of the energy
+$\tfrac{\kappa}{2}\theta^2$ written in the material's $\theta$, and the
+general form to any other (Remark~\ref{rem:whichj2}). The general residual takes the three
 passes above with the fourteen stresses $\tilde{\P}_q$ held on the stack.
 Calling the material again in the third pass instead of storing them gives
 the same residual to rounding; on the Taylor bar mesh at $h = 0.75$~mm with
@@ -1567,7 +1569,7 @@ the bulk modulus $\kappa$; the isochoric energy $W\supiso(\bar\F)$; the
 isochoric first Piola--Kirchhoff stress, together with the update of the
 internal variables it entails; and the isochoric tangent
 $\partial\P\supiso/\partial\F$. For the Simo--Hughes $J_2$ model,
-$\theta = J - 1$, $\theta' = 1$, $\theta'' = 0$, $\kappa = \lambda +
+$\theta = \log J$, $\theta' = 1/J$, $\theta'' = -1/J^2$, $\kappa = \lambda +
 2\mu/3$ from the Lam\'e constants, and the isochoric stress and tangent are
 those of BOX~9.1 of \citet{SimoHughes:1998} with the volumetric term
 omitted; the return map on $\bar{~b}^{\mathrm e}$ and the internal
@@ -1604,13 +1606,13 @@ quadratically (relative residual $1$, $8.6\times10^{-3}$, $8\times10^{-7}$,
 $2\times10^{-14}$).
 
 The general form of \S\ref{sec:general} passes the same checks
-(\code{test/projected-general.jl}, $129$ checks) with the neo-Hookean
-material, which has no accessible split in the material library, for
-$\theta = \log J$ and $\theta = J - 1$ and for both projections, on the
+(\code{test/projected-general.jl}, $84$ checks) with the neo-Hookean
+material, which has no accessible split in the material library, with
+$\theta = \log J$ and both projections, on the
 CPU and on a GPU, where the Newton history and the displacements agree
 with the CPU's within $10^{-8}$. Its reduction to the split form is checked
-on the same cube with the $J_2$ model forced through the general form with
-$\theta = J - 1$: the Newton history, the displacements, the internal
+on the same cube with the $J_2$ model forced through the general form: the
+Newton history, the displacements, the internal
 variables, the energy, the residual and the assembled tangent agree with
 the split form's to between $10^{-15}$ and $10^{-13}$ relative, in the
 elastic range and in a plastic step with an equivalent plastic strain of
@@ -1723,15 +1725,26 @@ The instance implemented in Carina, and the one every nonlinear result of
 \S\ref{sec:cook} uses, is the Simo--Hughes $J_2$ model
 \citep[BOX~9.1]{SimoHughes:1998}: the multiplicative decomposition
 $\F = \F^{\mathrm e}\F^{\mathrm p}$ with the volumetric--isochoric split
-$W = \tfrac{\kappa}{2}(J-1)^2 + \tfrac{\mu}{2}(\trace\bar{~b}^{\mathrm e} - 3)$,
+$W = \tfrac{\kappa}{2}(\log J)^2 + \tfrac{\mu}{2}(\trace\bar{~b}^{\mathrm e} - 3)$,
 and the radial return taken on the isochoric elastic left Cauchy--Green
 tensor $\bar{~b}^{\mathrm e}$ rather than on the logarithmic strain. It
 satisfies \eqref{eq:matsplit} exactly --- $\det\bar{~b}^{\mathrm e} = 1$
 makes the isochoric term independent of $J$ by construction --- and its
-$W\supvol$ is quadratic in $J-1$, so the element of
-\S\ref{sec:discretization} uses it in the variable $\theta = J - 1$ with no
+$W\supvol$ is quadratic in $\log J$, so the element of
+\S\ref{sec:discretization} uses it in the variable $\theta = \log J$ with no
 change other than the omission of the volumetric term from the stress the
-model returns. The two instances share the mixed treatment of the volume
+model returns. The original model of Simo and Hughes has
+$W\supvol = \tfrac{\kappa}{2}(J-1)^2$; the two volumetric laws agree to
+second order in $J - 1$, and the logarithmic one is used so that the
+element projects the volumetric part of the logarithmic strain whatever the
+material, which is also what Sierra/SM TET15-P1 projects. Until 2026-10-16
+the implemented instance projected $J - 1$. The difference is measurable
+where the pointwise $J$ varies within an element: on the indentation
+benchmark at $h = a/2$ projecting $J - 1$ changed the punch force by
+$0.21\%$ (case~A) and $0.41\%$ (case~B) against $\log J$, and with $\log
+J$ the two implementations agree to $0.06\%$; on the Taylor bar at
+$h = 0.38$~mm it changed the final radius by $0.06\%$, and on Cook's
+membrane the tip displacement by at most $0.03\%$. The two instances share the mixed treatment of the volume
 and differ in the plasticity model: additive plasticity in logarithmic
 strain in \eqref{eq:return}, multiplicative plasticity with the return map
 on $\bar{~b}^{\mathrm e}$ in the implemented instance; the two coincide
@@ -2815,7 +2828,8 @@ and grow it back after successful steps.
 tip displacement in Carina and in Albany to six digits on every mesh and in
 both cases ($8.19605$ elastic at $h = 8$; $8.4202946$ and $8.4202943$ at
 $h = 2$; $0.27204$ plastic at $h = 2$), although the two codes take the
-volumetric stress as $\kappa(J - 1)$ and $\kappa(J - 1/J)/2$: at these
+volumetric stress as $\kappa(J - 1)$ (Carina before 2026-10-16) and
+$\kappa(J - 1/J)/2$: at these
 volumetric strains the two laws agree to the digits shown. The comparison
 between the other elements rests on this check.
 
@@ -2824,8 +2838,12 @@ between the other elements rests on this check.
 \caption{Cook's membrane, mean $u_y$ of the loaded face at full load. Rows:
 element size $h$ with the element count. Elastic case: $E = 240.565$,
 $\nu = 0.4999$, $q = 6.25$. Plastic case: $E = 206.9$, $\nu = 0.29$,
-$\sigma_y = 0.45$, $K = 0.12924$, $q = 0.14$. Driver:
-\code{benchmark/tet15-p1/cook/run.jl}; records in \code{results.tsv}.}
+$\sigma_y = 0.45$, $K = 0.12924$, $q = 0.14$. TET15-P1 and TET15-P0: the
+projected strain $\log J$ (Carina 29c9606); the pointwise columns were run
+with the volumetric energy $\kappa/2\,(J-1)^2$, which differs from the
+present $\kappa/2\,(\log J)^2$ at third order in $J - 1$, below the digits
+shown. Driver: \code{benchmark/tet15-p1/cook/run.jl}; records in
+\code{results.tsv}.}
 \label{tab:cook}
 \begin{tabular}{@{}lrrrrrr@{}}
 \toprule
@@ -2833,9 +2851,9 @@ $\sigma_y = 0.45$, $K = 0.12924$, $q = 0.14$. Driver:
 $h$ (elements) & pointwise & pointwise & & & Albany & CT10 \\
 \midrule
 \multicolumn{7}{@{}l}{elastic} \\
-$8$ ($327$)      & 8.1960 & 8.2235 & 8.4122 & 8.5720 & 8.1960 & 8.4596 \\
-$4$ ($1860$)     & 8.3241 & 8.3490 & 8.4551 & 8.5184 & 8.3241 & 8.4643 \\
-$2$ ($14\,475$)  & 8.4203 & 8.4300 & 8.4716 & 8.4996 & 8.4203 & 8.4772 \\
+$8$ ($327$)      & 8.1960 & 8.2235 & 8.4099 & 8.5639 & 8.1960 & 8.4596 \\
+$4$ ($1860$)     & 8.3241 & 8.3490 & 8.4536 & 8.5124 & 8.3241 & 8.4643 \\
+$2$ ($14\,475$)  & 8.4203 & 8.4300 & 8.4709 & 8.4955 & 8.4203 & 8.4772 \\
 \midrule
 \multicolumn{7}{@{}l}{plastic} \\
 $8$ ($327$)      & 0.2689 & 0.2700 & 0.2706 & 0.2752 & 0.2689 & 0.2716 \\
@@ -2848,11 +2866,11 @@ $2$ ($14\,475$)  & 0.2720 & 0.2723 & 0.2724 & 0.2734 & 0.2720 & 0.2728 \\
 \paragraph{Tip displacement.} Table~\ref{tab:cook} gives the results. In
 the elastic case the pointwise elements converge from below, $8.196$,
 $8.324$, $8.420$ for TET10 and $8.224$, $8.349$, $8.430$ for
-TET15, and TET15-P0 from above, $8.572$, $8.518$,
-$8.500$. TET15-P1, $8.412$, $8.455$, $8.472$, and the
+TET15, and TET15-P0 from above, $8.564$, $8.512$,
+$8.496$. TET15-P1, $8.410$, $8.454$, $8.471$, and the
 CT10, $8.460$, $8.464$, $8.477$, are within $0.6\%$ of
 each other on every mesh and change least with refinement; the limit lies
-between $8.477$ and $8.500$. On the coarsest mesh the pointwise
+between $8.477$ and $8.496$. On the coarsest mesh the pointwise
 TET10 is $3\%$ below the limit and TET15-P1 $0.8\%$
 below it. In the plastic case every element converges to about $0.273$,
 with the spread between elements shrinking from $2.3\%$ at $h = 8$ to
@@ -2945,8 +2963,11 @@ Carina, volumetric pressure $\kappa(J - 1/J)/2$, which differs from Carina's
 at second order in $J - 1$, of order $10^{-4}$ here), the traction applied as
 consistent nodal forces, and a preconditioned conjugate-gradient solver in
 the Newton iteration. The mean tip displacement is $8.4139$, $8.4555$ and
-$8.4722$ at $h = 8$, $4$ and $2$, against $8.4122$, $8.4551$ and $8.4716$ in
-Carina, a difference of $0.02\%$ or less in the mean and in the maximum;
+$8.4722$ at $h = 8$, $4$ and $2$, against $8.4099$, $8.4536$ and $8.4709$ in
+Carina, a difference of $0.05\%$, $0.02\%$ and $0.015\%$, and the maximum
+agrees to five digits at every level; both codes project $\log J$, and the
+remaining difference in the mean is of the order of the difference of the
+two volumetric laws;
 without the projection the two codes' TETRA15 agree to $0.05\%$. The
 Sierra/SM CT10 is within $0.4\%$ of Albany's at $h = 8$
 and $4$, and its Newton iteration with that solver stalled at $h = 2$

@@ -1,9 +1,9 @@
-# Taylor bar impact: TET15-P1 against the composite tetrahedron
+# Taylor bar impact: TET15-P1 against CT10
 
 This benchmark measures TET15-P1 under localized plastic flow at plastic
 strains above 3 in explicit dynamics, the regime in which the composite
-tetrahedron shows a soft mode without its stabilization (Foulk et al. 2021,
-Sec. 4.4).  TET15-P1 runs in Carina; the composite tetrahedron runs in
+tetrahedron CT10 shows a soft mode without its stabilization (Foulk et al. 2021,
+Sec. 4.4).  TET15-P1 runs in Carina; CT10 runs in
 Sierra/SM, the code of the paper, on the same TETRA10 meshes.
 
 ## Problem
@@ -22,8 +22,8 @@ Measured: the radius of the impact face (maximum over its nodes of the
 distance from the axis) and the length of the bar (maximum z of the free
 face) against time, every 1 μs.  Reference values of the final radius:
 7.22 mm for the converged Q1/P0 hexahedron of Foulk et al. (h = 0.047 mm),
-7.12 mm (Simo 1992), 7.11 mm (Zienkiewicz et al. 1998); the composite
-tetrahedron at h = 0.75 mm is within 0.11% of its own converged value.
+7.12 mm (Simo 1992), 7.11 mm (Zienkiewicz et al. 1998); CT10
+at h = 0.75 mm is within 0.11% of its own converged value.
 
 ## Meshes
 
@@ -43,7 +43,7 @@ ten steps of 64 iterations), with the nodes of each surface held on it by
 level-set constraints: the cylinder x² + y² = R², the planes z = 0 and
 z = 32.4, and the symmetry planes.  `convert.jl` adds the edge midpoints,
 moves those on the lateral surface onto the cylinder, scales to meters and
-writes TETRA10 (the mesh of the composite tetrahedron);
+writes TETRA10 (the mesh of CT10);
 `Carina.tetra15_mesh` adds the face and interior nodes (the mesh of
 TET15-P1).  At h = 1.5 mm smoothing raises the smallest shape quality
 q = 12 (3V)^(2/3) / Σ l² from 0.648 to 0.708 and the mean from 0.879 to
@@ -79,7 +79,7 @@ julia -t 16 --project=. benchmark/tet15-p1/taylor/run.jl --h 1.5,0.75,0.38,0.19 
 ```
 
 which writes `meshes/taylor-h<h>-tet4.g` (Cubit), `smooth/taylor-h<h>-smooth.e`
-(Norma), `meshes/taylor-h<h>-tet10.g` (the composite tetrahedron) and
+(Norma), `meshes/taylor-h<h>-tet10.g` (CT10) and
 `meshes/taylor-h<h>-tet15.g` (TET15-P1), in meters.
 
 ## Running
@@ -147,10 +147,10 @@ mass at rest (the final radius was 5.45 mm on every mesh); and the stable
 time step recomputed during a run used the reference mesh, not the
 current one.
 
-## Composite tetrahedron and TET15-P1 in Sierra/SM
+## Sierra/SM CT10 and Sierra/SM TET15-P1
 
 On the same `meshes/taylor-h<h>-tet10.g`: the explicit dynamics of Sierra/SM
-with the composite tetrahedron of Foulk et al. (2021) at its default
+with CT10 of Foulk et al. (2021) at its default
 stabilization α = 0.1, the J2 model with linear hardening of the same
 constants, the initial velocity on node set `all`, u_z = 0 on node set
 `impact`, the symmetry conditions on the quarter bar, output every 1 μs to
@@ -159,7 +159,7 @@ constants, the initial velocity on node set `all`, u_z = 0 on node set
 Sierra/SM cannot read a node set and a side set of the same name
 (`impact`), so it reads a copy of each mesh with `_face` appended to the
 side-set names, written by `sierra/rename-sidesets.jl`; coordinates,
-connectivity and node sets are unchanged.  The composite tetrahedron used
+connectivity and node sets are unchanged.  CT10 used
 the stabilization of the paper's runs, α = 0.1 with exponent 0, and no bulk
 viscosity.  The Sierra/SM input files are not part of this repository.
 
@@ -167,30 +167,30 @@ TET15-P1 in Sierra/SM runs on `meshes/taylor-h<h>-tet15.g`, the same
 elements with the face and interior nodes that `Carina.tetra15_mesh` adds
 (Exodus TETRA15 node order), renamed by `rename-sidesets.jl` in the same
 way, with the node sets, side sets, material constants, loading and output
-of the composite-tetrahedron runs.
+of the CT10 runs.
 
 Reference final values at 80 μs, from `data/` (radius of the impact face and
 length of the bar, mm):
 
-| h (mm) | composite tetrahedron, Sierra/SM | TET15-P1, Carina | TET15-P1, Sierra/SM prototype | TET15-P0, Carina |
+| h (mm) | Sierra/SM CT10 | Carina TET15-P1 | Sierra/SM TET15-P1 | Carina TET15-P0 |
 |---|---|---|---|---|
 | 1.5 | 7.2904, 24.439 at 41.6 μs (the run stopped) | 7.2399, 21.425 | 7.2344, 21.429 | 7.4415, 21.551 |
 | 0.75 | 7.2820, 21.476 | 7.2225, 21.421 | 7.2186, 21.423 | 7.4747, 21.533 |
 | 0.38 | 7.2453, 21.439 | 7.2255, 21.420 | 7.2181, 21.422 | — |
 | 0.19 | 7.2326, 21.430 | — | 7.2217, 21.422 | — |
 
-The composite tetrahedron converges from above, with an extrapolated limit
+CT10 converges from above, with an extrapolated limit
 of 7.2259 mm (order 1.53 in h); TET15-P1 in Carina is within 0.05% of that
 limit at h = 0.75 and 0.38 mm.
 
-## TET15-P1 in a prototype implementation in Sierra/SM
+## Sierra/SM TET15-P1
 
-A prototype implementation of TET15-P1 in Sierra/SM was run on the same
+Sierra/SM TET15-P1 was run on the same
 TETRA15 meshes (side sets renamed as above), with the finite-deformation J2
 model of the Sierra material library with linear hardening, as in the
-composite-tetrahedron runs, and no bulk viscosity; its time step was 0.25
+CT10 runs, and no bulk viscosity; its time step was 0.25
 times the smallest node distance over the dilatational wave speed (the
-prototype's element estimate, 0.5 times that distance, with an input factor
+element estimate of Sierra/SM TET15-P1, 0.5 times that distance, with an input factor
 of 0.5; Rigel's correction of 2026-10-09).  Results (Rigel session, 2026-10-08; records
 `data/sierra-taylor-results.tsv` and
 `data/sierra-taylor-{tet15-p1,tetra15}-h<h>-history.tsv`; figure
@@ -198,9 +198,9 @@ of 0.5; Rigel's correction of 2026-10-09).  Results (Rigel session, 2026-10-08; 
 
 - Final radius 7.2344, 7.2186, 7.2181 and 7.2217 mm at h = 1.5, 0.75, 0.38
   and 0.19 mm: 0.08%, 0.05% and 0.10% below Carina's TET15-P1 on the three
-  meshes Carina ran to 80 μs, and within 0.12% of the composite
-  tetrahedron's extrapolated limit at every level (0.06% below it at
-  h = 0.19 mm, where the composite tetrahedron is 0.09% above).  The
+  meshes Carina ran to 80 μs, and within 0.12% of the
+  extrapolated limit of CT10 at every level (0.06% below it at
+  h = 0.19 mm, where CT10 is 0.09% above).  The
   sequence is not monotone: the h = 0.19 mm value is 3.6 μm above the
   h = 0.38 mm value.  The length agrees with Carina's to 0.02%, and is
   21.422 mm at both finest levels.  The h = 0.19 mm run (2026-10-09 to 11)
@@ -214,7 +214,7 @@ of 0.5; Rigel's correction of 2026-10-09).  Results (Rigel session, 2026-10-08; 
 - Without the projection (TETRA15, the volumetric response at each
   quadrature point) the final radius at h = 1.5 mm is 7.1268 mm, 1.5% below
   TET15-P1 in the same code: the volumetric locking the projection removes.
-- The composite-tetrahedron runs repeated alongside reproduce the recorded
+- The CT10 runs repeated alongside reproduce the recorded
   histories of the study to 1.8e-7 relative (h = 0.75 mm) and exactly
   (h = 0.38 mm).
 - Pressure at 12 μs (runs to 12 μs with the element stress written, and
@@ -224,24 +224,24 @@ of 0.5; Rigel's correction of 2026-10-09).  Results (Rigel session, 2026-10-08; 
   radius of the impact face 5.447, 5.444, 5.446 and 5.452 mm (Carina 5.452,
   5.451, 5.453, 5.457).  The renders of `render_pressure.py` at `range=-3e8:1.6e9` were
   made where the output is; `compose_pressure.py` takes the rows as its last
-  argument, for the grid of the composite tetrahedron, Carina's TET15-P1 and
-  the prototype.
+  argument, for the grid of CT10, Carina's TET15-P1 and
+  Sierra/SM TET15-P1.
 
 Cost on two AMD EPYC 9634 sockets, with MPI ranks:
 
 | run | ranks | steps | wall (s) | Δt at 1 μs | Δt at 80 μs |
 |---|---|---|---|---|---|
 | TET15-P1, h = 0.75 mm | 96 | 50 832 | 271 | 3.86e-9 | 1.34e-9 |
-| composite tetrahedron, h = 0.75 mm | 96 | 44 260 | 90 | 2.76e-8 | 1.13e-9 |
+| CT10, h = 0.75 mm | 96 | 44 260 | 90 | 2.76e-8 | 1.13e-9 |
 | TET15-P1, h = 0.38 mm | 160 | 187 209 | 6 473 | 1.85e-9 | 3.38e-10 |
-| composite tetrahedron, h = 0.38 mm | 160 | 62 821 | 626 | 1.27e-8 | 8.54e-10 |
+| CT10, h = 0.38 mm | 160 | 62 821 | 626 | 1.27e-8 | 8.54e-10 |
 | TET15-P1, h = 0.19 mm | 168 | 598 681 | 256 030 | 8.41e-10 | 9.50e-11 |
 
 The h = 0.19 mm wall time, 71.1 h, is not a timing record: the run shared
 the machine with other work at the lowest scheduling priority.  Its step
 was nearly constant from about 47 μs on.
 
-Status of the prototype, as found in these runs:
+Status of Sierra/SM TET15-P1, as found in these runs:
 
 - The global (eigenvalue) estimate of the stable step diverged on the
   TETRA15 meshes of the Taylor bar, with and without the projection, and
@@ -253,7 +253,7 @@ Status of the prototype, as found in these runs:
   displacement inverts quadrature points of the 15-node elements, whose
   nodes are 0.1 to 0.4 mm apart; the estimate rises from 2.66e15 to
   6.6e17 s⁻², and with the projection the run stops on a negative volume.
-  The same size makes the composite tetrahedron's first estimate 22% low at
+  The same size makes CT10's first estimate 22% low at
   h = 0.75 mm, a step 13% larger than intended.
 - A correction, not used in the runs above: the trial displacement is
   1e-5 of the local element length, and the iteration stops only when the
@@ -266,7 +266,7 @@ Status of the prototype, as found in these runs:
   | TET15-P1, h = 1.5 mm, 80 μs | 7.2349 / 7.2344 | 19 077 / 24 480 (−22%) |
   | TET15-P1, h = 0.75 mm, 80 μs | 7.2189 / 7.2186 | 43 389 / 50 832 (−15%) |
   | TETRA15, h = 1.5 mm, 80 μs | 7.1274 / 7.1268 | 20 232 / 22 358 (−10%) |
-  | composite tetrahedron, h = 0.75 mm, 20 μs | 6.2511 / 6.2516 | 1 115 / 1 240 (−10%) |
+  | CT10, h = 0.75 mm, 20 μs | 6.2511 / 6.2516 | 1 115 / 1 240 (−10%) |
 
   The power iterations add 3 to 5% to the number of steps.  The critical
   step 2/√λ, with λ from the converged global estimate, is 2.22, 3.12,
@@ -282,7 +282,7 @@ Status of the prototype, as found in these runs:
   speed, as Carina found for its node-distance estimate (0.29).  The runs
   were stable through the additional input factor of 0.5, with a margin of
   about 1.2 after 40 μs.  At 1 μs the step used is 7 times smaller than
-  the composite tetrahedron's, and at h = 0.38 mm TET15-P1 takes 3 times
+  CT10's, and at h = 0.38 mm TET15-P1 takes 3 times
   as many steps; the global estimate or a sharper element estimate is the
   means of reducing the explicit cost.
 - The shape functions equal those of Carina's `Tet{EnrichedLagrange,2}` to
