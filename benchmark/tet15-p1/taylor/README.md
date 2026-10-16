@@ -184,9 +184,8 @@ ConstitutiveModels a0550bd), in which the element projects log J, the
 measure Sierra/SM TET15-P1 projects; h = 0.19 mm ran on an A100 80 GB in
 5 h 9 min (Rigel session), the others on the RX 7600 (`results.tsv`).  With
 J − 1 projected (Carina 68c135e) TET15-P1 gave 7.2399, 7.2225 and 7.2255 mm
-at h = 1.5, 0.75 and 0.38, and TET15-P0 7.4415, 7.4747 and 7.3785 (the last
-at 78 μs): the measure moves TET15-P1 by 0.01 to 0.06% and TET15-P0 by 7 to
-9%, and TET15-P0 with log J inverts an element at h = 0.38 mm.
+at h = 1.5, 0.75 and 0.38: the measure moves TET15-P1 by 0.01 to 0.06%.
+TET15-P0 inverts an element at h = 0.38 mm.
 
 CT10 converges from above, with an extrapolated limit
 of 7.2259 mm (order 1.53 in h); TET15-P1 in Carina is within 0.07% of that

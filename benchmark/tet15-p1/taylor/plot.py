@@ -3,12 +3,13 @@
 #                           number of elements, for each element
 #   taylor-history.png      radius of the impact face against time on the
 #                           finest mesh of each element
-#   taylor-history-sierra.png  TET15-P1 in Carina and in a prototype
-#                           implementation in Sierra/SM: the radius against
-#                           time at h = 0.75 and 0.38 mm, with the composite
-#                           tetrahedron at h = 0.19 mm, the prototype at
-#                           h = 0.19 mm, and the relative
-#                           difference of the two codes' radii at every level
+#   taylor-history-sierra.png  Carina TET15-P1 and Sierra/SM TET15-P1: the
+#                           radius against time at h = 0.75 and 0.38 mm, with
+#                           CT10 and Sierra/SM TET15-P1 at h = 0.19 mm, and
+#                           the relative difference of the two codes' radii
+#                           at every level
+# The Carina histories are those of the runs that project log J (Carina
+# 29c9606); the files *-jm1-* hold the earlier runs that projected J - 1.
 # Usage: python3 plot.py [output directory]   (default: this directory)
 import os
 import sys
@@ -27,9 +28,9 @@ ELEMENTS = {1.5: 3522, 0.75: 25029, 0.38: 190727, 0.19: 1521212}
 REFERENCE = 7.22   # converged Q1/P0 hexahedron, Foulk et al. (2021)
 
 SERIES = [
-    ("TET15-P1", "tet15-p1-h{}-history.tsv", (1.5, 0.75, 0.38), "C0", "o"),
+    ("TET15-P1", "tet15-p1-h{}-history.tsv", (1.5, 0.75, 0.38, 0.19), "C0", "o"),
     ("TET15-P0", "tet15-p0-h{}-history.tsv", (1.5, 0.75), "C1", "s"),
-    ("composite tetrahedron", "sierra-ct-h{}-history.tsv", (0.75, 0.38, 0.19), "C2", "^"),
+    ("CT10", "sierra-ct-h{}-history.tsv", (0.75, 0.38, 0.19), "C2", "^"),
 ]
 
 
@@ -45,13 +46,6 @@ for label, pattern, levels, color, marker in SERIES:
     n = [ELEMENTS[h] for h in levels]
     r = [history(pattern.format(h))[1][-1] for h in levels]
     ax.plot(n, r, color=color, marker=marker, label=label)
-# TET15-P0 at h = 0.38 stopped at 78.7 us; its radius at 78 us.
-t, r, _ = history("tet15-p0-h0.38-history-to-78us.tsv")
-ax.plot([ELEMENTS[0.75], ELEMENTS[0.38]],
-        [history("tet15-p0-h0.75-history.tsv")[1][-1], r[-1]],
-        color="C1", linestyle=":")
-ax.plot([ELEMENTS[0.38]], [r[-1]], color="C1", marker="s", fillstyle="none",
-        label="TET15-P0, at 78 μs")
 ax.axhline(REFERENCE, color="0.4", linestyle="--", linewidth=1,
            label="Q1/P0 hexahedron, converged")
 ax.set_xscale("log")
@@ -63,9 +57,9 @@ fig.savefig(os.path.join(OUT, "taylor-convergence.png"), dpi=200)
 
 fig, ax = plt.subplots(figsize=(6.0, 4.2))
 for label, name, color, style, z in [
-        ("TET15-P0, h = 0.38 mm", "tet15-p0-h0.38-history-to-78us.tsv", "C1", "-", 2),
-        ("composite tetrahedron, h = 0.38 mm", "sierra-ct-h0.38-history.tsv", "C2", "--", 2),
-        ("composite tetrahedron, h = 0.19 mm", "sierra-ct-h0.19-history.tsv", "C2", "-", 2),
+        ("TET15-P0, h = 0.75 mm", "tet15-p0-h0.75-history.tsv", "C1", "-", 2),
+        ("CT10, h = 0.38 mm", "sierra-ct-h0.38-history.tsv", "C2", "--", 2),
+        ("CT10, h = 0.19 mm", "sierra-ct-h0.19-history.tsv", "C2", "-", 2),
         ("TET15-P1, h = 0.38 mm", "tet15-p1-h0.38-history.tsv", "C0", ":", 3)]:
     t, r, _ = history(name)
     ax.plot(t, r, color=color, linestyle=style, linewidth=1.8, zorder=z, label=label)
@@ -81,12 +75,12 @@ fig.savefig(os.path.join(OUT, "taylor-history.png"), dpi=200)
 # TET15-P1 in Carina against the prototype implementation in Sierra/SM.
 fig, (ax, bx) = plt.subplots(1, 2, figsize=(11.0, 4.2))
 for label, name, color, style, z in [
-        ("composite tetrahedron, h = 0.19 mm", "sierra-ct-h0.19-history.tsv", "C2", "-", 2),
-        ("TET15-P1, Carina, h = 0.75 mm", "tet15-p1-h0.75-history.tsv", "C0", "-", 3),
-        ("TET15-P1, Carina, h = 0.38 mm", "tet15-p1-h0.38-history.tsv", "C0", ":", 3),
-        ("TET15-P1, Sierra/SM prototype, h = 0.75 mm", "sierra-taylor-tet15-p1-h0.75-history.tsv", "C3", "--", 4),
-        ("TET15-P1, Sierra/SM prototype, h = 0.38 mm", "sierra-taylor-tet15-p1-h0.38-history.tsv", "C3", "-.", 4),
-        ("TET15-P1, Sierra/SM prototype, h = 0.19 mm", "sierra-taylor-tet15-p1-h0.19-history.tsv", "C3", "-", 4)]:
+        ("CT10, h = 0.19 mm", "sierra-ct-h0.19-history.tsv", "C2", "-", 2),
+        ("Carina TET15-P1, h = 0.75 mm", "tet15-p1-h0.75-history.tsv", "C0", "-", 3),
+        ("Carina TET15-P1, h = 0.38 mm", "tet15-p1-h0.38-history.tsv", "C0", ":", 3),
+        ("Sierra/SM TET15-P1, h = 0.75 mm", "sierra-taylor-tet15-p1-h0.75-history.tsv", "C3", "--", 4),
+        ("Sierra/SM TET15-P1, h = 0.38 mm", "sierra-taylor-tet15-p1-h0.38-history.tsv", "C3", "-.", 4),
+        ("Sierra/SM TET15-P1, h = 0.19 mm", "sierra-taylor-tet15-p1-h0.19-history.tsv", "C3", "-", 4)]:
     t, r, _ = history(name)
     ax.plot(t, r, color=color, linestyle=style, linewidth=1.6, zorder=z, label=label)
 ax.axhline(REFERENCE, color="0.4", linestyle="--", linewidth=1,
@@ -95,7 +89,7 @@ ax.set_xlabel("time (μs)")
 ax.set_ylabel("radius of the impact face (mm)")
 ax.set_xlim(0, 80)
 ax.legend(frameon=False, fontsize=8.5, loc="lower right")
-for h, color in ((1.5, "C1"), (0.75, "C0"), (0.38, "C3")):
+for h, color in ((1.5, "C1"), (0.75, "C0"), (0.38, "C3"), (0.19, "C2")):
     tc, rc, _ = history(f"tet15-p1-h{h}-history.tsv")
     ts, rs, _ = history(f"sierra-taylor-tet15-p1-h{h}-history.tsv")
     n = min(len(tc), len(ts))
@@ -103,7 +97,7 @@ for h, color in ((1.5, "C1"), (0.75, "C0"), (0.38, "C3")):
             label=f"h = {h} mm")
 bx.axhline(0.0, color="0.4", linewidth=0.8)
 bx.set_xlabel("time (μs)")
-bx.set_ylabel("radius, Sierra/SM prototype − Carina (%)")
+bx.set_ylabel("radius, Sierra/SM − Carina (%)")
 bx.set_xlim(0, 80)
 bx.legend(frameon=False, fontsize=9)
 fig.tight_layout()

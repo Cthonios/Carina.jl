@@ -3088,8 +3088,7 @@ element count. Reference: $7.22$ for the converged Q1/P0 hexahedron
 \citep{Foulk.etal:2021}. TET15-P1 and TET15-P0 project $\log J$ (Carina
 29c9606; $h = 0.19$ on an A100); TET15-P0 at $h = 0.38$ stopped with an
 inverted element at $1~\mu$s. With $J - 1$ projected, TET15-P1 gave
-$7.2399$, $7.2225$ and $7.2255$ at $h = 1.5$, $0.75$ and $0.38$, and TET15-P0
-$7.4415$, $7.4747$ and $7.3785$ (the last at $78~\mu$s). CT10 at $h = 1.5$ ended at
+$7.2399$, $7.2225$ and $7.2255$ at $h = 1.5$, $0.75$ and $0.38$. CT10 at $h = 1.5$ ended at
 $41.6~\mu$s. Driver: \code{benchmark/tet15-p1/taylor/run.jl}; histories in
 \code{benchmark/tet15-p1/taylor/data}.}
 \label{tab:taylor}
@@ -3112,13 +3111,11 @@ $0.19$ & $1\,521\,212$   & $7.2242$ & $21.4193$ & --- & --- & $7.2326$ & $21.430
 \includegraphics[width=0.49\textwidth]{figures/taylor-convergence.png}\hfill
 \includegraphics[width=0.49\textwidth]{figures/taylor-history.png}
 \caption{Taylor bar. Left: final radius of the impact face against the
-number of elements; the open square is TET15-P0 at $78~\mu$s. Right: radius
-of the impact face against time for TET15-P1 and TET15-P0 at
-$h = 0.38$~mm and CT10 at $h = 0.38$ and $0.19$~mm.
-Dashed gray: the converged Q1/P0 hexahedron of \citet{Foulk.etal:2021}.
-The Carina curves are those of the runs that projected $J - 1$; with
-$\log J$ the TET15-P1 values change by at most $0.06\%$
-(Table~\ref{tab:taylor}). Script: \code{benchmark/tet15-p1/taylor/plot.py}.}
+number of elements. Right: radius of the impact face against time for
+TET15-P1 at $h = 0.38$~mm, TET15-P0 at $h = 0.75$~mm and CT10 at $h = 0.38$
+and $0.19$~mm. Dashed gray: the converged Q1/P0 hexahedron of
+\citet{Foulk.etal:2021}. Carina projects $\log J$. Script:
+\code{benchmark/tet15-p1/taylor/plot.py}.}
 \label{fig:taylor}
 \end{figure}
 
@@ -3133,9 +3130,9 @@ reach $80~\mu$s. CT10 is $0.78\%$, $0.27\%$ and
 $0.09\%$ from the extrapolated value at $h = 0.75$, $0.38$ and $0.19$. Both
 elements approach the reference within $0.1\%$ in the limit. TET15-P0
 differs from TET15-P1 only in the constant pressure, and it is sensitive to
-the projected measure where TET15-P1 is not: with $\log J$ it is $11\%$ above
-the extrapolated value at $h = 0.75$ and inverts an element at $1~\mu$s at
-$h = 0.38$, with $J - 1$ it was $3.4\%$ and $2.1\%$ above; projecting
+the projected measure where TET15-P1 is not: it is $11\%$ above the
+extrapolated value at $h = 0.75$ and inverts an element at $1~\mu$s at
+$h = 0.38$; projecting
 $J - 1$ instead of $\log J$ changes the TET15-P1 radius by $0.01\%$ at
 $h = 1.5$ and $0.75$ and by $0.06\%$ at $h = 0.38$. A constant pressure leaves
 the pointwise $J$ free to vary across the element, and the element mean of
@@ -3290,9 +3287,8 @@ is not monotone at the finest level: the radius at $h = 0.19$~mm is
 $3.6~\mu$m above the $h = 0.38$~mm value in Sierra/SM and $3.1~\mu$m above it
 in Carina.
 Over the run the radii of the two codes differ by at most $0.16\%$, in the
-first $10~\mu$s, and after $40~\mu$s by a constant $0.05$ to $0.10\%$ that does
-not decrease with $h$ (Figure~\ref{fig:taylorsierra}, from the Carina runs
-that projected $J - 1$); the two codes'
+first $10~\mu$s, and after $40~\mu$s by a nearly constant $0.035$ to $0.084\%$
+that decreases with $h$ (Figure~\ref{fig:taylorsierra}); the two codes'
 $J_2$ implementations and time steps differ. Without the projection,
 TETRA15 at $h = 1.5$~mm ends at $7.1268$~mm, $1.5\%$ below, which is the
 volumetric locking the projection removes. The step used makes the
@@ -3332,7 +3328,8 @@ $h = 0.19$~mm on $168$ ranks, $71$~h on a machine shared with other work
 \caption{Taylor bar: TET15-P1 in Carina and in Sierra/SM on the same meshes. Left, the radius of the impact face against
 time at $h = 0.75$ and $0.38$~mm in both codes, Sierra/SM TET15-P1 at
 $h = 0.19$~mm, and CT10 at $h = 0.19$~mm; right, the
-relative difference of the two codes' radii on the three meshes both ran.}
+relative difference of the two codes' radii at the four levels, both
+projecting $\log J$.}
 \label{fig:taylorsierra}
 \end{figure}
 
