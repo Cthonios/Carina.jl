@@ -77,7 +77,28 @@ end
 const _SYM_TOL = 1e-10
 
 # Reinterpret a symmetric CSC matrix's arrays as CSR, without transposing.
-function _symmetric_csc_as_csr(backend, K::SparseArrays.SparseMatrixCSC)
+# The assembled tangent keeps its sparsity pattern for the whole run, so the
+# Int32 index arrays of the CSR view are built once per pattern and only the
+# values are copied at each Newton iteration (the conversion took 2 s per
+# solve at 3.6 M unknowns).
+const _csr_view_cache = Ref{Any}(nothing)
+
+function _symmetric_csc_as_csr(backend::KA.CPU, K::SparseArrays.SparseMatrixCSC)
+    c = _csr_view_cache[]
+    if c !== nothing && c.n == size(K, 1) && length(c.colval) == length(K.rowval) &&
+       c.colptr_ref === K.colptr && c.rowval_ref === K.rowval
+        copyto!(c.csr.nzval, K.nzval)
+        return c.csr
+    end
+    csr = _symmetric_csc_as_csr_new(backend, K)
+    _csr_view_cache[] = (n = size(K, 1), colval = csr.colval, colptr_ref = K.colptr,
+                         rowval_ref = K.rowval, csr = csr)
+    return csr
+end
+_symmetric_csc_as_csr(backend, K::SparseArrays.SparseMatrixCSC) =
+    _symmetric_csc_as_csr_new(backend, K)
+
+function _symmetric_csc_as_csr_new(backend, K::SparseArrays.SparseMatrixCSC)
     rowptr = KA.allocate(backend, Int32, length(K.colptr))
     colval = KA.allocate(backend, Int32, length(K.rowval))
     nzval  = KA.allocate(backend, Float64, length(K.nzval))
@@ -210,7 +231,7 @@ function _cpu_amg_vcycle(A::SparseArrays.SparseMatrixCSC, B::Matrix{Float64})
     dinv = 1.0 ./ Vector(diag(A))
     any(!isfinite, dinv) && error("Zero diagonal in the fine AMG operator.")
     h = DeviceAMGHierarchy(backend, ml, dinv, _host_lambda_max(A, dinv))
-    return _CPUAMGVCycle(h, _symmetric_csc_as_csr(backend, A))
+    return _CPUAMGVCycle(h, _symmetric_csc_as_csr_new(backend, A))
 end
 
 function LinearAlgebra.ldiv!(y::AbstractVector, P::_CPUAMGVCycle, v::AbstractVector)
@@ -1239,6 +1260,10 @@ end
 _precond_reads_matrix(::Preconditioner)             = true
 _precond_reads_matrix(::NoPreconditioner)           = false
 _precond_reads_matrix(::JacobiPreconditioner)       = false
+# The AMG hierarchy symmetrizes the matrix itself, and only when it is
+# rebuilt; symmetrizing and converting it at every Newton iteration took 30 s
+# of single-threaded work per solve at 3.6 M unknowns.
+_precond_reads_matrix(::AMGPreconditioner)          = false
 
 function _build_precond_op(::NoPreconditioner, K_sparse, n, x_cur)
     return nothing
@@ -1260,7 +1285,7 @@ end
 # the build (P === nothing || rebuild) makes the per-Newton calls inexpensive;
 # c_M = 0 since there is no mass term in the quasi-static tangent.
 function _build_precond_op(precond::AMGPreconditioner, K_sparse, n, x_cur)
-    _update_amg_precond_assembled!(precond, sparse(K_sparse), 0.0, x_cur)
+    _update_amg_precond_assembled!(precond, K_sparse, 0.0, x_cur)
     P = precond.P
     return LinearOperator(Float64, n, n, true, true,
         (y, v) -> ldiv!(y, P, v))
@@ -1326,8 +1351,7 @@ function _linear_solve!(ls::KrylovLinearSolver, ig::QuasiStaticIntegrator, p, op
                    (ls.precond.P === nothing || ls.precond.rebuild)
                     K_sparse = _with_compressible_properties(p) do
                         FEC.assemble_stiffness!(asm, FEC.stiffness, U, p)
-                        Kp = FEC.stiffness(asm)
-                        Symmetric(sparse((Kp + Kp') / 2), :L)
+                        copy(FEC.stiffness(asm))   # symmetrized at the hierarchy build
                     end
                     FEC.assemble_stiffness!(asm, FEC.stiffness, U, p)
                 end
