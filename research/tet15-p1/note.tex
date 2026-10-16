@@ -3475,12 +3475,46 @@ $h = a/4$ mesh to $t = 0.025$ it takes $34\,637$ conjugate-gradient
 iterations in $55$ solves against $115\,416$ in $57$, and $700$ to $1000$
 iterations per solve at the plastic steps against $2500$ to $3700$.
 
+\paragraph{The jump measure.} Each code writes one value of the pressure
+$p = -\operatorname{tr}\sigma/3$ and of the equivalent plastic strain per
+element: in Carina the mean of the fourteen quadrature-point values, in
+Sierra/SM the element value of the code. Over the interior faces whose two
+elements have their centroids within $r \le 1.5a$ and $z \ge H - 1.5a$ in
+the reference configuration, the region around the plastic zone ($2548$
+faces at $h = a/4$, $20\,491$ at $a/8$), the jump of a quantity $q$ across
+a face is $|q_L - q_R|$ of the two element values divided by the largest
+$|q|$ over the elements of the region; the statistics are the mean, the
+99th percentile and the maximum over the faces, at $t = 0.5$ and $t = 1$.
+For a field that the mesh resolves, two neighboring elements differ by
+about $h$ times the gradient, so the normalized jump is of order
+$h\,|\nabla q|/\max|q|$ and halves when $h$ halves; for an oscillation
+that alternates from element to element, a pressure checkerboard, the two
+neighbors differ by the amplitude of the oscillation whatever $h$ is, and
+the jump does not decrease. The measure therefore separates a resolved
+gradient from a spurious mode by its behavior under refinement, not by its
+value on one mesh: the quantity of interest is the ratio of the statistics
+between two levels. The mean is dominated by the bulk of the region, where
+the field is smooth, and measures its roughness relative to the resolution;
+the 99th percentile is the roughest one percent of the faces, $25$ at $a/4$
+and $205$ at $a/8$, where a localized mode appears before it reaches the
+mean; the maximum is a single face, under a flat punch the face at the
+punch edge where the pressure changes sign through the edge singularity, of
+order one for every element and every mesh, and carries no information
+about modes. The measure has three limitations. The normalization divides
+by the peak of the region, which a mode contaminates: the peak pressure of
+the plain element at $h = a/4$ is $146$~MPa in Sierra/SM and $594$~MPa in
+Carina against $7.5$~MPa for TET15-P1, so its normalized jumps understate
+its mode, and the peak of CT10 is $1.7$ to $2.7$ times that of TET15-P1 at
+both levels, so the normalized ratio between the two understates the ratio
+in pressure units. The measure sees element averages only: the linear
+variation of the TET15-P1 pressure within an element and the variation over
+the sub-tetrahedra of CT10 are invisible to it, so a mode confined within
+elements would not register. Two levels give one ratio, which distinguishes
+a decrease from no decrease but not first order from second.
+
 \paragraph{Results at $h = a/4$.} Table~\ref{tab:punch} gives the full
-punch force at $t = 1$, the jump statistics and the axisymmetry measure. The
-jump of a quantity $q$ across an interior face is $|q_L - q_R|$ of the
-element means of the two elements, normalized by the largest $|q|$ over the
-elements whose centroids lie within $r \le 1.5a$ and $z \ge H - 1.5a$; its
-mean and maximum over those faces at $t = 1$ are reported. The axisymmetry
+punch force at $t = 1$, the mean and the maximum of the jumps at $t = 1$,
+and the axisymmetry measure. The axisymmetry
 measure is the standard deviation over the angle of $u_z$ on the top face in
 radial bins of width $a/8$, relative to the mean pile-up. The two
 implementations of TET15-P1 agree in force to $0.05\%$ at $t = 1$ and to
