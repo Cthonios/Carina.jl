@@ -176,11 +176,10 @@ function _update_amg_precond_assembled!(precond::AMGPreconditioner, K_eff_raw, c
     c_M_changed = abs(c_M - precond.built_c_M) > 1e-3 * abs(c_M)
     stale = precond.P === nothing || precond.rebuild || c_M_changed
     stale || return nothing
-    A = (K_eff_raw + K_eff_raw') / 2   # exact symmetry for the SA setup
+    A = SparseArrays.sparse((K_eff_raw + K_eff_raw') / 2)   # exact symmetry for the SA setup
     t = @elapsed begin
         B = _rigid_body_modes(x_cur, precond.udofs)
-        ml = AMG.smoothed_aggregation(A; B = B)
-        precond.P = AMG.aspreconditioner(ml)
+        precond.P = _cpu_amg_vcycle(A, B)
     end
     precond.built_c_M  = c_M
     precond.base_iters = 0
@@ -189,6 +188,38 @@ function _update_amg_precond_assembled!(precond::AMGPreconditioner, K_eff_raw, c
     _carina_logf(4, :solve, "    AMG hierarchy build #%d (%s)", precond.nbuilds, format_time(t))
     return nothing
 end
+
+# The V-cycle of the assembled CPU path.  It is the V-cycle of the device
+# path (`DeviceAMGHierarchy`, `_amg_vcycle!`: smoothed aggregation with the
+# rigid-body modes, two damped Jacobi sweeps per side, a dense coarse solve)
+# run on the KernelAbstractions CPU backend, with the fine operator the
+# matrix the hierarchy was built on, applied as a threaded CSR product.  The
+# V-cycle of AlgebraicMultigrid.jl, used before 2026-10-16, runs on one
+# thread: its Gauss-Seidel smoother is sequential and its sparse products are
+# those of SparseArrays (CSC, single-threaded), so the assembled CG with AMG
+# used one core of the host whatever the thread count (3.65 M unknowns on
+# 36 cores: host load 1.3 during the solve).
+struct _CPUAMGVCycle
+    hierarchy::DeviceAMGHierarchy
+    fine::DeviceCSR
+end
+
+function _cpu_amg_vcycle(A::SparseArrays.SparseMatrixCSC, B::Matrix{Float64})
+    backend = KA.CPU()
+    ml = _sa_hierarchy_lowmem(A, B)
+    dinv = 1.0 ./ Vector(diag(A))
+    any(!isfinite, dinv) && error("Zero diagonal in the fine AMG operator.")
+    h = DeviceAMGHierarchy(backend, ml, dinv, _host_lambda_max(A, dinv))
+    return _CPUAMGVCycle(h, _symmetric_csc_as_csr(backend, A))
+end
+
+function LinearAlgebra.ldiv!(y::AbstractVector, P::_CPUAMGVCycle, v::AbstractVector)
+    backend = KA.CPU()
+    fine! = (out, x) -> _csr_mul!(out, P.fine, x, backend)
+    _amg_vcycle!(y, v, P.hierarchy, fine!, backend)
+    return y
+end
+
 _update_amg_precond_assembled!(::Preconditioner, _, _, _) = nothing
 
 # Staleness detector: remember the iteration count right after a build;

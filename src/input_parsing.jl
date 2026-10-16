@@ -710,7 +710,7 @@ function _parse_integrator(dict, asm, asm_cpu, p_cpu, controller, backend=KA.CPU
                   "of the converged state before Newton).")
 
         make_precond = () -> _compute_stiffness_jacobi_precond(asm_cpu, p_cpu, template)
-        make_amg     = (smoother, compressible) -> (backend isa KA.CPU ?
+        make_amg     = (smoother, compressible, assembled) -> (assembled ?
             _compute_amg_precond(asm_cpu, p_cpu, smoother, compressible) :
             _compute_gpu_amg_precond(asm_cpu, fec_ls.ΔUu, smoother, compressible))
         ls = _parse_linear_solver(ls_dict, template, backend, make_precond, make_amg)
@@ -740,11 +740,11 @@ function _parse_integrator(dict, asm, asm_cpu, p_cpu, controller, backend=KA.CPU
         min_dt, max_dt, dec, inc = _parse_adaptive_stepping(ti_dict, dt)
 
         make_precond = () -> _compute_jacobi_precond(β, dt, asm_cpu, p_cpu, template)
-        make_amg     = (smoother, compressible) -> begin
+        make_amg     = (smoother, compressible, assembled) -> begin
             compressible && error(
                 "The compressible AMG operator is implemented for the quasi-static " *
                 "integrator only.")
-            backend isa KA.CPU ?
+            assembled ?
                 _compute_amg_precond(asm_cpu, p_cpu, smoother, compressible) :
                 _compute_gpu_amg_precond(asm_cpu, fec_ls.ΔUu, smoother, compressible)
         end
@@ -861,8 +861,8 @@ end
 function _compute_amg_precond(asm_cpu, p_cpu, smoother::Symbol = :jacobi,
                               compressible::Bool = false)
     smoother === :jacobi || error(
-        "AMG smoother \"block jacobi\" is implemented for the GPU V-cycle only; " *
-        "the CPU AMG uses AlgebraicMultigrid.jl's own smoothers.")
+        "AMG smoother \"block jacobi\" is implemented for the matrix-free path only; " *
+        "set `assembled: false` in the linear solver, or use the point Jacobi smoother.")
     compressible && _compressible_lame_indices(p_cpu)
     return AMGPreconditioner(collect(asm_cpu.dof.unknown_dofs); compressible)
 end
@@ -1457,7 +1457,7 @@ function _parse_forcing_term(ls_dict)
 end
 
 function _parse_linear_solver(ls_dict, template, backend, make_precond::Function,
-                               make_amg_precond::Function = (_, _) -> error(
+                               make_amg_precond::Function = (_, _, _) -> error(
                                    "amg preconditioner not available for this integrator."))
     ls_type = lowercase(ls_dict["type"])
     T  = eltype(template)
@@ -1504,7 +1504,7 @@ function _parse_linear_solver(ls_dict, template, backend, make_precond::Function
                            op == "compressible" ? true :
                            error("Unknown AMG operator \"$op\". " *
                                  "Expected \"tangent\" or \"compressible\".")
-            make_amg_precond(smoother, compressible)
+            make_amg_precond(smoother, compressible, assembled)
         elseif precond_type == "none"
             NoPreconditioner()
         else

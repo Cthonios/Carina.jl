@@ -424,6 +424,17 @@ kernels, with the fine level smoothed through the matrix-free stiffness action
 so the fine matrix is never formed on the device.  It is the fastest
 quasi-static option Carina has — see `benchmark_report.md`.
 
+On the CPU the same V-cycle runs on the KernelAbstractions CPU backend: with
+the assembled operator (the default on the CPU) its fine level is the
+assembled matrix applied as a threaded CSR product, and with `assembled:
+false` the matrix-free action.  Until 2026-10-16 the assembled CPU path used
+the V-cycle of AlgebraicMultigrid.jl, whose Gauss–Seidel smoother and sparse
+products run on one thread; on the quarter punch mesh at h = a/4 (84 387
+unknowns, TET15-P1, κ/μ = 10⁴, compressible operator, Sirius, 16 threads)
+the first fifteen solves took 199 s with it and 109 s with the threaded
+V-cycle, which needs 1.7 times as many CG iterations (damped Jacobi in place
+of Gauss–Seidel) at 3.2 times less time per iteration.
+
 Two behaviors worth knowing. The near-nullspace (six rigid-body modes) is
 rebuilt from the **current** nodal coordinates `X + u` at every hierarchy
 build, not frozen at the reference configuration — a frozen reference
@@ -436,7 +447,7 @@ change) or when CG iteration growth flags it as stale.
 
 | Key | Default | Description |
 |---|---|---|
-| `smoother` | `jacobi` | `jacobi` (damped point Jacobi) or `block jacobi` (the inverted 3 × 3 nodal block; GPU V-cycle only). |
+| `smoother` | `jacobi` | `jacobi` (damped point Jacobi) or `block jacobi` (the inverted 3 × 3 nodal block; matrix-free path only). |
 | `operator` | `tangent` | The operator the hierarchy, the fine diagonal and the fine smoothing action are built on. `tangent`: the tangent itself. `compressible`: the tangent of the material with its bulk modulus set to the shear modulus (λ' = μ/3, ν' = 1/8); the Krylov operator stays the tangent, so the solution is unchanged. At κ/μ ≫ 1 the hierarchy built on the tangent coarsens on the volumetric couplings and leaves the deviatoric error to CG; on the punch benchmark at κ/μ = 10⁴ the compressible operator needs 2.5 times fewer CG iterations (research/tet15-p1/precond). Requires a material whose properties include Lamé's first constant and the shear modulus, and the quasi-static integrator. |
 
 AMG combines well with an [Eisenstat–Walker forcing
