@@ -33,6 +33,7 @@
 #        [--stages mesh,convert,run] [--elements tet15-p1,tetra15] [--device cpu|cuda]
 #        [--preconditioner amg|jacobi] [--amg-operator tangent|compressible]
 #        [--cg-cap 1000] [--forcing eisenstat-walker|none] [--linear-solver iterative|direct]
+#        [--volumetric-form split|general] [--volumetric-strain "log J"|"J - 1"]
 #        [--recovery lumped|consistent|none] [--tag <suffix>]
 #        [--ti "key: value"]...
 # --h takes the divisors of a (h = a/4, a/8, a/16, a/32).  A CUDA run needs the
@@ -80,6 +81,8 @@ const AMG_OP  = Ref("tangent")
 const RECOVERY = Ref("lumped")
 const FORCING = Ref(true)
 const LINSOLVE = Ref("iterative")   # --linear-solver iterative|direct
+const VOLFORM = Ref("")             # --volumetric-form split|general (default: the model's)
+const VOLSTRAIN = Ref("")           # --volumetric-strain "log J"|"J - 1" (default: the material's)
 const TI_EXTRA = String[]
 const CG_CAP  = Ref(1000)
 const TAG     = Ref("")
@@ -113,7 +116,9 @@ function convert(d)
 end
 
 function deck(element, case, d, out)
-    projection = element == "tet15-p1" ? "  volumetric projection: linear\n" :
+    projection = element == "tet15-p1" ? "  volumetric projection: linear\n" *
+                 (VOLFORM[] == "" ? "" : "  volumetric form: $(VOLFORM[])\n") *
+                 (VOLSTRAIN[] == "" ? "" : "  volumetric strain: $(VOLSTRAIN[])\n") :
                  element == "tetra15" ? "" : error("unknown element $element")
     extra = join(("  $l\n" for l in TI_EXTRA), "")
     return """
@@ -361,6 +366,10 @@ function parse_args(args)
         elseif a == "--linear-solver"
             LINSOLVE[] = args[i + 1] in ("iterative", "direct") ? args[i + 1] :
                          error("--linear-solver takes iterative or direct")
+        elseif a == "--volumetric-form"
+            VOLFORM[] = args[i + 1]
+        elseif a == "--volumetric-strain"
+            VOLSTRAIN[] = args[i + 1]
         elseif a == "--recovery"
             RECOVERY[] = args[i + 1]
         elseif a == "--cg-cap"
