@@ -222,7 +222,17 @@ mutable struct KrylovLinearSolver{KW, Vec} <: AbstractLinearSolver
     rtol_eff   ::Float64      # tolerance the next solve will actually use
     eta_prev   ::Float64      # η used by the previous solve (NaN = none yet)
     norm_R_last::Float64      # ‖R‖ at the previous update (NaN = first iteration)
+    # Absolute tolerance on the Euclidean norm of the linear residual
+    # ‖K ΔU − R‖, in the units of the Newton residual.  A solve stops when
+    # the relative test or this one is met; 0 disables it.
+    atol       ::Float64
 end
+
+# Without an absolute tolerance (the form the tests construct directly).
+KrylovLinearSolver(itmax, rtol, assembled, precond, workspace, scratch, forcing,
+                   rtol_eff, eta_prev, norm_R_last) =
+    KrylovLinearSolver(itmax, rtol, assembled, precond, workspace, scratch, forcing,
+                       rtol_eff, eta_prev, norm_R_last, 0.0)
 
 # LBFGSLinearSolver: ring-buffer and scratch vectors only.
 # R_eff and F_int_n removed — they are integrator state, not solver state.

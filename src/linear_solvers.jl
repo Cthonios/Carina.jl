@@ -964,13 +964,23 @@ _apply_precond!(z, M_op, r)      = mul!(z, M_op, r)
 # CG loop performs, once per _CG_CHECK_EVERY iterations).
 _cg_scalar(a) = Array(a)[1]
 
-function _device_pcg!(ΔU, A_op, R, M_op, rtol, itmax)
+# Stops when the preconditioned residual has fallen by `rtol` relative to its
+# initial value, or when the Euclidean norm of the residual is at most `atol`
+# (checked at the same synchronization points, one more dot product each).
+function _device_pcg!(ΔU, A_op, R, M_op, rtol, itmax; atol::Real = 0.0)
     ws = _device_cg_workspace(R)
     backend = KA.get_backend(R)
     (; x, r, z, p, Ap, ρ, ρ_prev, pAp, α, β, partials) = ws
 
     fill!(x, zero(eltype(x)))
     copyto!(r, R)
+    if atol > 0
+        _device_dot!(α, partials, r, r, backend)
+        if sqrt(max(_cg_scalar(α), 0.0)) <= atol
+            copyto!(ΔU, x)
+            return 0, 0.0, true
+        end
+    end
     _apply_precond!(z, M_op, r)
     copyto!(p, z)
     _device_dot!(ρ, partials, r, z, backend)
@@ -1017,6 +1027,13 @@ function _device_pcg!(ΔU, A_op, R, M_op, rtol, itmax)
         if ρ_h <= tol2
             converged = true
             break
+        end
+        if atol > 0
+            _device_dot!(α, partials, r, r, backend)
+            if sqrt(max(_cg_scalar(α), 0.0)) <= atol
+                converged = true
+                break
+            end
         end
         isfinite(ρ_h) || break
         θ = (ρ_h / ρ_before)^(1 / blk_run)
@@ -1322,20 +1339,32 @@ function _linear_solve!(ls::KrylovLinearSolver, ig::QuasiStaticIntegrator, p, op
             else
                 M_op_asm = _precond_op_cache[]
             end
-            if M_op_asm === nothing
-                Krylov.krylov_solve!(ls.workspace, A_op, R;
-                                     atol=0.0, rtol=ls.rtol_eff, itmax=ls.itmax, history=true)
+            # The absolute test is on the Euclidean norm of the residual,
+            # which Krylov.jl's own `atol` (on the preconditioned norm) is not;
+            # it runs as a callback on the unpreconditioned residual `r`.
+            abs_met = Ref(false)
+            cb = ws -> (ls.atol > 0 && (abs_met[] = norm(ws.r) <= ls.atol))
+            if ls.atol > 0 && norm(R) <= ls.atol
+                fill!(ΔU, zero(eltype(ΔU)))
+                r_cg, niter, solved = 0.0, 0, true
             else
-                Krylov.krylov_solve!(ls.workspace, A_op, R;
-                                     M=M_op_asm, atol=0.0, rtol=ls.rtol_eff, itmax=ls.itmax, history=true)
+                if M_op_asm === nothing
+                    Krylov.krylov_solve!(ls.workspace, A_op, R; atol=0.0, rtol=ls.rtol_eff,
+                                         itmax=ls.itmax, history=true, callback=cb)
+                else
+                    Krylov.krylov_solve!(ls.workspace, A_op, R; M=M_op_asm, atol=0.0,
+                                         rtol=ls.rtol_eff, itmax=ls.itmax, history=true,
+                                         callback=cb)
+                end
+                copyto!(ΔU, Krylov.solution(ls.workspace))
+                res    = ls.workspace.stats.residuals
+                r_cg   = isempty(res) ? NaN : res[end]
+                niter  = ls.workspace.stats.niter
+                solved = ls.workspace.stats.solved || abs_met[]
             end
-            copyto!(ΔU, Krylov.solution(ls.workspace))
-            res    = ls.workspace.stats.residuals
-            r_cg   = isempty(res) ? NaN : res[end]
-            niter  = ls.workspace.stats.niter
-            solved = ls.workspace.stats.solved
         else
-            niter, r_cg, solved = _device_pcg!(ΔU, K_op, R, M_op, ls.rtol_eff, ls.itmax)
+            niter, r_cg, solved = _device_pcg!(ΔU, K_op, R, M_op, ls.rtol_eff, ls.itmax;
+                                               atol = ls.atol)
         end
     end
     # Feed the iteration count back to the AMG staleness detector so a hierarchy
@@ -1386,16 +1415,16 @@ function _linear_solve!(ls::KrylovLinearSolver, ig::NewmarkIntegrator, p, ops)
                         F_ic = _factorization_cache[]
                     end
                     ΔU_vec, cg_hist = IterativeSolvers.cg(K_eff_sparse, R;
-                        Pl=F_ic, abstol=0.0, reltol=ls.rtol_eff, log=true)
+                        Pl=F_ic, abstol=ls.atol, reltol=ls.rtol_eff, log=true)
                 elseif ls.precond isa AMGPreconditioner
                     ΔU_vec, cg_hist = IterativeSolvers.cg(A_op, R;
-                        Pl=ls.precond.P, abstol=0.0, reltol=ls.rtol_eff,
+                        Pl=ls.precond.P, abstol=ls.atol, reltol=ls.rtol_eff,
                         maxiter=ls.itmax, log=true)
                     _amg_track_iters!(ls.precond,
                         _tracked_iters(ls, length(cg_hist.data[:resnorm])))
                 else
                     ΔU_vec, cg_hist = IterativeSolvers.cg(A_op, R;
-                        abstol=0.0, reltol=ls.rtol_eff, log=true)
+                        abstol=ls.atol, reltol=ls.rtol_eff, log=true)
                 end
                 _carina_logf(8, :solve, "    CG: %d iters : |r|_CG = %.2e : %s",
                     length(cg_hist.data[:resnorm]),
@@ -1404,7 +1433,7 @@ function _linear_solve!(ls::KrylovLinearSolver, ig::NewmarkIntegrator, p, ops)
                 copyto!(ΔU, ΔU_vec)
             else
                 niter, r_cg, solved = _device_pcg!(ΔU, K_eff_op, R, M_op_mf,
-                                                   ls.rtol_eff, ls.itmax)
+                                                   ls.rtol_eff, ls.itmax; atol = ls.atol)
                 _amg_track_iters!(ls.precond, _tracked_iters(ls, niter))
                 _carina_logf(8, :solve, "    CG: %d iters : |r|_CG = %.2e : %s",
                              niter, r_cg, _cg_status_str(solved))

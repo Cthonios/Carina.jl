@@ -181,7 +181,8 @@ const _SOLVER_KEYS = Set([
 ])
 
 const _LINEAR_SOLVER_KEYS = Set([
-    "type", "maximum iterations", "tolerance", "history size",
+    "type", "maximum iterations", "tolerance", "relative tolerance", "absolute tolerance",
+    "history size",
     "preconditioner", "assembled", "forcing term",
 ])
 
@@ -713,7 +714,8 @@ function _parse_integrator(dict, asm, asm_cpu, p_cpu, controller, backend=KA.CPU
         make_amg     = (smoother, compressible, assembled) -> (assembled ?
             _compute_amg_precond(asm_cpu, p_cpu, smoother, compressible) :
             _compute_gpu_amg_precond(asm_cpu, fec_ls.ΔUu, smoother, compressible))
-        ls = _parse_linear_solver(ls_dict, template, backend, make_precond, make_amg)
+        ls = _parse_linear_solver(ls_dict, template, backend, make_precond, make_amg;
+                                  newton_atol = _newton_abs_residual(sol_dict))
         ns = _parse_nonlinear_solver(sol_dict, ls; template=template, make_precond=make_precond)
         _parse_and_store_termination!(sol_dict)
         predictor == "tangent" && !(ns isa NewtonSolver &&
@@ -749,7 +751,8 @@ function _parse_integrator(dict, asm, asm_cpu, p_cpu, controller, backend=KA.CPU
                 _compute_gpu_amg_precond(asm_cpu, fec_ls.ΔUu, smoother, compressible)
         end
         ls = @carina_timed "  Linear solver (builds precond #1)" _parse_linear_solver(
-                 ls_dict, template, backend, make_precond, make_amg)
+                 ls_dict, template, backend, make_precond, make_amg;
+                 newton_atol = _newton_abs_residual(sol_dict))
         ns = @carina_timed "  Nonlinear solver (builds precond #2)" _parse_nonlinear_solver(
                  sol_dict, ls; template=template, make_precond=make_precond)
         _parse_and_store_termination!(sol_dict)
@@ -1456,9 +1459,26 @@ function _parse_forcing_term(ls_dict)
           "\"ew\", \"adaptive\"), \"fixed\" (aliases \"none\", \"constant\").")
 end
 
+# The absolute residual tolerance of the Newton iteration, the smallest
+# `absolute residual` among its convergence tests, or 0 when it has none.
+_extract_abs_residual(t::AbsResidualTest) = t.tol
+_extract_abs_residual(t::Union{ComboOrTest, ComboAndTest}) =
+    minimum((v for v in map(_extract_abs_residual, t.tests) if v > 0); init = Inf) |>
+    v -> isfinite(v) ? v : 0.0
+_extract_abs_residual(::AbstractStatusTest) = 0.0
+_newton_abs_residual(sol_dict) = _extract_abs_residual(_parse_termination(sol_dict))
+
+# The default absolute tolerance of the linear solve as a fraction of the
+# Newton absolute residual tolerance: a linear residual below a tenth of what
+# Newton accepts cannot keep Newton from converging, and asking for less than
+# that is wasted work (a relative tolerance alone asks for a reduction below
+# rounding when the right-hand side is already small, near the end of a step).
+const _LINEAR_ABS_TOL_FACTOR = 0.1
+
 function _parse_linear_solver(ls_dict, template, backend, make_precond::Function,
                                make_amg_precond::Function = (_, _, _) -> error(
-                                   "amg preconditioner not available for this integrator."))
+                                   "amg preconditioner not available for this integrator.");
+                               newton_atol::Real = 0.0)
     ls_type = lowercase(ls_dict["type"])
     T  = eltype(template)
     n  = length(template)
@@ -1472,7 +1492,13 @@ function _parse_linear_solver(ls_dict, template, backend, make_precond::Function
     elseif ls_type in ("iterative", "krylov", "minres", "cg", "conjugate gradient")
         # All solid mechanics stiffness matrices are SPD → always use CG.
         itmax     = Int(get(ls_dict, "maximum iterations", 1000))
-        rtol      = Float64(get(ls_dict, "tolerance", 1e-8))
+        haskey(ls_dict, "tolerance") && haskey(ls_dict, "relative tolerance") && error(
+            "linear solver: give `relative tolerance` or its alias `tolerance`, not both.")
+        rtol      = Float64(get(ls_dict, "relative tolerance", get(ls_dict, "tolerance", 1e-8)))
+        atol      = Float64(get(ls_dict, "absolute tolerance",
+                                _LINEAR_ABS_TOL_FACTOR * newton_atol))
+        0.0 < rtol < 1.0 || error("linear solver: relative tolerance = $rtol is outside (0, 1).")
+        atol >= 0.0 || error("linear solver: absolute tolerance = $atol is negative.")
         # `assembled` was accepted by the key validator but silently ignored
         # (the default is the only thing that was ever used).  Honor it:
         # `false` on the CPU forces the matrix-free operator path; `true` on
@@ -1524,7 +1550,7 @@ function _parse_linear_solver(ls_dict, template, backend, make_precond::Function
 
         return KrylovLinearSolver(itmax, rtol, assembled, precond,
                                    workspace, scratch,
-                                   forcing, rtol, NaN, NaN)
+                                   forcing, rtol, NaN, NaN, atol)
 
     elseif ls_type == "lbfgs"
         m     = Int(get(ls_dict, "history size", 10))

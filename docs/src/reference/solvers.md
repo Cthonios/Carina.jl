@@ -229,14 +229,27 @@ solver.linear_solver.type = "direct" is CPU-only.
 | Key | Default | Description |
 |---|---|---|
 | `maximum iterations` | `1000` | CG iteration cap. |
-| `tolerance` | `1e-8` | Relative residual tolerance. |
+| `relative tolerance` | `1e-8` | Relative residual tolerance, in (0, 1). `tolerance` is an alias; giving both is an error. |
+| `absolute tolerance` | 0.1 × the Newton `absolute residual` | Tolerance on the Euclidean norm of the linear residual ‖K ΔU − R‖, in the units of the Newton residual; 0 disables it. Without an `absolute residual` test in the termination, the default is 0. |
 | `preconditioner` | none | See [Preconditioners](#Preconditioners). |
 | `forcing term` | `fixed` | Per-iteration tolerance for inexact Newton. See [below](#Inexact-Newton-forcing-terms). |
 | `assembled` | CPU `true`, GPU `false` | Assembled matrix vs matrix-free operator. |
 
+A solve stops when either test is met: the relative test on the residual of
+the preconditioned system against its initial value, or the absolute test on
+‖K ΔU − R‖. The absolute test matters near the end of a Newton solve, where
+the right-hand side R is already small: a relative reduction of 1e-8 of a
+small R asks for a residual below the rounding error of the matrix product,
+which conjugate gradients cannot reach, and the solve runs to `maximum
+iterations`. On the punch benchmark at h = a/16 one solve in three did so
+before the absolute test existed (proxima, 2026-10-16). The default of one
+tenth of the Newton tolerance cannot keep Newton from converging, since a
+linear residual below it changes the next nonlinear residual by less than
+that tenth.
+
 ### Inexact Newton forcing terms
 
-By default every Newton iteration solves its linear system to `tolerance`. That
+By default every Newton iteration solves its linear system to `relative tolerance`. That
 is more accuracy than the early iterations can use: the Newton step they produce
 is about to be discarded by the next correction. On a 530k-DOF Newmark run, CG
 spent 181, 205 and 193 iterations on the three solves of a step while ‖R‖ fell
