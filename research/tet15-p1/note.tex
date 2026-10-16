@@ -110,14 +110,13 @@ are stable and five decay. Under a plastic tangent that removes the shear
 stiffness along the flow direction, the coercivity constant cannot separate
 pairs, and what separates them is the dilatation carried by their softest
 modes: $0.20$ to $0.27$ without decay under refinement for elements with a
-constant pressure, the composite tetrahedron of Albany-LCM with its
+constant pressure, CT10 CT10 of Albany-LCM \citep{Foulk.etal:2021} with its
 volume-averaged $J$ among them, against a decay as the square of the mesh
 size $h$ for the Crouzeix--Raviart pair, which in a confined plastic zone has
 no spurious mode among its twenty softest where the constant-pressure
 elements retain between five and nineteen. On Cook's membrane in three
 dimensions at Poisson's ratio $0.4999$, on three meshes of $327$ to $14\,475$
-elements, TET15-P1 and the composite
-tetrahedron agree in the tip displacement within $0.6\%$ on every mesh, and
+elements, TET15-P1 and CT10 agree in the tip displacement within $0.6\%$ on every mesh, and
 their pressure fields are smooth away from the singular clamped edge, where
 the pressure of the quadratic tetrahedron without projection changes sign
 inside elements over the whole membrane; in the plastic case at Poisson's
@@ -128,7 +127,7 @@ row-sum lumped mass of the nodal basis is positive, and the explicit stable
 step is $3.3$ times smaller than that of the linear tetrahedron. On the
 Taylor bar impact in explicit dynamics, with plastic strains above $3$,
 TET15-P1 gives the final radius within $0.05\%$ of the converged value on
-$25\,029$ elements, where the composite tetrahedron needs $1.5$ million
+$25\,029$ elements, where CT10 needs $1.5$ million
 elements for $0.09\%$, at $1/67$ of its core-seconds on the same machine;
 per element and time step on one core it takes $1.40$ times as long. The
 smoothness of the equivalent plastic strain, the accumulated norm of the
@@ -153,14 +152,14 @@ hypothesis of the same theorem; this section identifies the hypothesis in
 each case.
 
 \paragraph{Constant pressure relieves locking and introduces soft modes.}
-The composite tetrahedron, a ten-node tetrahedron subdivided into twelve
+CT10, a ten-node tetrahedron subdivided into twelve
 linear tetrahedra with one element-constant pressure
 \citep{Thoutireddy.etal:2002, Ostien.etal:2016}, and its five-field extension
 \citep{Foulk.etal:2021} relieve volumetric locking --- the stiffening of a
 discretization whose displacement space contains too few discrete isochoric
 fields --- with that pressure. \citet{Foulk.etal:2021} report that this
 choice --- and it is the choice, not the element --- produces a deleterious
-soft mode ``common to both the quadratic and composite tetrahedral element with
+soft mode ``common to both the quadratic and CT10 elementsl element with
 constant pressure formulations,'' remedied there by a convex energy penalty.
 The mechanism is a coercivity failure on the discretely isochoric subspace: an
 element-constant multiplier does not resist displacement patterns whose volume
@@ -1379,8 +1378,7 @@ where it is not, it is replaced by a second projection with the same
 factorization (\S\ref{sec:general}). Substituting $\bar p(\disp)$ into
 \eqref{eq:variations}$_1$ leaves a displacement-sized nonlinear problem whose
 tangent retains the sparsity of the displacement mesh --- the auxiliary fields
-never couple two elements. This is the property that keeps the composite
-tetrahedron's tangent as sparse as a displacement element's, and it is
+never couple two elements. This is the property that keeps CT10's tangent as sparse as a displacement element's, and it is
 preserved here.
 
 \begin{remark}
@@ -1388,7 +1386,7 @@ The locality is a consequence of the discontinuous pressure, not of the
 Hu--Washizu structure. A conforming auxiliary field --- one requiring
 inter-element continuity --- would make $\bar p(\disp)$ a global function of
 $\disp$, and every tangent--vector product would then require a global solve
-with its mass matrix, which the composite tetrahedron does not require. That
+with its mass matrix, which CT10 does not require. That
 is the main reason the pressure is kept discontinuous.
 \end{remark}
 
@@ -1621,7 +1619,7 @@ before the kernels were written (\code{prototype/general.jl}): the
 hand-derived residual against the gradient of the energy by automatic
 differentiation to $4\times10^{-16}$, the closed-form tangent against its
 Hessian to $1.2\times10^{-14}$, and the three reductions of
-\S\ref{sec:general} to rounding. The same prototype found that the
+\S\ref{sec:general} to rounding. The same Julia prototype found that the
 tangent of the $J_2$ model in the material library, the consistent tangent
 of BOX~9.2 of \citet{SimoHughes:1998}, divided its coefficient $\beta_2$ by
 $\mu$ instead of the effective modulus $\bar\mu = \mu\,\mathrm{tr}(\bar{~b}^e_{\mathrm{tr}})/3$;
@@ -2094,7 +2092,7 @@ the number of global unknowns. The interior bubble
 condenses; the face bubbles are shared and do not. The global displacement
 count of the full enrichment is therefore $36{,}501 + 59{,}616 = 96{,}117$,
 which is $2.6$ times the $36{,}501$ of $P_2/P_0$ --- also the nodal count of
-the composite tetrahedron on the same \code{TETRA10} mesh --- and $2.5$ times
+CT10 on the same \code{TETRA10} mesh --- and $2.5$ times
 the $38{,}698$ global unknowns of Taylor--Hood, whose $2{,}197$ vertex pressures
 cannot be eliminated. The $127{,}221$ in Table~\ref{tab:dofcount} is the
 dimension of the space, not the number of global unknowns.
@@ -2208,7 +2206,7 @@ not zero. Those are the displacement modes in $\ker ~G_{P_0}$ whose
 divergence is nonzero pointwise, which carry
 shear energy alone in the element; whether they are spurious is the coercivity question of
 \S\ref{sec:prediction}, which \S\ref{sec:plastic} measures, and not a count of
-zeros. The composite tetrahedron of \citet{Foulk.etal:2021} is
+zeros. CT10 of \citet{Foulk.etal:2021} is
 built on a subdivided-linear displacement space rather than $P_2$, which is a
 different kernel and is not modeled here; the soft mode of that element may be
 specific to it. Nothing above contradicts their observation; it does not
@@ -2629,8 +2627,7 @@ with $\lambda_1$ decaying to $0.016$. Those modes have no counterpart in the
 continuum, which resists them with $\kappa$. Taylor--Hood is therefore an
 alternative for elasticity only (\S\ref{sec:risks}).
 
-\paragraph{The composite tetrahedron on the same measure.} The composite
-tetrahedron of Albany-LCM, the element \S\ref{sec:cook} compares against,
+\paragraph{CT10 on the same measure.} The LCM CT10, the element \S\ref{sec:cook} compares against,
 is measured with the same scripts (\code{prototype/composite\_tet.jl}) as
 Albany builds it: ten nodes, a displacement that is linear on each of
 twelve subtetrahedra, the gradient of that displacement projected onto the
@@ -2771,7 +2768,7 @@ TET4, row sum              & --- & --- & 0.250  & 1.000 & 0.476 \\
 
 Every measurement of \S\ref{sec:results} is on the linearized operator.
 This section measures the element in nonlinear solves, against the
-composite tetrahedron of Albany-LCM on the same meshes, on Cook's membrane:
+LCM CT10 on the same meshes, on Cook's membrane:
 a tapered panel clamped on one edge and sheared on the opposite one
 \citep{Cook:1974}, in its nearly incompressible form \citep{SimoArmero:1992}
 and in its elastoplastic form, both in three dimensions.
@@ -2792,7 +2789,7 @@ $q = 0.14$. Their load $q = 0.1125$ leaves the three-dimensional membrane
 with free faces almost elastic (tip displacement $0.21$ with no difference
 between elements); the quadratic tetrahedron without projection collapses
 between $q = 0.16$ and $q = 0.20$, and Albany's Newton iteration on the
-composite tetrahedron stops converging at $q = 0.158$ on the middle mesh
+CT10 stops converging at $q = 0.158$ on the middle mesh
 and $q = 0.137$ on the finest, so the load is $0.14$. The measured quantity
 is the mean of the displacement $u_y$ over the nodes of the loaded face at
 full load.
@@ -2806,7 +2803,7 @@ Carina: TET10 with the volumetric response evaluated at each
 quadrature point (pointwise); TET15 pointwise; TET15-P1, the element of
 this note, with the linear projection; and TET15-P0, the same displacement
 element with the constant projection. In Albany-LCM: TET10 pointwise,
-which serves as the cross-code control; and the composite tetrahedron with
+which serves as the cross-code control; and CT10 with
 the volume-averaged $J$ and pressure. The displacement unknowns are $1941$,
 $9624$ and $66\,177$ on the \code{TETRA10} meshes and $5163$, $27\,381$ and
 $200\,439$ on the \code{TETRA15} meshes. Both codes converge each load step
@@ -2832,8 +2829,8 @@ $\sigma_y = 0.45$, $K = 0.12924$, $q = 0.14$. Driver:
 \label{tab:cook}
 \begin{tabular}{@{}lrrrrrr@{}}
 \toprule
-& TET10 & TET15 & TET15-P1 & TET15-P0 & TET10 & composite \\
-$h$ (elements) & pointwise & pointwise & & & Albany & tet. (Albany) \\
+& TET10 & TET15 & TET15-P1 & TET15-P0 & TET10 & LCM \\
+$h$ (elements) & pointwise & pointwise & & & Albany & CT10 \\
 \midrule
 \multicolumn{7}{@{}l}{elastic} \\
 $8$ ($327$)      & 8.1960 & 8.2235 & 8.4122 & 8.5720 & 8.1960 & 8.4596 \\
@@ -2853,7 +2850,7 @@ the elastic case the pointwise elements converge from below, $8.196$,
 $8.324$, $8.420$ for TET10 and $8.224$, $8.349$, $8.430$ for
 TET15, and TET15-P0 from above, $8.572$, $8.518$,
 $8.500$. TET15-P1, $8.412$, $8.455$, $8.472$, and the
-composite tetrahedron, $8.460$, $8.464$, $8.477$, are within $0.6\%$ of
+CT10, $8.460$, $8.464$, $8.477$, are within $0.6\%$ of
 each other on every mesh and change least with refinement; the limit lies
 between $8.477$ and $8.500$. On the coarsest mesh the pointwise
 TET10 is $3\%$ below the limit and TET15-P1 $0.8\%$
@@ -2876,7 +2873,7 @@ percent of the load in both codes.
 face $z = 10$ of the deformed membrane at full load, for the six elements.
 One color scale for all panels, symmetric about zero and bounded by the
 $99$th percentile of $\lvert p \rvert$ over TET15-P1, TET15-P0
-and the composite tetrahedron; values beyond the scale
+and CT10; values beyond the scale
 saturate. Inside each element the pressure drawn is the polynomial fitted to
 the quadrature-point values (text).}
 \label{fig:elastic-h2}
@@ -2900,7 +2897,7 @@ as in Figure~\ref{fig:elastic-h2}.}
 $2$ from left to right in each panel, with the color scale of the case.
 Top: TET15-P1, elastic (left) and plastic
 (right). Bottom left: TET10 pointwise, elastic. Bottom right: the
-composite tetrahedron, plastic.}
+CT10, plastic.}
 \label{fig:refine}
 \end{figure}
 
@@ -2914,13 +2911,13 @@ for the fourteen-point rule of TET15, which reproduces the linear
 and the constant projection to rounding error and the pointwise
 TET15 pressure, of higher degree, to $0.11$ of its largest value;
 linear for the four-point rule of TET10, which interpolates; and
-the single value Albany writes per composite tetrahedron. In the elastic
+the single value Albany writes per CT10. In the elastic
 case the pointwise TET10 and TET15 give a pressure that
 changes sign inside elements over the whole membrane, on every mesh, with
 a range on the face of $-226$ to $211$ and $-512$ to $1010$ at $h = 2$.
 TET15-P1 is smooth except in the layer of elements along the
 clamped edge, with a range of $-43$ to $61$; TET15-P0 and
-the composite tetrahedron are smooth and piecewise constant, with ranges of
+CT10 are smooth and piecewise constant, with ranges of
 $-7.5$ to $22$ and $-9.4$ to $35$. The clamped edge is a singular line of
 the continuum solution: where a clamped face meets a free face the stress is
 unbounded, and it grows faster as $\nu \to 1/2$. The jumps of TET15-P1
@@ -2937,12 +2934,12 @@ In the plastic case no element oscillates, the six fields agree away from
 the upper corner of the clamped edge, and the largest pressure on the face
 at $h = 2$ is $0.715$ for TET10, $1.15$ for TET15
 pointwise, $0.519$ for TET15-P1, $0.292$ for TET15-P0
-and $0.407$ for the composite tetrahedron. Scripts:
+and $0.407$ for CT10. Scripts:
 \code{benchmark/tet15-p1/cook/extract\_pressure.jl} and
 \code{render\_pressure.py}.
 
-\paragraph{A second implementation.} A prototype implementation of
-TET15-P1 in Sierra/SM was run on the elastic case on the same meshes, with
+\paragraph{A second implementation.} An implementation of
+TET15-P1 in Sierra/SM, Sierra/SM TET15-P1, was run on the elastic case on the same meshes, with
 a neo-Hookean material of the same $\kappa$ and $\mu$ (deviatoric part as in
 Carina, volumetric pressure $\kappa(J - 1/J)/2$, which differs from Carina's
 at second order in $J - 1$, of order $10^{-4}$ here), the traction applied as
@@ -2951,34 +2948,33 @@ the Newton iteration. The mean tip displacement is $8.4139$, $8.4555$ and
 $8.4722$ at $h = 8$, $4$ and $2$, against $8.4122$, $8.4551$ and $8.4716$ in
 Carina, a difference of $0.02\%$ or less in the mean and in the maximum;
 without the projection the two codes' TETRA15 agree to $0.05\%$. The
-composite tetrahedron of Sierra/SM is within $0.4\%$ of Albany's at $h = 8$
+Sierra/SM CT10 is within $0.4\%$ of Albany's at $h = 8$
 and $4$, and its Newton iteration with that solver stalled at $h = 2$
-(\code{benchmark/tet15-p1/cook/README.md}). The prototype writes one stress
+(\code{benchmark/tet15-p1/cook/README.md}). Sierra/SM TET15-P1 writes one stress
 per element; its element pressures at $h = 2$ correlate with the element
 means of Carina's TET15-P1 to $0.999999$, with an RMS difference of
 $0.0054$ against a largest $|p|$ of $30.3$ (Figure~\ref{fig:cooksierra}).
 Without the projection the two fields are not comparable element by
 element: Carina's pressure oscillates in sign inside each element, and the
-prototype's single value is its average.
+Sierra/SM value is its average.
 
 \begin{figure}[tbp]
 \centering
 \includegraphics[height=0.55\textheight]{figures/cook-pressure-sierra-h2.png}
 \caption{Cook's membrane, elastic case, $h = 2$: pressure on the front face
 at full load, on the color scale of Figure~\ref{fig:elastic-h2}. Top,
-TET15-P1 in Carina (the quadratic of each element) and in a prototype
-implementation in Sierra/SM (one value per element); bottom, TETRA15 without
+TET15-P1 in Carina (the quadratic of each element) and in Sierra/SM (one value per element); bottom, TETRA15 without
 the projection in the two codes.}
 \label{fig:cooksierra}
 \end{figure}
 
 \paragraph{What the benchmark establishes.} The element of this note does
 not lock at $\nu = 0.4999$ on any of the three meshes, agrees in the tip
-displacement with the composite tetrahedron within $0.6\%$ and in the limit
+displacement with CT10 within $0.6\%$ and in the limit
 of refinement, and gives a pressure that is smooth wherever the continuum
 pressure is, on a mesh where the quadratic tetrahedron without projection
 gives a pressure that oscillates in sign everywhere. Its unknowns are $3.0$
-times those of the composite tetrahedron on the same mesh, the interior
+times those of CT10 on the same mesh, the interior
 bubble not being condensed in the implementation, and the run times above
 are those of one implementation with a direct solver; a comparison at equal
 accuracy is not made. The equivalent plastic strain is
@@ -2990,7 +2986,7 @@ on that quantity.
 \label{sec:taylor}
 
 This section measures the element in explicit dynamics with plastic
-strains above $3$, against the composite tetrahedron of Sierra/SM, the code
+strains above $3$, against the Sierra/SM CT10, the code
 of \citet{Foulk.etal:2021}, on the same meshes. The quantity measured is
 the final radius of the impact face, for which a converged reference value
 exists; the equivalent plastic strain is not measured.
@@ -3030,14 +3026,14 @@ surface; this raises the smallest shape quality
 $q = 12\,(3V)^{2/3} / \sum_{e} l_e^2$, with $V$ the volume and $l_e$ the
 six edge lengths, from $0.58$--$0.65$ to $0.69$--$0.71$ at every level. The
 edge midpoints are added with those on the lateral surface projected onto
-the cylinder (\code{TETRA10}, the mesh of the composite tetrahedron), and
+the cylinder (\code{TETRA10}, the mesh of CT10), and
 the face and interior nodes are added by the conversion of
 \S\ref{sec:element} (\code{TETRA15}). Three elements are compared:
-TET15-P1 and TET15-P0 in Carina, and the composite tetrahedron in Sierra/SM
+TET15-P1 and TET15-P0 in Carina, and the Sierra/SM CT10
 with its stabilization parameter $\alpha = 0.1$ and the stabilization
 exponent $0$ of \citet{Foulk.etal:2021}. The displacement unknowns of
 TET15 are $49\,761$, $339\,993$ and $2\,536\,719$ on the first three
-levels; those of the composite tetrahedron are $109\,998$, $801\,450$ and
+levels; those of CT10 are $109\,998$, $801\,450$ and
 $6\,249\,960$ on the second to fourth.
 
 \paragraph{Stable time step.} The step of central differences is stable
@@ -3069,14 +3065,14 @@ radius differs by $0.0007$~mm.
 the bar in mm at $80~\mu$s, per element and mesh level $h$ in mm with its
 element count. Reference: $7.22$ for the converged Q1/P0 hexahedron
 \citep{Foulk.etal:2021}. TET15-P0 at $h = 0.38$ stopped at $78.7~\mu$s;
-its values at $78~\mu$s. The composite tetrahedron at $h = 1.5$ ended at
+its values at $78~\mu$s. CT10 at $h = 1.5$ ended at
 $41.6~\mu$s. Driver: \code{benchmark/tet15-p1/taylor/run.jl}; histories in
 \code{benchmark/tet15-p1/taylor/data}.}
 \label{tab:taylor}
 \begin{tabular}{rr cc cc cc}
 \toprule
  & & \multicolumn{2}{c}{TET15-P1} & \multicolumn{2}{c}{TET15-P0}
- & \multicolumn{2}{c}{composite tet.} \\
+ & \multicolumn{2}{c}{CT10} \\
 $h$ & elements & radius & length & radius & length & radius & length \\
 \midrule
 $1.5$  & $3522$          & $7.2399$ & $21.4250$ & $7.4415$ & $21.5507$ & --- & --- \\
@@ -3094,20 +3090,20 @@ $0.19$ & $1\,521\,212$   & --- & --- & --- & --- & $7.2326$ & $21.4304$ \\
 \caption{Taylor bar. Left: final radius of the impact face against the
 number of elements; the open square is TET15-P0 at $78~\mu$s. Right: radius
 of the impact face against time for TET15-P1 and TET15-P0 at
-$h = 0.38$~mm and the composite tetrahedron at $h = 0.38$ and $0.19$~mm.
+$h = 0.38$~mm and CT10 at $h = 0.38$ and $0.19$~mm.
 Dashed gray: the converged Q1/P0 hexahedron of \citet{Foulk.etal:2021}.
 Script: \code{benchmark/tet15-p1/taylor/plot.py}.}
 \label{fig:taylor}
 \end{figure}
 
 \paragraph{Accuracy.} Table~\ref{tab:taylor} and Figure~\ref{fig:taylor}.
-The composite tetrahedron converges from above: its differences between
+CT10 converges from above: its differences between
 successive levels are $0.0367$ and $0.0127$~mm, a ratio of $2.89$, which
 corresponds to an order of $1.53$ in $h$; the extrapolation of its three
 levels by that ratio gives $7.2259$~mm. TET15-P1 is at $7.2225$ and
 $7.2255$~mm at $h = 0.75$ and $0.38$, within $0.05\%$ of that value, and
-at $7.2399$ on the coarsest mesh, where the composite tetrahedron did not
-reach $80~\mu$s. The composite tetrahedron is $0.78\%$, $0.27\%$ and
+at $7.2399$ on the coarsest mesh, where CT10 did not
+reach $80~\mu$s. CT10 is $0.78\%$, $0.27\%$ and
 $0.09\%$ from the extrapolated value at $h = 0.75$, $0.38$ and $0.19$. Both
 elements approach the reference within $0.1\%$ in the limit. TET15-P0 is
 $3.4\%$ above the extrapolated value at $h = 0.75$ and $2.1\%$ at
@@ -3116,8 +3112,7 @@ $h = 0.38$; it differs from TET15-P1 only in the constant pressure.
 \paragraph{Operations.} The two codes were run on the same machine, a
 two-socket AMD EPYC 9634 with $168$ cores, one run at a time with no other
 job, at $h = 0.75$~mm (Table~\ref{tab:taylorcost}). Per element and time
-step on one core, TET15-P1 takes $1.40$ times the time of the composite
-tetrahedron; per element degree of freedom, $45$ against $30$, it takes
+step on one core, TET15-P1 takes $1.40$ times the time of CT10; per element degree of freedom, $45$ against $30$, it takes
 $0.93$ times as long. On $16$ cores the ratio per element and step is
 $3.0$, because Carina's time per step decreases by a factor of $6.5$ from
 $1$ to $16$ threads, a parallel efficiency of $0.40$, against $0.88$ for
@@ -3125,7 +3120,7 @@ Sierra/SM on $16$ processes; the difference is in the implementation of the
 time step in Carina, not in the element. The time step of TET15-P1 at $t = 0$ is
 $3.86 \times 10^{-9}$~s under the element estimate at the Courant number
 $0.25$, and its critical step is $1.77 \times 10^{-8}$~s; that of the
-composite tetrahedron is $2.44 \times 10^{-8}$~s.
+CT10 is $2.44 \times 10^{-8}$~s.
 
 \begin{table}[tbp]
 \centering
@@ -3137,7 +3132,7 @@ Memory of Sierra/SM: the largest of its processes.}
 \small
 \begin{tabular}{lcc}
 \toprule
- & TET15-P1 (Carina) & composite tet.\ (Sierra/SM) \\
+ & TET15-P1 (Carina) & CT10\ (Sierra/SM) \\
 \midrule
 per element and step, 1 core ($\mu$s)          & $6.27$ & $4.47$ \\
 per element and step, 16 cores (core-$\mu$s)   & $15.5$ & $5.09$ \\
@@ -3150,13 +3145,12 @@ final radius (mm)                               & $7.2225$ & $7.2820$ \\
 \end{table}
 
 \paragraph{Comparison at equal accuracy.} TET15-P1 at $h = 0.75$~mm is
-closer to the extrapolated radius ($0.05\%$) than the composite
-tetrahedron at $h = 0.19$~mm ($0.09\%$). On the machine above, each run
+closer to the extrapolated radius ($0.05\%$) than CT10 at $h = 0.19$~mm ($0.09\%$). On the machine above, each run
 alone, the first takes $1303$~s on $16$ cores, $2.1 \times 10^{4}$
 core-seconds, and the second $10\,983$~s on $128$ processes,
 $1.41 \times 10^{6}$ core-seconds: a factor of $67$ in core-seconds and of
 $8.4$ in wall time, on $25\,029$ elements against $1\,521\,212$. At equal
-mesh the composite tetrahedron takes $3.6$ times less time to $80~\mu$s on
+mesh CT10 takes $3.6$ times less time to $80~\mu$s on
 $16$ cores, with an error $16$ times larger.
 
 \paragraph{The same run on GPUs.} The explicit integration of TET15-P1
@@ -3245,17 +3239,17 @@ NVIDIA H100                    & 0.069 & 0.052 & 2.43 & 159 \\
 $^{\dagger}$at 16 threads.
 \end{table}
 
-\paragraph{A second implementation.} A prototype implementation of
-TET15-P1 in Sierra/SM was run on the same TETRA15 meshes with the
+\paragraph{A second implementation.} An implementation of
+TET15-P1 in Sierra/SM, Sierra/SM TET15-P1, was run on the same TETRA15 meshes with the
 finite-deformation $J_2$ model of the Sierra material library and linear
-hardening, as in the composite-tetrahedron runs, and a stable step of
-$0.25$ times the smallest node distance over $c_p$ (the prototype's element
+hardening, as in the CT10 runs, and a stable step of
+$0.25$ times the smallest node distance over $c_p$ (the Sierra/SM element
 estimate, $0.5$ times that distance over $c_p$, with an input factor of
 $0.5$). The
 final radius is $7.2344$, $7.2186$, $7.2181$ and $7.2217$~mm at $h = 1.5$,
 $0.75$, $0.38$ and $0.19$~mm: $0.08\%$, $0.05\%$ and $0.10\%$ below
 Carina's on the three meshes Carina ran to $80~\mu$s, and within $0.12\%$
-of the composite tetrahedron's extrapolated limit at every level ($0.06\%$
+of CT10's extrapolated limit at every level ($0.06\%$
 below it at $h = 0.19$~mm, where the sequence is not monotone: $3.6~\mu$m
 above the $h = 0.38$~mm value).
 Over the run the radii of the two codes differ by at most $0.16\%$, in the
@@ -3264,21 +3258,21 @@ not decrease with $h$ (Figure~\ref{fig:taylorsierra}); the two codes'
 $J_2$ implementations and time steps differ. Without the projection,
 TETRA15 at $h = 1.5$~mm ends at $7.1268$~mm, $1.5\%$ below, which is the
 volumetric locking the projection removes. The step used makes the
-prototype's step $7$ times smaller than the composite tetrahedron's at
+Sierra/SM TET15-P1's step $7$ times smaller than CT10's at
 $1~\mu$s. The critical step $2/\sqrt{\lambda}$, with $\lambda$ from a
 converged global estimate, is $2.2$ to $3.1$ times the element estimate
 alone before $20~\mu$s and $0.60$ to $0.62$ times from $40~\mu$s on, at
 $h = 1.5$ and $0.75$~mm: the element estimate alone is not a bound on the
 deformed meshes, as Carina's node-distance estimate was not
 (\S\ref{sec:taylor}), and the runs were stable through the input factor,
-with a margin of about $1.2$. The prototype's global estimate,
+with a margin of about $1.2$. The global estimate of Sierra/SM,
 a power iteration for the largest eigenvalue of $M^{-1}K$, diverged on these
 meshes. It forms $K\,x$ from the internal force under a trial displacement
 of fixed size, $10^{-5}$ in model length units ($10~\mu$m here); once the
 iterate concentrates on a few nodes, that displacement inverts quadrature
 points of the 15-node elements, whose nodes are $0.1$ to $0.4$~mm apart, and
 the estimate rises from $2.66\times10^{15}$ to $6.6\times10^{17}$~s$^{-2}$. The
-same size makes the composite tetrahedron's first estimate $22\%$ low at
+same size makes CT10's first estimate $22\%$ low at
 $h = 0.75$~mm. With the trial displacement set to $10^{-5}$ of the local
 element length, and the iteration stopped only when the remaining change
 extrapolated from successive changes is below $5\times10^{-4}$, the global
@@ -3290,17 +3284,16 @@ a largest value of $1.56$, $1.62$, $1.63$ and $1.63$~GPa against Carina's $1.67$
 $1.58$, $1.56$ and $1.54$~GPa at $h = 1.5$, $0.75$, $0.38$ and $0.19$~mm
 (Figure~\ref{fig:taylorpressuresierra}). TET15-P1 took $271$ and
 $6\,473$~s at $h = 0.75$ and $0.38$~mm on $96$ and $160$ MPI ranks, against
-$90$ and $626$~s for the composite tetrahedron, and $598\,681$ steps at
+$90$ and $626$~s for CT10, and $598\,681$ steps at
 $h = 0.19$~mm on $168$ ranks, $71$~h on a machine shared with other work
 (\code{benchmark/tet15-p1/taylor/README.md}).
 
 \begin{figure}[tbp]
 \centering
 \includegraphics[width=\textwidth]{figures/taylor-history-sierra.png}
-\caption{Taylor bar: TET15-P1 in Carina and in a prototype implementation
-in Sierra/SM on the same meshes. Left, the radius of the impact face against
-time at $h = 0.75$ and $0.38$~mm in both codes, the prototype at
-$h = 0.19$~mm, and the composite tetrahedron at $h = 0.19$~mm; right, the
+\caption{Taylor bar: TET15-P1 in Carina and in Sierra/SM on the same meshes. Left, the radius of the impact face against
+time at $h = 0.75$ and $0.38$~mm in both codes, Sierra/SM TET15-P1 at
+$h = 0.19$~mm, and CT10 at $h = 0.19$~mm; right, the
 relative difference of the two codes' radii on the three meshes both ran.}
 \label{fig:taylorsierra}
 \end{figure}
@@ -3309,8 +3302,8 @@ relative difference of the two codes' radii on the three meshes both ran.}
 \centering
 \includegraphics[width=\textwidth]{figures/taylor-pressure-sierra-face.png}
 \caption{Taylor bar: pressure on the impact face at $12~\mu$s on the scale of
-Figure~\ref{fig:taylorpressure}, for the composite tetrahedron (Sierra/SM),
-TET15-P1 in Carina and TET15-P1 in a prototype implementation in Sierra/SM
+Figure~\ref{fig:taylorpressure}, for the Sierra/SM CT10 (),
+TET15-P1 in Carina and TET15-P1 in Sierra/SM
 (one value per element).}
 \label{fig:taylorpressuresierra}
 \end{figure}
@@ -3318,22 +3311,21 @@ TET15-P1 in Carina and TET15-P1 in a prototype implementation in Sierra/SM
 \paragraph{Pressure field.} Figure~\ref{fig:taylorpressure} shows the
 pressure $p = -\tfrac13\trace ~\sigma$, positive in compression, on the impact
 face at $t = 12~\mu$s, the time of Figure~12 of \citet{Foulk.etal:2021},
-for both elements on the same meshes. The composite tetrahedron has one
+for both elements on the same meshes. CT10 has one
 value per element, the element mean of the stress that Sierra/SM writes;
 for TET15-P1 the pressure in each element is the quadratic fitted to its
 fourteen quadrature-point values, as in \S\ref{sec:cook}. The largest
 pressure on the impact end is $0.33$, $0.48$, $1.37$ and $1.59$~GPa for the
-composite tetrahedron at $h = 1.5$, $0.75$, $0.38$ and $0.19$~mm, and
+CT10 at $h = 1.5$, $0.75$, $0.38$ and $0.19$~mm, and
 $1.67$, $1.58$, $1.56$ and $1.54$~GPa for TET15-P1, between $3\%$ below
-and $5.2\%$ above the composite tetrahedron's value on its finest mesh at
-every level; on that mesh the two differ by $3\%$. On the two coarser meshes the pressure of the composite tetrahedron
+and $5.2\%$ above CT10's value on its finest mesh at
+every level; on that mesh the two differ by $3\%$. On the two coarser meshes the pressure of CT10
 varies from element to element without a maximum on the axis; TET15-P1
 gives the maximum on the axis on every mesh. The radius of the impact face
 at $12~\mu$s is $5.4944$, $5.4957$, $5.4750$ and $5.4661$~mm for the
-composite tetrahedron and $5.4517$, $5.4507$, $5.4533$ and $5.4570$~mm for
+CT10 and $5.4517$, $5.4507$, $5.4533$ and $5.4570$~mm for
 TET15-P1.
-\citet{Foulk.etal:2021} plot the $L^2$ projection of the composite
-tetrahedron's pressure onto a continuous field, and the range of their color
+\citet{Foulk.etal:2021} plot the $L^2$ projection of CT10's pressure onto a continuous field, and the range of their color
 scale, $-1.2$ to $0.32$~GPa, indicates the mean stress $\tfrac13\trace ~\sigma
 = -p$. Scripts: \code{benchmark/tet15-p1/taylor/pressure.jl},
 \code{render\_pressure.py} and \code{compose\_pressure.py}.
@@ -3344,9 +3336,8 @@ scale, $-1.2$ to $0.32$~GPa, indicates the mean stress $\tfrac13\trace ~\sigma
 \caption{Taylor bar, pressure $p = -\tfrac13\trace ~\sigma$ on the impact face
 at $t = 12~\mu$s, seen along the axis, on the same meshes for both
 elements, with the element count of each level and the node count of each
-mesh (\code{TETRA10} for the composite tetrahedron, \code{TETRA15} for
-TET15-P1); one color scale, values beyond it saturate. Top: composite
-tetrahedron (Sierra/SM, $\alpha = 0.1$, exponent $0$), one value per
+mesh (\code{TETRA10} for CT10, \code{TETRA15} for
+TET15-P1); one color scale, values beyond it saturate. Top: CT10 (Sierra/SM, $\alpha = 0.1$, exponent $0$), one value per
 element. Bottom: TET15-P1, the quadratic fitted in each element.}
 \label{fig:taylorpressure}
 \end{figure}
@@ -3354,12 +3345,12 @@ element. Bottom: TET15-P1, the quadratic fitted in each element.}
 \paragraph{What the benchmark establishes.} In explicit dynamics with plastic
 strains above $3$, TET15-P1 gives the final radius of the Taylor bar within
 $0.05\%$ of the converged value on a mesh of $25\,029$ elements, where the
-composite tetrahedron needs $1.5$ million elements to reach $0.09\%$, and
+CT10 needs $1.5$ million elements to reach $0.09\%$, and
 the constant-pressure variant on the same displacement space is $2.1$ to
 $3.4\%$ from it. On $3522$ elements its largest pressure on the impact
-face at $12~\mu$s is $5.2\%$ above that of the composite tetrahedron on
+face at $12~\mu$s is $5.2\%$ above that of CT10 on
 $1.5$ million, and on $1.5$ million elements the two differ by $3\%$. Its time per element and step is $1.40$ times
-that of the composite tetrahedron on one core. The element estimate of the
+that of CT10 on one core. The element estimate of the
 stable step used by Carina is not a bound on distorted elements; the
 eigenvalue estimate replaces it. The equivalent plastic strain was not
 written in these runs and is not compared.
@@ -3369,9 +3360,7 @@ written in these runs and is not compared.
 
 This section measures the element in quasi-static finite-deformation
 plasticity with a plastic zone confined by elastic material at
-$\kappa/\mu = 10^4$, the regime in which the soft mode of the composite
-tetrahedron is expected (\S\ref{sec:plastic}), against the composite
-tetrahedron, the prototype implementation of TET15-P1 in Sierra/SM and the
+$\kappa/\mu = 10^4$, the regime in which the soft mode of CT10 is expected (\S\ref{sec:plastic}), against CT10, Sierra/SM TET15-P1 and the
 plain fifteen-node tetrahedron, on the same meshes. The problem has no
 published three-dimensional tetrahedral instance; its definition is the
 reference. The measured quantities are the punch force, the element-to-element
@@ -3417,9 +3406,9 @@ exact. Three levels, $h = a/4$, $a/8$ and $a/16$, have $6187$, $38\,818$
 and $277\,530$ tetrahedra, $9146$, $54\,582$ and $380\,564$ nodes as
 \code{TETRA10} meshes and $28\,129$, $172\,391$ and $1\,218\,149$ as
 \code{TETRA15} meshes; the smallest shape quality is $0.58$ to $0.62$. Four
-elements are compared on each mesh: the composite tetrahedron of Sierra/SM
+elements are compared on each mesh: the Sierra/SM CT10
 with its stabilization parameter $\alpha = 0.1$ and with $\alpha = 0$
-(\code{TETRA10} meshes), the prototype implementation of TET15-P1 in Sierra/SM
+(\code{TETRA10} meshes), Sierra/SM TET15-P1
 and TET15-P1 in Carina (\code{TETRA15} meshes), and the plain fifteen-node
 tetrahedron without the projection in both codes, the locking reference.
 
@@ -3501,18 +3490,18 @@ the pressure are indistinguishable by eye; for the plain element the two
 codes agree in force to $0.015\%$, with a lower pressure jump in Carina
 because its element mean is over the fourteen quadrature values where
 Sierra/SM writes one element value. TET15-P1 has the smallest pressure jumps
-of the four elements, half those of the composite tetrahedron in case~A and
+of the four elements, half those of CT10 in case~A and
 $0.4$ to $0.6$ of them in case~B, with comparable jumps of the plastic
 strain; the plain element is stiffer than TET15-P1 by $12.7\%$ (A) and
 $33.6\%$ (B) with pressure jumps six to seven times larger, the locking
 expected of it. The stabilization $\alpha = 0.1$ raises the force of the
-composite tetrahedron by $3.1\%$ (A) and $4.4\%$ (B) and its mean pressure
-jump by $9\%$ (A) and $42\%$ (B); without it the composite tetrahedron is
+CT10 by $3.1\%$ (A) and $4.4\%$ (B) and its mean pressure
+jump by $9\%$ (A) and $42\%$ (B); without it CT10 is
 within $0.2\%$ (A) and $0.6\%$ (B) of TET15-P1 in force. The axisymmetry
 measure, $0.10$ to $0.57$, is dominated by the coarse unstructured mesh at
-this level and does not discriminate between elements. The prototype
+this level and does not discriminate between elements. Sierra/SM TET15-P1
 implementation needs $65$ to $103$ FETI iterations per solve against $154$
-to $167$ for the composite tetrahedron and about $400$ for the plain
+to $167$ for CT10 and about $400$ for the plain
 element.
 
 \begin{table}[tbp]
@@ -3532,16 +3521,16 @@ element & code & force & \multicolumn{2}{c}{$p$ jump} & \multicolumn{2}{c}{eqps 
  & & & mean & max & mean & max & & \\
 \midrule
 \multicolumn{9}{l}{Case A, $H = 10^7$~Pa} \\
-composite tet., $\alpha = 0.1$ & Sierra/SM & 24.954 & 0.048 & 1.47 & 0.030 & 0.65 & 0.104 & 41 \\
-composite tet., $\alpha = 0$   & Sierra/SM & 24.202 & 0.044 & 1.44 & 0.030 & 0.69 & 0.168 & 49 \\
+CT10, $\alpha = 0.1$ & Sierra/SM & 24.954 & 0.048 & 1.47 & 0.030 & 0.65 & 0.104 & 41 \\
+CT10, $\alpha = 0$   & Sierra/SM & 24.202 & 0.044 & 1.44 & 0.030 & 0.69 & 0.168 & 49 \\
 TET15-P1                       & Sierra/SM & 24.160 & 0.024 & 0.86 & 0.025 & 0.67 & 0.168 & 12 \\
 TET15-P1                       & Carina    & 24.149 & 0.025 & 0.85 & 0.025 & 0.65 & 0.168 & 1 \\
 plain \code{TETRA15}           & Sierra/SM & 27.225 & 0.176 & 1.97 & 0.034 & 0.56 & 0.144 & 0 \\
 plain \code{TETRA15}           & Carina    & 27.221 & 0.152 & 1.53 & 0.034 & 0.56 & 0.144 & 0 \\
 \midrule
 \multicolumn{9}{l}{Case B, $H = 0$} \\
-composite tet., $\alpha = 0.1$ & Sierra/SM & 14.645 & 0.078 & 1.45 & 0.024 & 0.60 & 0.570 & 57 \\
-composite tet., $\alpha = 0$   & Sierra/SM & 14.025 & 0.055 & 1.08 & 0.023 & 0.63 & 0.315 & 81 \\
+CT10, $\alpha = 0.1$ & Sierra/SM & 14.645 & 0.078 & 1.45 & 0.024 & 0.60 & 0.570 & 57 \\
+CT10, $\alpha = 0$   & Sierra/SM & 14.025 & 0.055 & 1.08 & 0.023 & 0.63 & 0.315 & 81 \\
 TET15-P1                       & Sierra/SM & 14.116 & 0.033 & 0.99 & 0.018 & 0.80 & 0.279 & 86 \\
 plain \code{TETRA15}           & Sierra/SM & 18.864 & 0.191 & 1.94 & 0.035 & 0.56 & 0.233 & 3 \\
 \bottomrule
@@ -3552,7 +3541,7 @@ plain \code{TETRA15}           & Sierra/SM & 18.864 & 0.191 & 1.94 & 0.035 & 0.5
 TET15-P1 in two independent implementations gives the same force to
 $0.05\%$ and the same field statistics to the second digit, has the
 smallest element-to-element pressure jumps of the four elements, and takes
-the fewest linear iterations per solve; the composite tetrahedron without
+the fewest linear iterations per solve; CT10 without
 stabilization gives its force within $0.6\%$ with twice the pressure
 jumps, and its stabilization raises both. The result of the benchmark, the
 change of the jump statistics under refinement from $h = a/4$ to $a/8$, is
@@ -3589,7 +3578,7 @@ three exact zero-energy modes per element of a constant pressure
 (\S\ref{sec:assembled}). Under a plastic tangent (\S\ref{sec:plastic}) the
 coercivity constant is bounded below by \eqref{eq:floor} for every pair, and
 the dilatation of the soft modes separates them: $0.20$--$0.27$ without
-decay for the constant-pressure pairs, the composite tetrahedron with its
+decay for the constant-pressure pairs, CT10 with its
 averaged $J$ among them at $0.22$--$0.25$, $h^2$ decay for the
 Crouzeix--Raviart pair, and in a confined zone with a varying flow direction
 no spurious mode among the twenty softest of the Crouzeix--Raviart pair at
@@ -3599,15 +3588,14 @@ $N = 5$ against five to nineteen for the constant-pressure elements.
 isochoric fraction $\dim\ker ~G / n_u$ is $0.61$--$0.63$ for the
 Crouzeix--Raviart pair, at the bound $1 - n_p/n_u$, against
 $0.03$--$0.07$ for $P_2/P_1^{\mathrm{disc}}$, which locks. \S\ref{sec:cook}:
-on Cook's membrane at $\nu = 0.4999$ the element agrees with the composite
-tetrahedron in the tip displacement within $0.6\%$ on meshes of $327$ to
+on Cook's membrane at $\nu = 0.4999$ the element agrees with CT10 in the tip displacement within $0.6\%$ on meshes of $327$ to
 $14\,475$ elements, and its pressure is smooth away from the singular
 clamped edge, where the quadratic tetrahedron without projection oscillates
 in sign inside every element.
 
 \paragraph{Accuracy in explicit dynamics.} \S\ref{sec:taylor}: on the
 Taylor bar the final radius is within $0.05\%$ of the converged value on
-$25\,029$ elements, against $0.09\%$ for the composite tetrahedron on
+$25\,029$ elements, against $0.09\%$ for CT10 on
 $1\,521\,212$, at $1/67$ of its core-seconds on the same machine; the
 constant-pressure variant is $2.1$ to $3.4\%$ from it.
 
@@ -3627,7 +3615,7 @@ against $0.476$ for TET4.
 for the negative stability results, which are established here on the
 Freudenthal family only (Remark~\ref{rem:structured}). The smoothness of the
 equivalent plastic strain in problems with a plastic zone confined by
-elastic material, where the composite tetrahedron's soft mode is expected:
+elastic material, where CT10's soft mode is expected:
 \citet{Foulk.etal:2021} report it under contact and on the Taylor bar, and
 their published examples contain no such problem. Three are planned: the
 frictionless indentation of a cylinder by a flat circular punch (the
@@ -3636,10 +3624,10 @@ classical plasticity benchmark of Prandtl's slip-line solution, used since
 range), the large-rotation twist of a bar, and a weak shock in a material
 of high $\kappa/\mu$, measured with the
 implemented Simo--Hughes instance (Remark~\ref{rem:whichj2}) against the
-composite tetrahedron on the same meshes; Cook's membrane at the load of
+CT10 on the same meshes; Cook's membrane at the load of
 \S\ref{sec:cook} does not separate the elements on that quantity, and
 the Taylor bar runs of \S\ref{sec:taylor} did not write it. The comparison
-at equal accuracy against the composite tetrahedron has been made on one
+at equal accuracy against CT10 has been made on one
 problem, the Taylor bar (\S\ref{sec:taylor}); a problem that the
 quadratic element does not resolve on a coarser mesh would give a
 different result.
@@ -3653,26 +3641,24 @@ establish, and what its parts are.
 \paragraph{The number of unknowns.} The face bubbles of the Crouzeix--Raviart
 pair are shared between neighbors and do not condense: at $N = 12$ the
 enriched space carries $96{,}117$ global displacement degrees of freedom
-against $36{,}501$ for $P_2/P_0$ and for the composite tetrahedron on the
+against $36{,}501$ for $P_2/P_0$ and for CT10 on the
 same mesh, a factor of $2.6$, and $2.5$ times Taylor--Hood's $38{,}698$
 (\S\ref{sec:infsup}); the implementation does not condense the interior
 bubble, and on the Cook meshes of \S\ref{sec:cook} the factor is $3.0$.
 On the Taylor bar (\S\ref{sec:taylor}) the accuracy on a coarser mesh
 more than compensates for that factor: the final radius within $0.05\%$ on
-$25\,029$ elements, against $1.5$ million elements for the composite
-tetrahedron at $0.09\%$. On other problems it is not established; for
+$25\,029$ elements, against $1.5$ million elements for CT10 at $0.09\%$. On other problems it is not established; for
 elasticity that is the
 comparison with Taylor--Hood, whose pressure is global and whose displacement
 space is $2.5$ times smaller, and for plasticity Taylor--Hood's softest modes
 are dilatation almost entirely (\S\ref{sec:plastic}), so the comparison there
-is with the composite tetrahedron.
+is with CT10.
 
 \paragraph{Operations per element.} With the $14$-point rule of
 \S\ref{sec:basis} the enriched element evaluates the constitutive law at $14$
 points on $45$ displacement degrees of freedom, against $4$ or $5$ points on
 $30$ for TET10 and one on $12$ for TET4. On the Taylor bar the time per
-element and explicit step on one core is $1.40$ times that of the composite
-tetrahedron in Sierra/SM (\S\ref{sec:taylor}).
+element and explicit step on one core is $1.40$ times that of CT10 in Sierra/SM (\S\ref{sec:taylor}).
 
 \paragraph{The explicit stable step.} Row-sum lumping in the nodal basis gives
 positive masses and conserves momentum, and the stable step is $3.3$ times
@@ -3714,7 +3700,7 @@ and the pair itself has been used in large-deformation hyperelasticity
 for finite-deformation plasticity: an element-local pair satisfying
 \eqref{eq:infsup} uniformly, a projected volumetric strain, and a deviatoric
 law evaluated pointwise, which removes the stabilization that the
-composite-tetrahedron and variational-multiscale methods carry; together
+CT10 and variational-multiscale methods carry; together
 with the measurements that support it, of the dilatation of the soft modes
 under a plastic tangent (\S\ref{sec:plastic}), of the inf-sup constant on
 deformed configurations (\S\ref{sec:deformed}), and of the nonlinear

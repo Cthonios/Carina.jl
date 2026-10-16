@@ -5,7 +5,7 @@ quarter model), where Carina's implicit solver, conjugate gradients with the
 device algebraic-multigrid V-cycle, needs 600 to 1300 iterations per solve on
 the TET15-P1 tangent of the nearly incompressible J2 material (bulk modulus
 κ = 10¹³ Pa, shear modulus μ = 10⁹ Pa), against 65 to 75 for the FETI
-preconditioner of the prototype implementation in Sierra/SM on the same
+preconditioner of Sierra/SM TET15-P1 on the same
 meshes.
 
 ## Scripts
