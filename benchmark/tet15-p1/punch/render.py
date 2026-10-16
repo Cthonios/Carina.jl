@@ -20,6 +20,9 @@
 # id, x, y, z, p, eqps at every node), p and eqps are instead those nodal
 # values, interpolated over the elements, and the files are
 # <prefix>-<q>-nodal-{meridian,top}.png, drawn without the element edges.
+# The element values are drawn on a TETRA4 copy of the mesh (the corner nodes
+# of each element), so that the edges are the corner triangles for TETRA10
+# and TETRA15 alike.
 # With bar=off the color bar is left out, for tiles composed into a grid with
 # one color bar drawn separately; the camera, the image size and the flat
 # lighting are fixed, the same for every run and level, so the tiles of all
@@ -28,7 +31,7 @@ import os
 import re
 import sys
 
-from paraview.simple import (GetScalarBar, Calculator, Clip, WarpByVector, ColorBy, CreateRenderView, ExtractSurface,
+from paraview.simple import (GetScalarBar, Calculator, MergeBlocks, Clip, WarpByVector, ColorBy, CreateRenderView, ExtractSurface,
                              GetColorTransferFunction, ExodusIIReader, ProgrammableFilter,
                              SaveScreenshot, Show, UpdatePipeline)
 
@@ -87,6 +90,33 @@ def _nodal(algorithm):
 _nodal(self)
 ''' % nodal
     calc = pf
+else:
+    # The element values on a TETRA4 copy of the mesh: the first four
+    # (corner) nodes of each connectivity, with all the point data, so that
+    # the drawn edges are the corner triangles for every element type (for
+    # TETRA15 ParaView otherwise draws its display tessellation of each face
+    # through the edge and face nodes).
+    tet4 = ProgrammableFilter(Input=MergeBlocks(Input=calc))
+    tet4.OutputDataSetType = "vtkUnstructuredGrid"
+    tet4.Script = '''
+def _corners(algorithm):
+    import vtk
+    src = algorithm.GetInputDataObject(0, 0)
+    out = algorithm.GetOutputDataObject(0)
+    out.SetPoints(src.GetPoints())
+    out.GetPointData().ShallowCopy(src.GetPointData())
+    cells = vtk.vtkCellArray()
+    ids = vtk.vtkIdList()
+    for c in range(src.GetNumberOfCells()):
+        src.GetCellPoints(c, ids)
+        cells.InsertNextCell(4)
+        for k in range(4):
+            cells.InsertCellPoint(ids.GetId(k))
+    out.SetCells(vtk.VTK_TETRA, cells)
+    out.GetCellData().ShallowCopy(src.GetCellData())
+_corners(self)
+'''
+    calc = tet4
 # (the programmable filter imports numpy's helpers, clip and array among them,
 # into this module's globals: no module-level name here may collide with them)
 
