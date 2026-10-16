@@ -654,19 +654,10 @@ $\theta = J - 1$ and the constant projection, $\bar p = \tilde p$ on the
 element and \eqref{eq:P-general-material} is $\P_q = s_q \tilde{\P}_q +
 \tilde p\,(J_q - \tilde J)\,\F_q^{-\mathsf T}$.
 
-\paragraph{The passes.} Three passes over the quadrature points
-replace the two of \S\ref{sec:algorithm}. The first computes $\bar\theta$
-by \eqref{eq:pass1} and, from it, $\tilde J_q$ and $s_q$. The second forms
-$\tilde{\F}_q$, calls the material once at each point, stores
-$\tilde{\P}_q$ and $\tilde p_q$, and accumulates $\bar b_m = \sum_q w_q
-j_q\, \chi_m(~\xi_q)\, \tilde p_q / \theta'(\tilde J_q)$, from which $\bar p
-= ~M^{-1}\bar{~b}$ with the mass matrix of \eqref{eq:pass1}. The third
-assembles the residual from the stored $\tilde{\P}_q$ and
-\eqref{eq:P-general-material}. The storage is one stress tensor per
-quadrature point of the element; the material is called once per point per
-residual, as in the split form. Where the split is accessible the
-second projection is still exact but the third pass is unnecessary, since
-$\bar p$ follows from $\bar\theta$ alone.
+\paragraph{The passes.} The element computes this residual in three passes
+over its quadrature points (\S\ref{sec:algorithm}): the projection of
+$\theta$, the material at $\tilde{\F}_q$ with the projection of $\tilde
+p_q/\theta'(\tilde J_q)$, and the stress \eqref{eq:P-general-material}.
 
 \paragraph{The tangent.} The tangent is the second derivative of
 \eqref{eq:Pi-general}. Along two increments with gradients $\delta_1\F$ and
@@ -1219,11 +1210,11 @@ carry both $\bar\theta$ and $\bar p$. Two requirements fix the choice.
 
 \paragraph{Same space for both scalars.} $\bar\theta$ and $\bar p$ are placed in one
 space $Q_h$. This is what makes the constraint term vanish identically and the
-functional reduce to \eqref{eq:collapsed}; it is the only thing that reduction
-needs. Given it, and a quadratic $W\supvol$ (\S\ref{sec:energy}),
-\eqref{eq:variations}$_2$ reads $\bar p = \kappa\bar\theta$ pointwise rather
-than in a projected sense, and the composition
-$\bar p = \kappa\,\mathcal{P}_h(\theta)$ is well defined. Splitting the two scalars
+functional reduce to \eqref{eq:Pi-general} for any material; it is the only
+thing that reduction needs. Given it, $\bar p$ is the projection
+\eqref{eq:pbar-general} of the material's mean stress, and for a split
+material with a quadratic $W\supvol$ (\S\ref{sec:energy})
+$\bar p = \kappa\bar\theta$ holds pointwise rather than in a projected sense. Splitting the two scalars
 across different spaces makes the constitutive relation hold only after a
 projection, determines one field only through its projection onto the other's
 space, and can leave the discrete system singular.
@@ -1362,15 +1353,14 @@ every Newton iteration of every step, and
   \label{eq:projection}
   M \{\bar\theta\} = \int_\Omega \chi_m \, \theta(\disp) \diff V,
   \qquad
-  \bar p = \kappa \bar\theta ,
+  M \{\bar p\} = \int_\Omega \chi_m \, \frac{\tilde p}{\theta'(\tilde J)} \diff V
 \end{equation}
-is an element-local solve, with $\theta = \log J$ for a Hencky material and
-$\theta = J - 1$ for the Simo--Hughes one (Table~\ref{tab:instances}). The second
-relation in \eqref{eq:projection} holds pointwise, rather than only
-after projection, precisely because $W\supvol$ is quadratic; for a material
-where it is not, it is replaced by a second projection with the same
-factorization (\S\ref{sec:general}). Substituting $\bar p(\disp)$ into
-\eqref{eq:variations}$_1$ leaves a displacement-sized nonlinear problem whose
+are element-local solves with the same factorization, the second the
+projection \eqref{eq:pbar-general} of the material's mean stress. For a
+split material the second integrand is $W\supvol{}'(\bar\theta)$, and for a
+quadratic $W\supvol$ the second solve is unnecessary, since $\bar p =
+\kappa\bar\theta$ pointwise. Substituting $\bar p(\disp)$ into the residual
+leaves a displacement-sized nonlinear problem whose
 tangent retains the sparsity of the displacement mesh --- the auxiliary fields
 never couple two elements. This is the property that keeps CT10's tangent as sparse as a displacement element's, and it is
 preserved here.
@@ -1485,8 +1475,9 @@ with $\chi = (1, \xi_1, \xi_2, \xi_3)$ in the reference coordinates
 $~\xi$ of the element; the constant projection, the element TET15-P0, which \S\ref{sec:cook} also
 measures, has $\chi = (1)$. The mass matrix of the projection is taken with
 the reference-configuration volume element, so it does not change with the
-deformation. Two passes over the quadrature points $~\xi_q$, with weights
-$w_q$ and reference Jacobian determinants $j_q$, compute the residual.
+deformation. The quadrature points $~\xi_q$ have weights $w_q$ and
+reference Jacobian determinants $j_q$. The residual takes three passes over
+them for a general material, and two for a split material.
 
 \paragraph{First pass: the projected volumetric strain.} At each quadrature
 point, $\F_q = \Id + \sum_a ~u_a \otimes \Grad N_a(~\xi_q)$, $J_q =
@@ -1499,14 +1490,33 @@ point, $\F_q = \Id + \sum_a ~u_a \otimes \Grad N_a(~\xi_q)$, $J_q =
   \qquad
   \bar\theta = ~M^{-1} ~b ,
 \end{equation}
-a $4 \times 4$ solve, and the projected strain and pressure at each point
-are $\bar\theta_q = \sum_m \chi_m(~\xi_q)\,\bar\theta_m$ and $\bar p_q =
-\kappa \bar\theta_q$.
+a $4 \times 4$ solve, and the projected strain at each point is
+$\bar\theta_q = \sum_m \chi_m(~\xi_q)\,\bar\theta_m$, from which $\tilde J_q
+= \theta^{-1}(\bar\theta_q)$ and $s_q = (\tilde J_q/J_q)^{1/3}$. This pass is
+the same for every material.
 
-\paragraph{Second pass: the stress and the residual.} At each quadrature
-point the material supplies the isochoric first Piola--Kirchhoff stress
-$\P\supiso_q$ from $\F_q$ and its internal variables, with its own return
-map, and the element adds the volumetric part with the projected pressure:
+\paragraph{Second pass, general material: the material at $\tilde{\F}_q$.}
+At each point the element forms $\tilde{\F}_q = s_q\F_q$, calls the material
+once with its internal variables, stores $\tilde{\P}_q$ and $\tilde p_q$ of
+\eqref{eq:ptilde}, and accumulates $\bar b_m = \sum_q w_q j_q\,
+\chi_m(~\xi_q)\, \tilde p_q / \theta'(\tilde J_q)$, from which $\bar p =
+~M^{-1}\bar{~b}$ with the mass matrix of \eqref{eq:pass1}.
+
+\paragraph{Third pass, general material: the residual.} From the stored
+$\tilde{\P}_q$ the element forms the stress \eqref{eq:P-general-material} at
+each point and the residual $~R_a = \sum_q w_q j_q\, \P_q \Grad N_a(~\xi_q)$.
+The storage is one stress tensor per quadrature point; the material is
+called once per point per residual. The tangent is
+\eqref{eq:tangent-general}, assembled in closed form (\S\ref{sec:impl}).
+
+\paragraph{Second pass, split material: the stress and the residual.} For a
+material with the split \eqref{eq:matsplit} the pressure follows from
+$\bar\theta$ alone, $\bar p = \mathcal{P}_h W\supvol{}'(\bar\theta)$, and
+for a quadratic $W\supvol$ it is $\bar p_q = \kappa\bar\theta_q$ at each
+point, with no second projection. At each quadrature point the material
+supplies the isochoric first Piola--Kirchhoff stress $\P\supiso_q$ from
+$\F_q$ and its internal variables, with its own return map, and the element
+adds the volumetric part with the projected pressure:
 \begin{equation}
   \label{eq:pass2}
   \P_q = \P\supiso_q + \bar p_q\, ~g_q,
@@ -1516,16 +1526,18 @@ map, and the element adds the volumetric part with the projected pressure:
   ~R_a = \sum_q w_q j_q\, \P_q \Grad N_a(~\xi_q) .
 \end{equation}
 The residual is the pointwise one with the projected pressure in place of
-$\kappa\theta_q$; it is the derivative of the element energy
-$\sum_q w_q j_q \big[ W\supiso(\bar\F_q) + \tfrac{\kappa}{2} \bar\theta_q^2 \big]$
-with respect to the nodal displacements, which \S\ref{sec:checks} verifies
-by differences.
+the pointwise one; for a quadratic $W\supvol$ it is the derivative of the
+element energy $\sum_q w_q j_q \big[ W\supiso(\bar\F_q) + \tfrac{\kappa}{2}
+\bar\theta_q^2 \big]$ with respect to the nodal displacements, which
+\S\ref{sec:checks} verifies by differences. With the same material the
+general form gives the same residual to rounding (\S\ref{sec:checks}) at one
+pass more.
 
-\paragraph{The tangent.} The derivative of \eqref{eq:pass2} along a nodal
-displacement increment $~v$ with gradient $\Grad~v_q$ at the quadrature
-points has three parts: the isochoric material tangent of the model, the
-geometric term of the volumetric stress, and the coupling through the
-projection,
+\paragraph{The tangent of the split form.} For a quadratic $W\supvol$ the
+derivative of \eqref{eq:pass2} along a nodal displacement increment $~v$
+with gradient $\Grad~v_q$ at the quadrature points has three parts: the
+isochoric material tangent of the model, the geometric term of the
+volumetric stress, and the coupling through the projection,
 \begin{equation}
   \label{eq:tangent}
   \begin{aligned}
@@ -1548,27 +1560,30 @@ The third term couples the quadrature points of the element: in matrix form
 it adds $\kappa\, ~D ~M^{-1} \transpose{~D}$ to the sum of the
 quadrature-point matrices, with $~D = \sum_q w_q j_q\, (\Grad N \cdot
 ~g_q)\, \transpose{\chi(~\xi_q)}$ the matrix that maps nodal displacements
-to the right-hand side of \eqref{eq:pass1}. The tangent is symmetric, since
-it is the second derivative of the element energy. The matrix-free
-tangent--vector product is \eqref{eq:tangent} applied to $~v$ with the
-two passes; the assembled tangent, its diagonal and its nodal blocks are
-formed from the same three terms.
+to the right-hand side of \eqref{eq:pass1}. For a non-quadratic
+$W\supvol$ the factor $\kappa$ becomes the weighted mass matrix of
+\S\ref{sec:splitform}. The tangent is symmetric, since it is the second
+derivative of the element energy. The matrix-free tangent--vector product is
+\eqref{eq:tangent} applied to $~v$ with the two passes; the assembled
+tangent, its diagonal and its nodal blocks are formed from the same three
+terms.
 
-\paragraph{What the material supplies.} A material admissible for the
-element provides, at a quadrature point with its internal variables: the
-volumetric strain measure $\theta(J)$ with $\theta'(J)$ and $\theta''(J)$;
-the bulk modulus $\kappa$; the isochoric energy $W\supiso(\bar\F)$; the
-isochoric first Piola--Kirchhoff stress, together with the update of the
-internal variables it entails; and the isochoric tangent
-$\partial\P\supiso/\partial\F$. For the Simo--Hughes $J_2$ model,
-$\theta = \log J$, $\theta' = 1/J$, $\theta'' = -1/J^2$, $\kappa = \lambda +
-2\mu/3$ from the Lam\'e constants, and the isochoric stress and tangent are
-those of BOX~9.1 of \citet{SimoHughes:1998} with the volumetric term
-omitted; the return map on $\bar{~b}^{\mathrm e}$ and the internal
-variables $\F^{\mathrm p}$ and $\bar\epsilon^{\mathrm p}$ are unchanged.
-For a material without an accessible split, the passes and the stress are
-those of \S\ref{sec:general}, with the material called at the modified
-deformation gradient \eqref{eq:Ftilde}.
+\paragraph{What the material supplies.} For the general form, the material
+supplies at a quadrature point, with its internal variables, the stress
+$\tilde{\P}$ at $\tilde{\F}$ together with the update of the internal
+variables it entails, and the tangent $\mathbb{A}$ at $\tilde{\F}$; the
+energy is needed only to verify the residual. For the split form it
+supplies the volumetric strain measure $\theta(J)$ with $\theta'(J)$ and
+$\theta''(J)$; $W\supvol$ or, when quadratic, the bulk modulus $\kappa$; the
+isochoric energy $W\supiso(\bar\F)$; the isochoric first Piola--Kirchhoff
+stress with the update of its internal variables; and the isochoric tangent
+$\partial\P\supiso/\partial\F$. For the Simo--Hughes $J_2$ model as
+implemented, $\theta = \log J$, $\theta' = 1/J$, $\theta'' = -1/J^2$,
+$\kappa = \lambda + 2\mu/3$ from the Lam\'e constants, and the isochoric
+stress and tangent are those of BOX~9.1 of \citet{SimoHughes:1998} with the
+volumetric term omitted; the return map on $\bar{~b}^{\mathrm e}$ and the
+internal variables $\F^{\mathrm p}$ and $\bar\epsilon^{\mathrm p}$ are
+unchanged.
 
 \paragraph{Assembly.} Because the first pass needs every quadrature point
 of the element before the second can begin, the element is assembled as a
