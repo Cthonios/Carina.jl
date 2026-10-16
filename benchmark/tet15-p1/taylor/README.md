@@ -174,14 +174,23 @@ length of the bar, mm):
 
 | h (mm) | Sierra/SM CT10 | Carina TET15-P1 | Sierra/SM TET15-P1 | Carina TET15-P0 |
 |---|---|---|---|---|
-| 1.5 | 7.2904, 24.439 at 41.6 μs (the run stopped) | 7.2399, 21.425 | 7.2344, 21.429 | 7.4415, 21.551 |
-| 0.75 | 7.2820, 21.476 | 7.2225, 21.421 | 7.2186, 21.423 | 7.4747, 21.533 |
-| 0.38 | 7.2453, 21.439 | 7.2255, 21.420 | 7.2181, 21.422 | — |
-| 0.19 | 7.2326, 21.430 | — | 7.2217, 21.422 | — |
+| 1.5 | 7.2904, 24.439 at 41.6 μs (the run stopped) | 7.2405, 21.426 | 7.2344, 21.429 | 8.0915, 21.543 |
+| 0.75 | 7.2820, 21.476 | 7.2217, 21.420 | 7.2186, 21.423 | 8.0249, 21.508 |
+| 0.38 | 7.2453, 21.439 | 7.2211, 21.419 | 7.2181, 21.422 | inverted element at 1 μs |
+| 0.19 | 7.2326, 21.430 | 7.2242, 21.419 | 7.2217, 21.422 | — |
+
+The Carina columns are the runs of 2026-10-16 (Carina 29c9606,
+ConstitutiveModels a0550bd), in which the element projects log J, the
+measure Sierra/SM TET15-P1 projects; h = 0.19 mm ran on an A100 80 GB in
+5 h 9 min (Rigel session), the others on the RX 7600 (`results.tsv`).  With
+J − 1 projected (Carina 68c135e) TET15-P1 gave 7.2399, 7.2225 and 7.2255 mm
+at h = 1.5, 0.75 and 0.38, and TET15-P0 7.4415, 7.4747 and 7.3785 (the last
+at 78 μs): the measure moves TET15-P1 by 0.01 to 0.06% and TET15-P0 by 7 to
+9%, and TET15-P0 with log J inverts an element at h = 0.38 mm.
 
 CT10 converges from above, with an extrapolated limit
-of 7.2259 mm (order 1.53 in h); TET15-P1 in Carina is within 0.05% of that
-limit at h = 0.75 and 0.38 mm.
+of 7.2259 mm (order 1.53 in h); TET15-P1 in Carina is within 0.07% of that
+limit at h = 0.75, 0.38 and 0.19 mm.
 
 ## Sierra/SM TET15-P1
 
@@ -197,12 +206,13 @@ of 0.5; Rigel's correction of 2026-10-09).  Results (Rigel session, 2026-10-08; 
 `plot.py`, `taylor-history-sierra.png`):
 
 - Final radius 7.2344, 7.2186, 7.2181 and 7.2217 mm at h = 1.5, 0.75, 0.38
-  and 0.19 mm: 0.08%, 0.05% and 0.10% below Carina's TET15-P1 on the three
-  meshes Carina ran to 80 μs, and within 0.12% of the
+  and 0.19 mm: 0.084%, 0.043%, 0.042% and 0.035% below Carina's TET15-P1
+  with log J at the four levels (with J − 1 in Carina: 0.08%, 0.05% and
+  0.10% at the first three), and within 0.12% of the
   extrapolated limit of CT10 at every level (0.06% below it at
   h = 0.19 mm, where CT10 is 0.09% above).  The
-  sequence is not monotone: the h = 0.19 mm value is 3.6 μm above the
-  h = 0.38 mm value.  The length agrees with Carina's to 0.02%, and is
+  sequence is not monotone in either code: the h = 0.19 mm value is 3.6 μm
+  above the h = 0.38 mm value in Sierra/SM and 3.1 μm above it in Carina.  The length agrees with Carina's to 0.02%, and is
   21.422 mm at both finest levels.  The h = 0.19 mm run (2026-10-09 to 11)
   took 598 681 steps; its kinetic plus internal energy at 80 μs is 239.683 J
   against 239.686 J of external work.

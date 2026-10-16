@@ -3085,8 +3085,11 @@ radius differs by $0.0007$~mm.
 \caption{Taylor bar, final radius of the impact face and final length of
 the bar in mm at $80~\mu$s, per element and mesh level $h$ in mm with its
 element count. Reference: $7.22$ for the converged Q1/P0 hexahedron
-\citep{Foulk.etal:2021}. TET15-P0 at $h = 0.38$ stopped at $78.7~\mu$s;
-its values at $78~\mu$s. CT10 at $h = 1.5$ ended at
+\citep{Foulk.etal:2021}. TET15-P1 and TET15-P0 project $\log J$ (Carina
+29c9606; $h = 0.19$ on an A100); TET15-P0 at $h = 0.38$ stopped with an
+inverted element at $1~\mu$s. With $J - 1$ projected, TET15-P1 gave
+$7.2399$, $7.2225$ and $7.2255$ at $h = 1.5$, $0.75$ and $0.38$, and TET15-P0
+$7.4415$, $7.4747$ and $7.3785$ (the last at $78~\mu$s). CT10 at $h = 1.5$ ended at
 $41.6~\mu$s. Driver: \code{benchmark/tet15-p1/taylor/run.jl}; histories in
 \code{benchmark/tet15-p1/taylor/data}.}
 \label{tab:taylor}
@@ -3096,10 +3099,10 @@ $41.6~\mu$s. Driver: \code{benchmark/tet15-p1/taylor/run.jl}; histories in
  & \multicolumn{2}{c}{CT10} \\
 $h$ & elements & radius & length & radius & length & radius & length \\
 \midrule
-$1.5$  & $3522$          & $7.2399$ & $21.4250$ & $7.4415$ & $21.5507$ & --- & --- \\
-$0.75$ & $25\,029$       & $7.2225$ & $21.4206$ & $7.4747$ & $21.5329$ & $7.2820$ & $21.4760$ \\
-$0.38$ & $190\,727$      & $7.2255$ & $21.4202$ & $7.3785$ & $21.4763$ & $7.2453$ & $21.4395$ \\
-$0.19$ & $1\,521\,212$   & --- & --- & --- & --- & $7.2326$ & $21.4304$ \\
+$1.5$  & $3522$          & $7.2405$ & $21.4262$ & $8.0915$ & $21.5434$ & --- & --- \\
+$0.75$ & $25\,029$       & $7.2217$ & $21.4199$ & $8.0249$ & $21.5075$ & $7.2820$ & $21.4760$ \\
+$0.38$ & $190\,727$      & $7.2211$ & $21.4186$ & --- & --- & $7.2453$ & $21.4395$ \\
+$0.19$ & $1\,521\,212$   & $7.2242$ & $21.4193$ & --- & --- & $7.2326$ & $21.4304$ \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -3113,7 +3116,9 @@ number of elements; the open square is TET15-P0 at $78~\mu$s. Right: radius
 of the impact face against time for TET15-P1 and TET15-P0 at
 $h = 0.38$~mm and CT10 at $h = 0.38$ and $0.19$~mm.
 Dashed gray: the converged Q1/P0 hexahedron of \citet{Foulk.etal:2021}.
-Script: \code{benchmark/tet15-p1/taylor/plot.py}.}
+The Carina curves are those of the runs that projected $J - 1$; with
+$\log J$ the TET15-P1 values change by at most $0.06\%$
+(Table~\ref{tab:taylor}). Script: \code{benchmark/tet15-p1/taylor/plot.py}.}
 \label{fig:taylor}
 \end{figure}
 
@@ -3121,14 +3126,22 @@ Script: \code{benchmark/tet15-p1/taylor/plot.py}.}
 CT10 converges from above: its differences between
 successive levels are $0.0367$ and $0.0127$~mm, a ratio of $2.89$, which
 corresponds to an order of $1.53$ in $h$; the extrapolation of its three
-levels by that ratio gives $7.2259$~mm. TET15-P1 is at $7.2225$ and
-$7.2255$~mm at $h = 0.75$ and $0.38$, within $0.05\%$ of that value, and
-at $7.2399$ on the coarsest mesh, where CT10 did not
+levels by that ratio gives $7.2259$~mm. TET15-P1 is at $7.2217$,
+$7.2211$ and $7.2242$~mm at $h = 0.75$, $0.38$ and $0.19$, within $0.07\%$ of
+that value, and at $7.2405$ on the coarsest mesh, where CT10 did not
 reach $80~\mu$s. CT10 is $0.78\%$, $0.27\%$ and
 $0.09\%$ from the extrapolated value at $h = 0.75$, $0.38$ and $0.19$. Both
-elements approach the reference within $0.1\%$ in the limit. TET15-P0 is
-$3.4\%$ above the extrapolated value at $h = 0.75$ and $2.1\%$ at
-$h = 0.38$; it differs from TET15-P1 only in the constant pressure.
+elements approach the reference within $0.1\%$ in the limit. TET15-P0
+differs from TET15-P1 only in the constant pressure, and it is sensitive to
+the projected measure where TET15-P1 is not: with $\log J$ it is $11\%$ above
+the extrapolated value at $h = 0.75$ and inverts an element at $1~\mu$s at
+$h = 0.38$, with $J - 1$ it was $3.4\%$ and $2.1\%$ above; projecting
+$J - 1$ instead of $\log J$ changes the TET15-P1 radius by $0.01\%$ at
+$h = 1.5$ and $0.75$ and by $0.06\%$ at $h = 0.38$. A constant pressure leaves
+the pointwise $J$ free to vary across the element, and the element mean of
+$\log J$, unbounded as $J \to 0$ at a single quadrature point, is then far
+from that of $J - 1$; the linear pressure of TET15-P1 keeps the pointwise $J$
+close to the projected one.
 
 \paragraph{Operations.} The two codes were run on the same machine, a
 two-socket AMD EPYC 9634 with $168$ cores, one run at a time with no other
@@ -3268,14 +3281,18 @@ $0.25$ times the smallest node distance over $c_p$ (the Sierra/SM element
 estimate, $0.5$ times that distance over $c_p$, with an input factor of
 $0.5$). The
 final radius is $7.2344$, $7.2186$, $7.2181$ and $7.2217$~mm at $h = 1.5$,
-$0.75$, $0.38$ and $0.19$~mm: $0.08\%$, $0.05\%$ and $0.10\%$ below
-Carina's on the three meshes Carina ran to $80~\mu$s, and within $0.12\%$
-of CT10's extrapolated limit at every level ($0.06\%$
-below it at $h = 0.19$~mm, where the sequence is not monotone: $3.6~\mu$m
-above the $h = 0.38$~mm value).
+$0.75$, $0.38$ and $0.19$~mm: $0.084\%$, $0.043\%$, $0.042\%$ and $0.035\%$
+below Carina's at the four levels, both projecting $\log J$ (with $J - 1$
+projected in Carina the differences were $0.08\%$, $0.05\%$ and $0.10\%$ at
+the first three), and within $0.12\%$ of CT10's extrapolated limit at every
+level ($0.06\%$ below it at $h = 0.19$~mm). Both codes give a sequence that
+is not monotone at the finest level: the radius at $h = 0.19$~mm is
+$3.6~\mu$m above the $h = 0.38$~mm value in Sierra/SM and $3.1~\mu$m above it
+in Carina.
 Over the run the radii of the two codes differ by at most $0.16\%$, in the
 first $10~\mu$s, and after $40~\mu$s by a constant $0.05$ to $0.10\%$ that does
-not decrease with $h$ (Figure~\ref{fig:taylorsierra}); the two codes'
+not decrease with $h$ (Figure~\ref{fig:taylorsierra}, from the Carina runs
+that projected $J - 1$); the two codes'
 $J_2$ implementations and time steps differ. Without the projection,
 TETRA15 at $h = 1.5$~mm ends at $7.1268$~mm, $1.5\%$ below, which is the
 volumetric locking the projection removes. The step used makes the
