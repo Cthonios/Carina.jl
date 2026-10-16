@@ -32,7 +32,7 @@
 #   julia -t 32 --project=. benchmark/tet15-p1/punch/run.jl --h 4,8 --case A,B
 #        [--stages mesh,convert,run] [--elements tet15-p1,tetra15] [--device cpu|cuda]
 #        [--preconditioner amg|jacobi] [--amg-operator tangent|compressible]
-#        [--cg-cap 1000] [--forcing eisenstat-walker|none]
+#        [--cg-cap 1000] [--forcing eisenstat-walker|none] [--linear-solver iterative|direct]
 #        [--recovery lumped|consistent|none] [--tag <suffix>]
 #        [--ti "key: value"]...
 # --h takes the divisors of a (h = a/4, a/8, a/16, a/32).  A CUDA run needs the
@@ -79,6 +79,7 @@ const PRECOND = Ref("amg")
 const AMG_OP  = Ref("tangent")
 const RECOVERY = Ref("lumped")
 const FORCING = Ref(true)
+const LINSOLVE = Ref("iterative")   # --linear-solver iterative|direct
 const TI_EXTRA = String[]
 const CG_CAP  = Ref(1000)
 const TAG     = Ref("")
@@ -169,12 +170,12 @@ solver:
       - absolute residual: 1.0e-6
       - relative residual: 1.0e-8
   linear solver:
-    type: iterative
+$(LINSOLVE[] == "direct" ? "    type: direct\n" : """    type: iterative
     tolerance: 1.0e-8
     maximum iterations: $(CG_CAP[])
 $(FORCING[] ? "    forcing term:\n      type: eisenstat-walker\n" : "")    preconditioner:
       type: $(PRECOND[])
-$(PRECOND[] == "amg" ? "      operator: $(AMG_OP[])\n" : "")"""
+$(PRECOND[] == "amg" ? "      operator: $(AMG_OP[])\n" : "")""")"""
 end
 
 # Node indices (1-based, in the mesh order) of a node set.
@@ -317,7 +318,7 @@ function run_case(element, case, d)
         println(io, "run\t$tag")
         println(io, "host\t$(gethostname())")
         println(io, "device\t$(DEVICE[] == "cpu" ? "cpu" : device_name())\nthreads\t$(Threads.nthreads())")
-        println(io, "preconditioner\t$(PRECOND[])" * (PRECOND[] == "amg" ? " (operator $(AMG_OP[]))" : "") * "\ncg cap\t$(CG_CAP[])\nforcing\t$(FORCING[] ? "eisenstat-walker (floor 1e-8)" : "none (tolerance 1e-8)")\npredictor\ttangent")
+        LINSOLVE[] == "direct" ? println(io, "linear solver\tdirect\npredictor\ttangent") : println(io, "preconditioner\t$(PRECOND[])" * (PRECOND[] == "amg" ? " (operator $(AMG_OP[]))" : "") * "\ncg cap\t$(CG_CAP[])\nforcing\t$(FORCING[] ? "eisenstat-walker (floor 1e-8)" : "none (tolerance 1e-8)")\npredictor\ttangent")
         println(io, "recovery\t$(RECOVERY[])")
         println(io, "first step\t$FIRST\nmaximum step\t$(max_step(d))")
         println(io, "status\t$status\nwall_s\t$(round(wall; digits = 1))")
@@ -357,6 +358,9 @@ function parse_args(args)
         elseif a == "--forcing"
             FORCING[] = args[i + 1] == "eisenstat-walker" ? true : args[i + 1] == "none" ? false :
                         error("--forcing takes eisenstat-walker or none")
+        elseif a == "--linear-solver"
+            LINSOLVE[] = args[i + 1] in ("iterative", "direct") ? args[i + 1] :
+                         error("--linear-solver takes iterative or direct")
         elseif a == "--recovery"
             RECOVERY[] = args[i + 1]
         elseif a == "--cg-cap"
