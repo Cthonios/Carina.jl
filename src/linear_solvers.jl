@@ -228,7 +228,7 @@ end
 function _cpu_amg_vcycle(A::SparseArrays.SparseMatrixCSC, B::Matrix{Float64})
     backend = KA.CPU()
     ml = _sa_hierarchy_lowmem(A, B)
-    dinv = 1.0 ./ Vector(diag(A))
+    dinv = _par_copyto!(Vector{Float64}(undef, size(A, 1)), 1.0 ./ Vector(diag(A)))
     any(!isfinite, dinv) && error("Zero diagonal in the fine AMG operator.")
     h = DeviceAMGHierarchy(backend, ml, dinv, _host_lambda_max(A, dinv))
     return _CPUAMGVCycle(h, _symmetric_csc_as_csr_new(backend, A))
@@ -945,9 +945,29 @@ end
 # plain dot costs nothing extra there.  The rest of the CG loop is identical,
 # so CPU runs exercise the same block structure and device-scalar updates.
 function _device_dot!(out, partials, x, y, ::KA.CPU)
-    out[1] = dot(x, y)
+    out[1] = _par_dot(x, y)
     return out
 end
+
+# Dot product in static blocks, one per thread, summed in block order (the
+# same result for the same thread count).
+function _par_dot(x::Vector{Float64}, y::Vector{Float64})
+    n = length(x)
+    nt = Threads.nthreads()
+    (nt == 1 || n < 1 << 16) && return dot(x, y)
+    part = zeros(nt)
+    Threads.@threads :static for k in 1:nt
+        lo = div((k - 1) * n, nt) + 1
+        hi = div(k * n, nt)
+        acc = 0.0
+        @inbounds @simd for i in lo:hi
+            acc += x[i] * y[i]
+        end
+        part[k] = acc
+    end
+    return sum(part)
+end
+_par_dot(x, y) = dot(x, y)
 
 struct _DeviceCGWorkspace{V}
     x        ::V

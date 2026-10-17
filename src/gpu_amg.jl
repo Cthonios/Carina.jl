@@ -89,6 +89,32 @@ function _par_fill!(dst::Array, v)
 end
 _par_fill!(dst, v) = fill!(dst, v)
 
+# The vector updates of the V-cycle, y = a x + b y.  On the CPU a Base
+# broadcast runs on one thread while the other threads wait; at 3.6 M
+# unknowns on proxima (36 threads) the broadcasts of the V-cycle took 6 % of
+# it, about 0.05 s per CG iteration (sampling profile, 2026-10-17).  On a CPU
+# array the update runs in static blocks, one per thread; on a device array
+# it is the broadcast, which the device already runs in parallel.
+function _lincomb!(y::Array{Float64}, a::Float64, x::Array{Float64}, b::Float64)
+    n = length(y)
+    nt = Threads.nthreads()
+    if nt == 1 || n < 1 << 16
+        @inbounds @simd for i in 1:n
+            y[i] = a * x[i] + b * y[i]
+        end
+        return y
+    end
+    Threads.@threads :static for k in 1:nt
+        lo = div((k - 1) * n, nt) + 1
+        hi = div(k * n, nt)
+        @inbounds @simd for i in lo:hi
+            y[i] = a * x[i] + b * y[i]
+        end
+    end
+    return y
+end
+_lincomb!(y, a, x, b) = (y .= a .* x .+ b .* y)
+
 function _to_device_csr(backend, A::SparseArrays.SparseMatrixCSC)
     At = SparseArrays.sparse(transpose(A))       # CSC of Aᵀ ≡ CSR of A
     rowptr = KA.allocate(backend, Int32, length(At.colptr))
@@ -450,7 +476,7 @@ function _smooth!(x, b, r, matvec!, inv_d, lmax, nu, backend, n)
     ω = 4.0 / (3.0 * lmax)
     for _ in 1:nu
         matvec!(r, x)                      # r = A x
-        @. r = b - r                       # r = b − A x   (device broadcast)
+        _lincomb!(r, 1.0, b, -1.0)         # r = b − A x
         _jacobi_omega_kernel!(backend)(x, r, inv_d, ω; ndrange = n)
     end
     return x
@@ -462,7 +488,7 @@ function _smooth_block!(x, b, r, matvec!, blk_inv, blk_dof, lmax, nu, backend)
     nblk = size(blk_dof, 2)
     for _ in 1:nu
         matvec!(r, x)
-        @. r = b - r
+        _lincomb!(r, 1.0, b, -1.0)
         _block_jacobi_kernel!(backend)(x, r, blk_inv, blk_dof, ω; ndrange = nblk)
     end
     return x
@@ -492,7 +518,7 @@ function _amg_vcycle!(z, r, h::DeviceAMGHierarchy, fine_matvec!, backend)
     nfine = length(z)
 
     # Pre-smooth on the fine level from zero initial guess.
-    fill!(z, 0.0)
+    _par_fill!(z, 0.0)
     if h.blk_inv1 === nothing
         _smooth!(z, r, h.r1, fine_matvec!, h.inv_d1, h.lmax1, h.nu, backend, nfine)
     else
@@ -501,7 +527,7 @@ function _amg_vcycle!(z, r, h::DeviceAMGHierarchy, fine_matvec!, backend)
 
     # Fine residual → restrict to level 1 of the assembled hierarchy.
     fine_matvec!(h.z1, z)
-    @. h.z1 = r - h.z1
+    _lincomb!(h.z1, 1.0, r, -1.0)
     nlev = length(h.levels)
     b2 = nlev >= 1 ? h.levels[1].b : h.coarse_b
     _csr_mul!(b2, h.R1, h.z1, backend)
@@ -509,12 +535,12 @@ function _amg_vcycle!(z, r, h::DeviceAMGHierarchy, fine_matvec!, backend)
     # Descend through assembled levels.
     for l in 1:nlev
         lev = h.levels[l]
-        fill!(lev.x, 0.0)
+        _par_fill!(lev.x, 0.0)
         mv! = (y, x) -> _csr_mul!(y, lev.A, x, backend)
         _smooth!(lev.x, lev.b, lev.r, mv!, lev.inv_d, lev.lmax, h.nu,
                  backend, lev.A.nrows)
         mv!(lev.r, lev.x)
-        @. lev.r = lev.b - lev.r
+        _lincomb!(lev.r, 1.0, lev.b, -1.0)
         bnext = l < nlev ? h.levels[l + 1].b : h.coarse_b
         _csr_mul!(bnext, lev.R, lev.r, backend)
     end
@@ -529,7 +555,7 @@ function _amg_vcycle!(z, r, h::DeviceAMGHierarchy, fine_matvec!, backend)
         lev = h.levels[l]
         xc = l < nlev ? h.levels[l + 1].x : h.coarse_x
         _csr_mul!(lev.r, lev.P, xc, backend)      # r reused as P·x_coarse
-        @. lev.x += lev.r
+        _lincomb!(lev.x, 1.0, lev.r, 1.0)
         mv! = (y, x) -> _csr_mul!(y, lev.A, x, backend)
         _smooth!(lev.x, lev.b, lev.r, mv!, lev.inv_d, lev.lmax, h.nu,
                  backend, lev.A.nrows)
@@ -538,7 +564,7 @@ function _amg_vcycle!(z, r, h::DeviceAMGHierarchy, fine_matvec!, backend)
     # Prolong level-1 correction to the fine grid and post-smooth there.
     x1 = nlev >= 1 ? h.levels[1].x : h.coarse_x
     _csr_mul!(h.z1, h.P1, x1, backend)
-    @. z += h.z1
+    _lincomb!(z, 1.0, h.z1, 1.0)
     if h.blk_inv1 === nothing
         _smooth!(z, r, h.r1, fine_matvec!, h.inv_d1, h.lmax1, h.nu, backend, nfine)
     else
