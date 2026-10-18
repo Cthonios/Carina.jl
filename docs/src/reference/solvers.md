@@ -456,6 +456,19 @@ hierarchy setup is expensive (seconds at 500k DOF), so it is **lagged**: built
 once, then rebuilt only when the effective-mass coefficient changes (a Δt
 change) or when CG iteration growth flags it as stale.
 
+The damping of the fine-level Jacobi smoother, ω = 4/(3 λ_max) with λ_max
+the largest eigenvalue of D⁻¹K, is not lagged with the hierarchy: on the
+matrix-free path λ_max is re-estimated before every solve (ten power
+iterations from the previous eigenvector estimate), because the diagonal and
+the smoothing action are those of the current tangent.  With the bound of the
+hierarchy build, the punch at h = a/4 in case B (κ/μ = 10⁴, perfect
+plasticity) had λ_max = 4.2–4.6 against a stored 2.64 at its first plastic
+steps; ω λ_max exceeded 2, the smoother amplified the highest modes, and
+rᵀM⁻¹r < 0 in 46–60% of the CG solves.  If a preconditioner is nevertheless
+not positive for a residual, the CG solve logs rᵀz, rᵀr, rᵀKr and rᵀK′r
+(K′ the operator of the V-cycle) and continues from its iterate with the
+diagonal preconditioner.
+
 ### AMG keys
 
 | Key | Default | Description |

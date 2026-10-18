@@ -48,4 +48,38 @@
         it0, _, ok0 = Carina._device_pcg!(x, A, 1e-9 .* b, nothing, 1e-12, 10_000; atol = 1e-6)
         @test ok0 && it0 == 0 && all(iszero, x)
     end
+
+    @testset "a preconditioner that is not positive falls back to the diagonal" begin
+        # M⁻¹ = −I gives rᵀz < 0 for every r ≠ 0.  The solve reports it once
+        # and converges with the diagonal preconditioner, where it returned
+        # ΔU = 0 before 2026-10-18.
+        n = 1000
+        A = Carina.SparseArrays.spdiagm(-1 => fill(-1.0, n - 1), 0 => fill(4.0, n),
+                                        1 => fill(-1.0, n - 1))
+        b = ones(n)
+        M = Carina.LinearOperators.LinearOperator(Float64, n, n, true, true,
+                                                  (y, v) -> (y .= .-v))
+        for fallback in (nothing, fill(0.25, n))
+            x = zeros(n)
+            reports = Float64[]
+            it, _, ok = Carina._device_pcg!(x, A, b, M, 1e-10, 10_000;
+                fallback = fallback, report = (r, z, rz, rr) -> push!(reports, rz))
+            @test ok && it > 0
+            @test length(reports) == 1 && reports[1] < 0
+            @test Carina.LinearAlgebra.norm(A * x - b) <= 1e-8 * Carina.LinearAlgebra.norm(b)
+        end
+        # A preconditioner that is positive for the right-hand side but not for
+        # a later residual: rᵀz > 0 at the start, < 0 at a check.  Before
+        # 2026-10-18 the check read ρ < 0 as convergence.
+        w = zeros(n); w[1:10] .= 1.0
+        M2 = Carina.LinearOperators.LinearOperator(Float64, n, n, true, true,
+            (y, v) -> (y .= v .- 1e3 .* w .* v))
+        x = zeros(n)
+        reports = Float64[]
+        it, _, ok = Carina._device_pcg!(x, A, b .* (1.0 .- w), M2, 1e-10, 10_000;
+            fallback = fill(0.25, n), report = (r, z, rz, rr) -> push!(reports, rz))
+        @test ok
+        @test Carina.LinearAlgebra.norm(A * x - b .* (1.0 .- w)) <= 1e-8 * Carina.LinearAlgebra.norm(b)
+        @test length(reports) == 1 && reports[1] < 0
+    end
 end

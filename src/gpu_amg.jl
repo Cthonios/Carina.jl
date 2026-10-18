@@ -465,6 +465,11 @@ function DeviceAMGHierarchy(backend, ml, inv_d1, lmax1::Float64; nu::Int = 2,
                               levels, coarse_pinv, coarse_x, coarse_b, nu)
 end
 
+# The hierarchy with the fine-level bound `lmax1` replaced.
+_with_lmax1(h::DeviceAMGHierarchy, lmax1::Float64) =
+    DeviceAMGHierarchy(h.P1, h.R1, h.inv_d1, h.blk_inv1, h.blk_dof1, lmax1, h.r1, h.z1,
+                       h.levels, h.coarse_pinv, h.coarse_x, h.coarse_b, h.nu)
+
 # --------------------------------------------------------------------------- #
 # Smoothing: damped Jacobi, ν sweeps.
 #   x ← x + ω D⁻¹ (b − A x),  ω = 4/(3·λ_max)  (optimal-ish for SPD Jacobi)

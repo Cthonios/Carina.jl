@@ -154,6 +154,13 @@ mutable struct GPUAMGPreconditioner{V} <: Preconditioner
     # of the run's parameters but the properties; nothing until first used.
     compressible::Bool
     params_kp  ::Any
+    # The fine smoothing action of the V-cycle, y = K'v (K' the tangent at κ'
+    # under `operator: compressible`, else K); set by `_mf_precond_op` and read
+    # only by the breakdown report of the CG solve and the fine-level bound.
+    smooth_op  ::Any
+    # Work vectors of the power iteration for the fine-level bound (the
+    # eigenvector estimate first); nothing until first used.
+    lmax_vecs  ::Any
 end
 
 # --------------------------------------------------------------------------- #

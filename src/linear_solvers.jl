@@ -295,7 +295,7 @@ function _compute_gpu_amg_precond(asm_cpu, template, smoother::Symbol = :jacobi,
     return GPUAMGPreconditioner(collect(asm_cpu.dof.unknown_dofs),
                                 inv_d, nothing, 1.0, -1.0, 0, false, 0,
                                 smoother, nothing, nothing, blk_cols,
-                                compressible, nothing)
+                                compressible, nothing, nothing, nothing)
 end
 
 # --------------------------------------------------------------------------- #
@@ -473,6 +473,59 @@ function _update_gpu_amg_precond_qs!(precond::GPUAMGPreconditioner, asm, U, p)
     return nothing
 end
 _update_gpu_amg_precond_qs!(::Preconditioner, args...) = nothing
+
+# The fine-level bound λ_max(D⁻¹K') of the V-cycle's damped Jacobi smoother,
+# ω = 4/(3 λ_max), re-estimated before every matrix-free solve.  The bound of
+# the hierarchy build is that of the tangent at the build, and the hierarchy
+# is kept while the tangent changes; the diagonal and the smoothing action
+# are those of the current tangent.  On the punch (case B, a/4, step 10) the
+# bound of the build was 2.64 against 4.23-4.57 for the current tangent:
+# ω λ_max = 2.1-2.3 > 2, so the smoother amplified the highest modes and the
+# V-cycle was not positive (rᵀM⁻¹r < 0 in 46-60% of the solves).  The
+# estimate is ten power iterations from the previous eigenvector estimate,
+# with the 1.1 factor of the build's estimate.
+const _FINE_LMAX_ITERS = 10
+
+_refresh_fine_lmax!(::Preconditioner) = nothing
+function _refresh_fine_lmax!(precond::GPUAMGPreconditioner)
+    h = precond.hierarchy
+    S = precond.smooth_op
+    (h === nothing || S === nothing) && return nothing
+    if precond.lmax_vecs === nothing
+        n = length(precond.inv_diag)
+        v = similar(precond.inv_diag)
+        copyto!(v, sin.(1.0:n))     # not smooth, so not close to a low mode
+        precond.lmax_vecs = (v, similar(v), similar(v))
+    end
+    v, w, y = precond.lmax_vecs
+    λ = 0.0
+    v ./= norm(v)
+    for _ in 1:_FINE_LMAX_ITERS
+        S(w, v)
+        _apply_fine_dinv!(y, w, precond, h)
+        λ = norm(y)
+        λ == 0.0 && return nothing
+        @. v = y / λ
+    end
+    lmax = 1.1 * λ
+    abs(lmax - h.lmax1) > 0.05 * h.lmax1 && _carina_logf(8, :solve,
+        "    AMG fine-level bound λ_max(D⁻¹K'): %.3f → %.3f", h.lmax1, lmax)
+    precond.lmax_fine = lmax
+    precond.hierarchy = _with_lmax1(h, lmax)
+    return nothing
+end
+
+# y = D⁻¹w for the fine smoother: the pointwise or the nodal-block inverse.
+function _apply_fine_dinv!(y, w, precond::GPUAMGPreconditioner, h)
+    if h.blk_inv1 === nothing
+        @. y = precond.inv_diag * w
+    else
+        fill!(y, 0.0)
+        _block_jacobi_kernel!(KA.get_backend(y))(y, w, h.blk_inv1, h.blk_dof1, 1.0;
+                                                 ndrange = size(h.blk_dof1, 2))
+    end
+    return y
+end
 
 function _update_gpu_amg_precond_eff!(precond::GPUAMGPreconditioner, asm, U,
                                       c_M, p)
@@ -807,10 +860,12 @@ _setup_linear_ops(ig, ::NoLinearSolver,     p)  = nothing
 # may be the reduced-precision action.  Everything else takes the exact one.
 _mf_precond_op(::NoPreconditioner, n, matvec!, smooth!)          = nothing
 _mf_precond_op(p::JacobiPreconditioner, n, matvec!, smooth!)     = _jacobi_precond_op(p, n)
-_mf_precond_op(p::GPUAMGPreconditioner, n, matvec!, smooth!) =
-    LinearOperator(Float64, n, n, true, true,
+function _mf_precond_op(p::GPUAMGPreconditioner, n, matvec!, smooth!)
+    p.smooth_op = smooth!
+    return LinearOperator(Float64, n, n, true, true,
         (y, v) -> (_amg_vcycle!(y, v, p.hierarchy, smooth!,
                                 KA.get_backend(p.inv_diag)); y))
+end
 _mf_precond_op(p::ChebyshevPreconditioner, n, matvec!, smooth!)  =
     _chebyshev_precond_op(p, n, matvec!; inv_sqrt_d=p.work3)
 
@@ -1001,17 +1056,61 @@ end
 _apply_precond!(z, ::Nothing, r) = copyto!(z, r)
 _apply_precond!(z, M_op, r)      = mul!(z, M_op, r)
 
+# The diagonal preconditioner a CG solve falls back to when its own is not
+# positive; `inv_d === nothing` is none.
+struct _DiagPrecond{V}
+    inv_d::V
+end
+_apply_precond!(z, P::_DiagPrecond{Nothing}, r) = copyto!(z, r)
+_apply_precond!(z, P::_DiagPrecond, r)          = (@. z = P.inv_d * r; z)
+
 # One device-to-host read of a 1-element array (the only synchronization the
 # CG loop performs, once per _CG_CHECK_EVERY iterations).
 _cg_scalar(a) = Array(a)[1]
 
+# The fallback and the report of a CG solve whose preconditioner is not
+# positive for its residual.  The report gives rᵀz, rᵀr, rᵀKr (K the Krylov
+# operator) and, for the AMG V-cycle, rᵀK'r (K' its smoothing operator).  A
+# negative rᵀKr is an indefinite tangent; a negative rᵀK'r, an indefinite
+# operator of the preconditioner; both positive, a V-cycle that is not
+# positive although its operator is.
+_cg_fallback(::Preconditioner)          = nothing
+_cg_fallback(p::GPUAMGPreconditioner)   = p.inv_diag
+_cg_smooth_op(::Preconditioner)         = nothing
+_cg_smooth_op(p::GPUAMGPreconditioner)  = p.smooth_op
+
+function _cg_breakdown_report(precond, A_op)
+    return function (r, z, rz, rr)
+        w = similar(r)
+        mul!(w, A_op, r)
+        rKr = dot(r, w)
+        S = _cg_smooth_op(precond)
+        rKpr = S === nothing ? NaN : (S(w, r); dot(r, w))
+        _carina_logf(4, :solve,
+            "    CG: preconditioner not positive: r'z = %.3e, r'r = %.3e, r'Kr = %.3e, " *
+            "r'K'r = %.3e; diagonal preconditioner for this solve", rz, rr, rKr, rKpr)
+    end
+end
+
 # Stops when the preconditioned residual has fallen by `rtol` relative to its
 # initial value, or when the Euclidean norm of the residual is at most `atol`
 # (checked at the same synchronization points, one more dot product each).
-function _device_pcg!(ΔU, A_op, R, M_op, rtol, itmax; atol::Real = 0.0)
+#
+# If the preconditioner is not positive for a residual (rᵀM⁻¹r ≤ 0, at the
+# start or at a convergence check), `report(r, z, rᵀz, rᵀr)` is called and
+# the solve restarts from its current iterate with the diagonal preconditioner
+# `fallback` (a vector of positive inverse diagonal entries, or `nothing` for
+# none).
+#
+# rᵀM⁻¹r ≤ 0 for r ≠ 0 makes CG with M undefined.  Before 2026-10-18 the solve
+# returned ΔU = 0 when it held at the start, and reported convergence when it
+# held at a check (ρ ≤ tol² holds for ρ < 0); either left Newton at the same
+# state until its iteration limit (46-60% of the solves on the punch, case B).
+function _device_pcg!(ΔU, A_op, R, M_op, rtol, itmax; atol::Real = 0.0,
+                      fallback = nothing, report = nothing)
     ws = _device_cg_workspace(R)
     backend = KA.get_backend(R)
-    (; x, r, z, p, Ap, ρ, ρ_prev, pAp, α, β, partials) = ws
+    (; x, r, α, partials) = ws
 
     fill!(x, zero(eltype(x)))
     copyto!(r, R)
@@ -1022,20 +1121,51 @@ function _device_pcg!(ΔU, A_op, R, M_op, rtol, itmax; atol::Real = 0.0)
             return 0, 0.0, true
         end
     end
+    iters, ρ_h, status = _pcg_run!(ws, A_op, R, M_op, rtol, itmax, atol, backend, false)
+    if status === :breakdown
+        _device_dot!(α, partials, r, r, backend)
+        report === nothing || report(r, ws.z, ρ_h, _cg_scalar(α))
+        it2, ρ_h, status = _pcg_run!(ws, A_op, R, _DiagPrecond(fallback), rtol,
+                                     itmax - iters, atol, backend, true)
+        iters += it2
+    end
+    copyto!(ΔU, x)
+    return iters, sqrt(max(ρ_h, 0.0)), status === :converged
+end
+
+# The CG iteration of `_device_pcg!` from the iterate in `ws.x` (zero, or the
+# iterate at a breakdown when `restart`), with the tolerance relative to
+# RᵀM⁻¹R.  Returns (iterations, ρ, status), status :converged, :stalled (the
+# iteration limit, or a residual that is not finite) or :breakdown (ρ ≤ 0 for
+# a residual that is not zero).
+function _pcg_run!(ws, A_op, R, M_op, rtol, itmax, atol, backend, restart::Bool)
+    (; x, r, z, p, Ap, ρ, ρ_prev, pAp, α, β, partials) = ws
+    ρR = 0.0
+    if restart
+        _apply_precond!(z, M_op, R)
+        _device_dot!(ρ, partials, R, z, backend)
+        ρR = _cg_scalar(ρ)
+        mul!(Ap, A_op, x)
+        @. r = R - Ap
+    end
     _apply_precond!(z, M_op, r)
-    copyto!(p, z)
     _device_dot!(ρ, partials, r, z, backend)
     ρ0 = _cg_scalar(ρ)
+    restart || (ρR = ρ0)
     if !isfinite(ρ0) || ρ0 <= 0.0
-        # Zero RHS (already solved) or a poisoned residual; nothing to iterate.
-        copyto!(ΔU, x)
-        return 0, sqrt(abs(ρ0)), ρ0 == 0.0
+        _device_dot!(α, partials, r, r, backend)
+        rr = _cg_scalar(α)
+        # Zero residual (already solved) or a poisoned one: nothing to iterate.
+        rr == 0.0 && return 0, 0.0, :converged
+        isfinite(rr) || return 0, ρ0, :stalled
+        return 0, ρ0, :breakdown
     end
-    tol2 = (rtol * sqrt(ρ0))^2
+    copyto!(p, z)
+    tol2 = (rtol * sqrt(ρR))^2
+    ρ0 <= tol2 && return 0, ρ0, :converged
 
-    iters     = 0
-    converged = false
-    ρ_h       = ρ0
+    iters = 0
+    ρ_h   = ρ0
     # Block size adapts to the measured convergence rate.  A fixed block
     # overruns by up to blk − 1 iterations past convergence, which costs little
     # for Jacobi (many inexpensive iterations) but measurably wasteful for
@@ -1065,18 +1195,13 @@ function _device_pcg!(ΔU, A_op, R, M_op, rtol, itmax; atol::Real = 0.0)
         end
         ρ_before = ρ_h
         ρ_h = _cg_scalar(ρ)
-        if ρ_h <= tol2
-            converged = true
-            break
-        end
+        isfinite(ρ_h) || return iters, ρ_h, :stalled
+        ρ_h < 0.0 && return iters, ρ_h, :breakdown
+        ρ_h <= tol2 && return iters, ρ_h, :converged
         if atol > 0
             _device_dot!(α, partials, r, r, backend)
-            if sqrt(max(_cg_scalar(α), 0.0)) <= atol
-                converged = true
-                break
-            end
+            sqrt(max(_cg_scalar(α), 0.0)) <= atol && return iters, ρ_h, :converged
         end
-        isfinite(ρ_h) || break
         θ = (ρ_h / ρ_before)^(1 / blk_run)
         if isfinite(θ) && 0.0 < θ < 1.0
             m = log(tol2 / ρ_h) / log(θ)
@@ -1085,8 +1210,7 @@ function _device_pcg!(ΔU, A_op, R, M_op, rtol, itmax; atol::Real = 0.0)
             blk = _CG_CHECK_EVERY
         end
     end
-    copyto!(ΔU, x)
-    return iters, sqrt(max(ρ_h, 0.0)), converged
+    return iters, ρ_h, :stalled
 end
 
 # --------------------------------------------------------------------------- #
@@ -1407,8 +1531,11 @@ function _linear_solve!(ls::KrylovLinearSolver, ig::QuasiStaticIntegrator, p, op
                 solved = ls.workspace.stats.solved || abs_met[]
             end
         else
+            _refresh_fine_lmax!(ls.precond)
             niter, r_cg, solved = _device_pcg!(ΔU, K_op, R, M_op, ls.rtol_eff, ls.itmax;
-                                               atol = ls.atol)
+                                               atol = ls.atol,
+                                               fallback = _cg_fallback(ls.precond),
+                                               report = _cg_breakdown_report(ls.precond, K_op))
         end
     end
     # Feed the iteration count back to the AMG staleness detector so a hierarchy
@@ -1476,8 +1603,12 @@ function _linear_solve!(ls::KrylovLinearSolver, ig::NewmarkIntegrator, p, ops)
                     _cg_status_str(cg_hist.isconverged))
                 copyto!(ΔU, ΔU_vec)
             else
+                _refresh_fine_lmax!(ls.precond)
                 niter, r_cg, solved = _device_pcg!(ΔU, K_eff_op, R, M_op_mf,
-                                                   ls.rtol_eff, ls.itmax; atol = ls.atol)
+                                                   ls.rtol_eff, ls.itmax; atol = ls.atol,
+                                                   fallback = _cg_fallback(ls.precond),
+                                                   report = _cg_breakdown_report(ls.precond,
+                                                                                 K_eff_op))
                 _amg_track_iters!(ls.precond, _tracked_iters(ls, niter))
                 _carina_logf(8, :solve, "    CG: %d iters : |r|_CG = %.2e : %s",
                              niter, r_cg, _cg_status_str(solved))
