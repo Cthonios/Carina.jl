@@ -3524,6 +3524,39 @@ $h = a/4$ mesh to $t = 0.025$ it takes $34\,637$ conjugate-gradient
 iterations in $55$ solves against $115\,416$ in $57$, and $700$ to $1000$
 iterations per solve at the plastic steps against $2500$ to $3700$.
 
+The damped Jacobi smoother of the V-cycle uses the weight
+$\omega = 4/(3\lambda_{\max})$, where $\lambda_{\max}$ is an estimate of the
+largest eigenvalue of $D^{-1}K'$ and $D$ is the diagonal of $K'$. Under
+plastic flow this eigenvalue rises from $2.64$ in the elastic state to $4.2$
+to $5.2$. With the estimate of the elastic state the V-cycle is not positive
+definite, and $46$ to $60\%$ of the solves in case~B had
+$r^{\mathsf T} M^{-1} r < 0$, where $M^{-1}$ is the action of the V-cycle.
+Carina now estimates $\lambda_{\max}$ again before every solve. A solve
+that still meets $r^{\mathsf T} M^{-1} r \le 0$ is logged and continued
+with the diagonal preconditioner. No production run with the new estimate
+has met that condition.
+
+In case~B the tangent loses positive definiteness near $t = 0.08$, and the
+conjugate-gradient iteration assumes a positive definite operator. A direct
+solver measures the cost of this property. The case~B run at $h = a/4$
+($82\,521$ free unknowns) was repeated with the sparse direct solver of
+Carina on $36$ threads of one CPU node. The solver factors the tangent by
+Cholesky decomposition (CHOLMOD) and changes to LU decomposition when the
+Cholesky factorization fails. The Cholesky factorization failed for the
+first time at the step from $t = 0.0813$ to $0.0875$, and every later solve
+used LU decomposition. A factorization and solve took $1.9$~s on average
+with Cholesky decomposition and $9.6$~s with LU decomposition. The peak
+resident memory was $28.7$~GiB. The run reached $t = 1$ in $168$ steps
+without a cutback, with $1612$ Newton iterations, in $4.7$~h. To $t = 0.40$
+the summed time of the linear solves was $7079$~s with the direct solver
+and $16\,422$~s with the conjugate-gradient iteration on one NVIDIA A100
+GPU. Over the same interval the two runs took $812$ and $839$ Newton
+iterations and $0$ and $5$ cutbacks. Of the $953$ conjugate-gradient solves,
+$850$ stopped at the limit of $1000$ iterations. The difference in cost is
+therefore in the linear solve, not in the nonlinear iteration. The
+preconditioner, not the Krylov method, limits the iterative solver on this
+problem.
+
 \paragraph{The jump measure.} Each code writes one value of the pressure
 $p = -\operatorname{tr}\sigma/3$ and of the equivalent plastic strain per
 element: in Carina the mean of the fourteen quadrature-point values, in
@@ -3566,29 +3599,40 @@ give the full punch force at $t = 1$ and the jump statistics of the pressure
 at $t = 1$ on the four levels; Carina projects $\log J$, as Sierra/SM
 TET15-P1 does (Remark~\ref{rem:whichj2}). The Sierra/SM rows are the
 hypoelastic model; the multiplicative model agrees with it to five digits in
-force and three in the statistics in every completed pair, and replaces it in
+force and three in the statistics in every completed pair but one, and replaces it in
 CT10 $\alpha = 0$, case~B, $h = a/8$, where the hypoelastic run stalled.
+In Sierra/SM TET15-P1, case~B, $h = a/8$, the multiplicative model gives
+$14.0457$~N and the hypoelastic model $14.0440$~N. This difference of $0.012\%$ is the exception to the
+agreement to five digits. The multiplicative run used an absolute residual target of
+$10^{-6}$~N to $t = 0.85$, $10^{-5}$~N from $t = 0.85$ to $0.95$, and
+$10^{-4}$~N from $t = 0.95$ to $1$. At the target of $10^{-4}$~N the
+accepted residual is about $10^{-3}$~N, $7 \times 10^{-5}$ of the force.
+Two steps recomputed with the target of $10^{-5}$~N differ in force by
+$3.1 \times 10^{-8}$ and $4.2 \times 10^{-8}$ relative to the steps at
+$10^{-4}$~N.
 
 \begin{table}[tbp]
 \centering
 \caption{Punch indentation, quarter model: full punch force in N at $t = 1$.
-Carina TET15-P1 projects $\log J$; its rows at $h = a/8$ and in case~B at
-$h = a/4$ are running, and the Sierra/SM rows at $h = a/16$ other than
-CT10 in case~A are running. Plain \code{TETRA15}: Carina (the
-Sierra/SM runs at $a/8$ ended at a time limit at $t \approx 0.08$); the two
+Carina TET15-P1 projects $\log J$; its case~B row at $h = a/8$ is running,
+and the Carina runs at $h = a/16$ were stopped before $t = 1$. Carina TET15-P1, case~B, $h = a/4$: the
+direct solver. Sierra/SM TET15-P1, case~B, $h = a/16$, is running. Plain
+\code{TETRA15}: Carina (the Sierra/SM runs at $a/8$ ended at a time limit
+at $t \approx 0.08$); the Carina case~B row at $a/8$ is running; the two
 codes agree to $0.02\%$ at $a/2$ and $a/4$.}
 \label{tab:punchforce}
-\begin{tabular}{l rrrr rrr}
+\small
+\begin{tabular}{l rrrr rrrr}
 \toprule
-& \multicolumn{4}{c}{Case A, $H = 10^7$~Pa} & \multicolumn{3}{c}{Case B, $H = 0$} \\
-\cmidrule(lr){2-5}\cmidrule(lr){6-8}
-element & $a/2$ & $a/4$ & $a/8$ & $a/16$ & $a/2$ & $a/4$ & $a/8$ \\
+& \multicolumn{4}{c}{Case A, $H = 10^7$~Pa} & \multicolumn{4}{c}{Case B, $H = 0$} \\
+\cmidrule(lr){2-5}\cmidrule(lr){6-9}
+element & $a/2$ & $a/4$ & $a/8$ & $a/16$ & $a/2$ & $a/4$ & $a/8$ & $a/16$ \\
 \midrule
-CT10, $\alpha = 0.1$        & 25.775 & 24.954 & 24.310 & 24.058 & 17.373 & 14.645 & 14.076 \\
-CT10, $\alpha = 0$          & 24.450 & 24.202 & 24.034 & 24.010 & 15.380 & 14.025 & 14.094 \\
-Sierra/SM TET15-P1          & 24.442 & 24.160 & 24.056 & ---    & 14.666 & 14.116 & 14.044 \\
-Carina TET15-P1             & 24.434 & 24.155 & ---    & ---    & 14.657 & ---    & ---    \\
-plain \code{TETRA15}        & 28.206 & 27.221 & 25.557 & ---    & 19.328 & 18.863 & ---    \\
+CT10, $\alpha = 0.1$        & 25.775 & 24.954 & 24.310 & 24.058 & 17.373 & 14.645 & 14.076 & 14.576 \\
+CT10, $\alpha = 0$          & 24.450 & 24.202 & 24.034 & 24.010 & 15.380 & 14.025 & 14.094 & 14.051 \\
+Sierra/SM TET15-P1          & 24.442 & 24.160 & 24.056 & 24.007 & 14.666 & 14.116 & 14.044 & ---    \\
+Carina TET15-P1             & 24.434 & 24.155 & 24.052 & ---    & 14.657 & 14.112 & ---    & ---    \\
+plain \code{TETRA15}        & 28.206 & 27.221 & 25.557 & ---    & 19.328 & 18.863 & ---    & ---    \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -3600,12 +3644,14 @@ $t = 1$, normalized by the largest $|p|$ of the region; mean and 99th
 percentile over the faces of the region, with the 99th percentile in MPa
 (normalized value times the largest $|p|$) and the largest $|p|$ in MPa.
 Carina TET15-P1 agrees with Sierra/SM TET15-P1 to $0.001$ in the mean and
-$0.01$ in the 99th percentile at $h = a/2$ and $a/4$. Plain \code{TETRA15}:
+$0.01$ in the 99th percentile at $h = a/2$ and $a/4$, and in case~A at
+$a/8$. Plain \code{TETRA15}:
 Carina, whose element value is the mean of the fourteen quadrature-point
 values; Sierra/SM writes one value per element and gives a largest $|p|$ of
 $64$ and $146$~MPa at $a/2$ and $a/4$.}
 \label{tab:punchjump}
 \small
+\setlength{\tabcolsep}{5pt}
 \begin{tabular}{ll rrrr}
 \toprule
 element & & $a/2$ & $a/4$ & $a/8$ & $a/16$ \\
@@ -3615,14 +3661,14 @@ CT10, $\alpha = 0.1$ & mean / p99         & 0.158 / 1.073 & 0.048 / 0.690 & 0.02
                      & p99, max $|p|$ (MPa) & 10.6, 9.9   & 14.0, 20.3    & 8.7, 22.4     & 3.7, 26.4 \\
 CT10, $\alpha = 0$   & mean / p99         & 0.115 / 0.776 & 0.044 / 0.648 & 0.019 / 0.370 & 0.006 / 0.105 \\
                      & p99, max $|p|$ (MPa) & 4.6, 6.0    & 8.1, 12.5     & 5.0, 13.6     & 2.0, 19.2 \\
-TET15-P1             & mean / p99         & 0.065 / 0.505 & 0.025 / 0.253 & 0.010 / 0.117 & --- \\
-                     & p99, max $|p|$ (MPa) & 2.5, 4.9    & 1.9, 7.5      & 1.2, 10.4     & --- \\
+TET15-P1             & mean / p99         & 0.065 / 0.505 & 0.025 / 0.253 & 0.010 / 0.117 & 0.003 / 0.039 \\
+                     & p99, max $|p|$ (MPa) & 2.5, 4.9    & 1.9, 7.5      & 1.2, 10.4     & 0.6, 16.3 \\
 plain \code{TETRA15} & mean / p99         & 0.237 / 1.189 & 0.152 / 0.857 & 0.058 / 0.525 & --- \\
                      & p99, max $|p|$ (MPa) & 603, 507    & 508, 594      & 635, 1210     & --- \\
 \midrule
 \multicolumn{6}{l}{Case B} \\
-CT10, $\alpha = 0.1$ & mean / p99         & 0.197 / 1.229 & 0.078 / 0.763 & 0.030 / 0.409 & --- \\
-CT10, $\alpha = 0$   & mean / p99         & 0.146 / 0.961 & 0.055 / 0.616 & 0.024 / 0.343 & --- \\
+CT10, $\alpha = 0.1$ & mean / p99         & 0.197 / 1.229 & 0.078 / 0.763 & 0.030 / 0.409 & 0.013 / 0.240 \\
+CT10, $\alpha = 0$   & mean / p99         & 0.146 / 0.961 & 0.055 / 0.616 & 0.024 / 0.343 & 0.010 / 0.180 \\
 TET15-P1             & mean / p99         & 0.074 / 0.504 & 0.033 / 0.210 & 0.016 / 0.129 & --- \\
 plain \code{TETRA15} & mean / p99         & 0.345 / 1.504 & 0.198 / 1.034 & --- & --- \\
 \bottomrule
@@ -3633,7 +3679,11 @@ plain \code{TETRA15} & mean / p99         & 0.345 / 1.504 & 0.198 / 1.034 & --- 
 two implementations of TET15-P1 agree in force to $0.035\%$ (case~A) and
 $0.06\%$ (case~B) at $h = a/2$ and to $0.017\%$ at $a/4$, at every output time
 to $0.09\%$, and in the jump statistics and the axisymmetry measure to two or
-three digits. With $J - 1$ projected in Carina the difference was $0.25\%$
+three digits. At $h = a/8$ in case~A the Carina force is $0.015\%$ below
+that of Sierra/SM. In case~B at $h = a/4$ the Carina run with the direct
+solver gives $14.1121$~N, against $14.1153$~N (multiplicative model) and
+$14.1158$~N (hypoelastic model) in Sierra/SM, differences of $-0.023\%$ and
+$-0.026\%$. With $J - 1$ projected in Carina the difference was $0.25\%$
 and $0.35\%$ at $a/2$, $0.05\%$ at $a/4$ and $0.06\%$ at $a/8$: the measure
 changes the force at second order in the variation of $J$ within an element,
 largest on the coarsest mesh at the punch edge. The plain element agrees
@@ -3653,11 +3703,14 @@ stated above.
 \paragraph{Pressure jumps of TET15-P1 and CT10.} TET15-P1 has the smallest
 jumps of the four elements at every level and in both cases: at $h = a/8$
 its mean jump is $0.52$ (case~A) and $0.67$ (case~B) of that of CT10 without
-stabilization, and its 99th percentile in MPa is $0.24$ and $0.27$ of it. In
-case~A its normalized 99th percentile falls by $2.0$ and $2.2$ per halving of
-$h$, first order from $h = a/2$ on; in MPa it falls by $1.3$ and $1.6$,
-because the largest $|p|$ rises as the punch edge is resolved ($4.9$, $7.5$,
-$10.4$~MPa). CT10 without stabilization falls by $1.20$, $1.75$ and $3.52$ per
+stabilization, and its 99th percentile in MPa is $0.24$ and $0.27$ of it. At
+$h = a/16$ in case~A its mean jump is $0.53$ and its 99th percentile in MPa
+is $0.31$ of those of CT10 without stabilization. In
+case~A its normalized 99th percentile falls by $2.0$, $2.2$ and $3.0$ per
+halving of $h$, at least first order from $h = a/2$ on; in MPa it falls by
+$1.3$, $1.6$ and $1.9$, because the largest $|p|$ rises as the punch edge is
+resolved ($4.9$, $7.5$, $10.4$, $16.3$~MPa). Its mean falls by $3.0$ from
+$a/8$ to $a/16$. CT10 without stabilization falls by $1.20$, $1.75$ and $3.52$ per
 halving in the normalized 99th percentile, and in MPa rises from $a/2$ to
 $a/4$ and falls by $1.6$ and $2.5$ from $a/4$ to $a/8$ and from $a/8$ to
 $a/16$; its mean falls by $2.6$, $2.3$ and $3.1$. With the stabilization the
@@ -3666,17 +3719,37 @@ $0.76$, $1.61$ and $2.32$. Up to $h = a/8$ the decay of CT10 is
 pre-asymptotic, and from $a/8$ to $a/16$ it is faster than first order in
 both measures, with and without stabilization. In case~B the mean of TET15-P1 falls at first order ($2.3$,
 $2.0$) and its normalized 99th percentile by $2.4$ and then $1.6$, while
-that of CT10 without stabilization falls by $1.6$ and $1.8$. The equivalent
-plastic strain shows no mode in any element: its jump statistics are of the
-same size for all four elements and decay by $2.1$ to $3.6$ per halving.
+that of CT10 without stabilization falls by $1.6$ and $1.8$. From $a/8$ to
+$a/16$ in case~B the mean of CT10 falls by $2.4$ without stabilization and
+by $2.4$ with it, and its normalized 99th percentile by $1.9$ and $1.7$.
+The equivalent plastic strain shows no mode in any element: its jump
+statistics are of the same size for all four elements and decay by $2.1$ to
+$3.9$ per halving.
 
 \paragraph{The stabilization of CT10.} The parameter $\alpha = 0.1$ raises
 the force of CT10 by $5.4\%$, $3.1\%$ and $1.1\%$ at $h = a/2$, $a/4$ and
-$a/8$ and $0.20\%$ at $a/16$ in case~A and by $13\%$, $4.4\%$ and $-0.1\%$ in
-case~B, and its
-normalized 99th percentile by $5$ to $38\%$, with the largest $|p|$ $1.6$ to
+$a/8$ and $0.20\%$ at $a/16$ in case~A and by $13\%$, $4.4\%$, $-0.1\%$ and
+$3.7\%$ in case~B, and its
+normalized 99th percentile by $5$ to $38\%$, with the largest $|p|$ $1.4$ to
 $2.5$ times that without it. On this problem there is no oscillation in CT10
 for the stabilization to remove; it adds stiffness and pressure extremes.
+
+\paragraph{Mesh dependence of the force in case~B.} In case~B the CT10
+force at $h = a/16$ differs from that at $a/8$ by more than in case~A. With
+$\alpha = 0.1$ the difference ranges from $-4.8\%$ at $t = 0.25$ to
+$+4.1\%$ at $t = 0.90$, and it is $+3.6\%$ at $t = 1$. Without
+stabilization it ranges from $-2.5\%$ at $t = 0.25$ to $+2.3\%$ at
+$t = 0.65$, and it is $-0.3\%$ at $t = 1$. In both rows the $a/16$ force is
+below the $a/8$ force up to about $t = 0.45$ and above it after. Two
+repetitions of the $a/8$ run with $\alpha = 0.1$ test whether the
+difference comes from the time step. The maximum step at $a/8$ is
+$3.125 \times 10^{-3}$; the repetitions use $1.5625 \times 10^{-3}$, the
+maximum step at $a/16$, and $7.8125 \times 10^{-4}$. Their forces differ
+from that of the original $a/8$ run by at most $0.019\%$ and $0.035\%$ over
+the twenty output times. The difference between $a/8$ and $a/16$ is
+therefore an effect of the mesh, not of the time step. The force of
+TET15-P1 in case~B changes by $-0.51\%$ from $a/4$ to $a/8$; its value at
+$a/16$ is not yet available.
 
 \paragraph{What the benchmark establishes, and what it does not.} The two
 implementations of TET15-P1 agree to the stopping tolerance of the nonlinear
@@ -3684,20 +3757,44 @@ solve; TET15-P1 does not lock, carries the smallest pressure jumps of the
 elements compared, and its jumps decay under refinement from the coarsest
 level on. The plain element locks and carries a pressure mode that grows
 under refinement. CT10, with and without stabilization, does not show an
-element-to-element pressure mode that persists under refinement: on the
-finest level its jumps decay faster than first order. The soft modes of
+element-to-element pressure mode that persists under refinement: in case~A on the
+finest level its jumps decay faster than first order, and in case~B they
+decay at about first order from $a/8$ to $a/16$. The soft modes of
 constant-pressure elements found in the linearized analysis of
 \S\ref{sec:plastic} carry a dilatation that varies within an element and
 averages to zero over it; the jump measure compares element averages and
 does not see such a mode (\S\ref{sec:punch}, the jump measure), so the
 benchmark neither confirms nor refutes them. A measure that resolves the
 pressure within an element (the quadrature-point values of TET15-P1 and the
-sub-tetrahedron values of CT10) is the measurement that would. TET15-P1 at
-$h = a/16$ and case~B at $a/16$ are running. Sierra/SM solves case~B at $a/16$
-only with difficulty for every element: its runs stall in the nonlinear
-iteration at $t = 0.04$ to $0.14$, and three solver settings are being
-tried. The definition of the problem, the drivers, the meshes and the
-extraction are in \code{benchmark/tet15-p1/punch}.
+sub-tetrahedron values of CT10) is the measurement that would. Sierra/SM
+TET15-P1 in case~B at $h = a/16$ is running. The definition of the problem,
+the drivers, the meshes and the extraction are in
+\code{benchmark/tet15-p1/punch}.
+
+\paragraph{Case~B at $h = a/16$ in Sierra/SM.} Sierra/SM solves each step by
+a nonlinear conjugate-gradient iteration preconditioned by the full tangent,
+which is applied by a linear solver. With the initial settings every
+case~B run at $h = a/16$ stalled in the nonlinear iteration between
+$t = 0.04$ and $0.14$. Four changes of the solver settings, applied in
+restarts, remove the stalls. The first raises the limit on the nonlinear
+iterations of a step from $400$ to $1600$, so that slowly converging steps
+are not cut back. The second sets the target iteration count of the
+adaptive step control to the same $1600$, so that a step accepted at the
+limit keeps its step size instead of halving it. The third raises the
+absolute residual target from $10^{-6}$~N to $10^{-5}$~N, because the
+residual of TET15-P1 stagnated at a level between the target and the
+acceptable residual, ten times the target. The fourth, for TET15-P1 only,
+replaces the FETI-DP preconditioner by a two-level overlapping Schwarz
+preconditioner of the generalized Dryja--Smith--Widlund (GDSW) type, under
+which the linear solves no longer stagnate. With GDSW the nonlinear
+iteration limit is lowered to $200$. An attempt that fails under GDSW keeps
+a relative residual near $1$ ($0.93$ in the first one observed), and the
+step converges after the cutback. The lower limit shortens such a failed
+attempt from about $40$~h to about $4.5$~h. In single runs the maximum step
+is halved to $7.8125 \times 10^{-4}$ after an attempt makes no progress
+over more than $100$ iterations. The three CT10 runs of case~B at $a/16$
+are complete with these changes. The TET15-P1 runs reached $t = 0.42$
+(hypoelastic) and $t = 0.29$ (multiplicative) on 2026-10-18.
 
 \paragraph{Domain decomposition in Sierra/SM.} At $16$ ranks and more the
 default partition of the mesh, recursive inertial bisection, leaves single
@@ -3763,8 +3860,8 @@ no spurious mode among the twenty softest of the Crouzeix--Raviart pair at
 $N = 5$ against five to nineteen for the constant-pressure elements. In
 the nonlinear indentation benchmark (\S\ref{sec:punch}) the element-to-element
 pressure jumps of TET15-P1 are the smallest of the elements compared and
-decay under refinement, and those of CT10 decay as well, faster than first
-order on the finest level; that measurement compares element averages and
+decay under refinement, and those of CT10 decay as well, in case~A faster
+than first order on the finest level; that measurement compares element averages and
 does not resolve the modes above.
 
 \paragraph{No volumetric locking.} \S\ref{sec:assembled}: the discretely
@@ -3797,9 +3894,9 @@ against $0.476$ for TET4.
 \paragraph{Open measurements.} Four remain. An unstructured mesh sequence
 for the negative stability results, which are established here on the
 Freudenthal family only (Remark~\ref{rem:structured}). The finest level of
-the indentation benchmark of \S\ref{sec:punch}: TET15-P1 at $h = a/16$, and
-case~B at $a/16$ for every element, which Sierra/SM solves only with
-difficulty. A measurement of the pressure within each element on that
+the indentation benchmark of \S\ref{sec:punch}: TET15-P1 in case~B at
+$h = a/16$, which Sierra/SM solves only with changed solver settings. A
+measurement of the pressure within each element on that
 benchmark, which alone can show the soft modes of constant-pressure elements
 found in the linearized analysis: their dilatation varies within an element
 and averages to zero, and the element-to-element jumps measured so far,
