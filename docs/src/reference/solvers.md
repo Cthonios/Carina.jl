@@ -213,7 +213,7 @@ Configured under `solver.linear solver`.
 
 | `type` | Aliases | CPU | GPU | Description |
 |---|---|---|---|---|
-| `direct` | — | yes | **no** | Sparse LU. Robust, no tuning. |
+| `direct` | — | yes | **no** | Sparse supernodal Cholesky (CHOLMOD); sparse LU when the tangent is not symmetric positive definite. No tuning. |
 | `iterative` | `cg`, `krylov`, `minres`, `conjugate gradient` | yes | yes | Conjugate gradient. All aliases produce CG — the stiffness is SPD. |
 | `lbfgs` | — | yes | yes | L-BFGS quasi-Newton. Matrix-free. |
 | `none` | — | yes | yes | No linear solve; for NLCG / steepest descent. |
@@ -223,6 +223,18 @@ Selecting `direct` on a GPU backend is a hard error:
 ```
 solver.linear_solver.type = "direct" is CPU-only.
 ```
+
+The direct solver factors the assembled tangent by sparse supernodal Cholesky
+(CHOLMOD) when the tangent is symmetric to a relative tolerance of 1e-10 in the infinity
+norm. The factor is allocated once and refactored in place at every Newton
+iteration, since the sparsity pattern does not change. If a factorization
+finds the tangent not positive definite (buckling, softening, an inverted
+element), the solver logs "Tangent lost positive definiteness; switching to
+LU." and uses sparse LU for the rest of the run. A tangent that fails the
+symmetry test goes to LU from the start. At 530k degrees of freedom and
+40.2M nonzeros on 24 threads, one Cholesky factorization takes 6.7 s and
+retains a 6.8 GB factor; LU takes 37.8 s. The factor grows with the number of
+unknowns n at a rate of about n^{4/3} on three-dimensional meshes.
 
 ### Iterative keys
 
