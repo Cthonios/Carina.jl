@@ -3553,7 +3553,13 @@ and $16\,422$~s with the conjugate-gradient iteration on one NVIDIA A100
 GPU. Over the same interval the two runs took $812$ and $839$ Newton
 iterations and $0$ and $5$ cutbacks. Of the $953$ conjugate-gradient solves,
 $850$ stopped at the limit of $1000$ iterations. The difference in cost is
-therefore in the linear solve, not in the nonlinear iteration. The
+therefore in the linear solve, not in the nonlinear iteration. To $t = 1$
+the conjugate-gradient run took $173$ steps, $5$ cutbacks, $1656$ Newton
+iterations and $1866$ linear solves, of which $1666$ stopped at the
+limit, with a summed solve time of $32\,747$~s and a wall time of
+$9.3$~h. Its force at $t = 1$ is $14.1124$~N, $0.002\%$ above that of the
+direct solver, and its jump statistics agree with those of the direct
+solver to four digits. The
 preconditioner, not the Krylov method, limits the iterative solver on this
 problem.
 
@@ -3615,8 +3621,7 @@ $10^{-4}$~N.
 \centering
 \caption{Punch indentation, quarter model: full punch force in N at $t = 1$.
 Carina TET15-P1 projects $\log J$; its case~B row at $h = a/8$ is running,
-and the Carina runs at $h = a/16$ were stopped before $t = 1$. Carina TET15-P1, case~B, $h = a/4$: the
-direct solver. Sierra/SM TET15-P1, case~B, $h = a/16$, is running. Plain
+and the Carina runs at $h = a/16$ were stopped before $t = 1$. Sierra/SM TET15-P1, case~B, $h = a/16$, is running. Plain
 \code{TETRA15}: Carina (the Sierra/SM runs at $a/8$ ended at a time limit
 at $t \approx 0.08$); the Carina case~B row at $a/8$ is running; the two
 codes agree to $0.02\%$ at $a/2$ and $a/4$.}
@@ -3680,8 +3685,9 @@ two implementations of TET15-P1 agree in force to $0.035\%$ (case~A) and
 $0.06\%$ (case~B) at $h = a/2$ and to $0.017\%$ at $a/4$, at every output time
 to $0.09\%$, and in the jump statistics and the axisymmetry measure to two or
 three digits. At $h = a/8$ in case~A the Carina force is $0.015\%$ below
-that of Sierra/SM. In case~B at $h = a/4$ the Carina run with the direct
-solver gives $14.1121$~N, against $14.1153$~N (multiplicative model) and
+that of Sierra/SM. In case~B at $h = a/4$ the Carina runs with the direct
+solver and with the conjugate-gradient solver give $14.1121$ and
+$14.1124$~N, against $14.1153$~N (multiplicative model) and
 $14.1158$~N (hypoelastic model) in Sierra/SM, differences of $-0.023\%$ and
 $-0.026\%$. With $J - 1$ projected in Carina the difference was $0.25\%$
 and $0.35\%$ at $a/2$, $0.05\%$ at $a/4$ and $0.06\%$ at $a/8$: the measure
