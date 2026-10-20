@@ -91,8 +91,9 @@ developed, $\theta = \log J$ with the Hencky material and $\theta = J - 1$
 with the $J_2$ plasticity model of Simo and Hughes. The element implemented
 projects $\theta = \log J$, the volumetric part of the logarithmic strain,
 in both forms, and the $J_2$ model is used with the volumetric energy
-$\tfrac{\kappa}{2}(\log J)^2$ in place of its original
-$\tfrac{\kappa}{2}(J-1)^2$ (Remark~\ref{rem:whichj2}). The discrete spaces are the
+$\tfrac{\kappa}{2}(\log J)^2$ in place of the volumetric energy
+$\tfrac{\kappa}{2}(J-1)^2$ of its implementation in Norma
+(Remark~\ref{rem:whichj2}). The discrete spaces are the
 three-dimensional Crouzeix--Raviart pair: the quadratic tetrahedron enriched
 with four cubic face bubbles and one quartic interior bubble, polynomials
 that vanish on a prescribed part of the element boundary, carried by a nodal
@@ -100,24 +101,39 @@ basis on fifteen nodes (the TET15 displacement element), over a pressure that is
 linear in the reference coordinates of each element and discontinuous
 between elements; the name of the element states the two spaces, fifteen
 nodes for the displacement and a linear ($P_1$) pressure. Volumetric locking, the excess stiffness of a
-discretization as $\kappa/\mu$ grows, and spurious soft modes, discrete
+discretization as $\kappa/\mu$ grows, measured here as a loss of the rate
+of convergence at large $\kappa/\mu$ that does not vanish under
+refinement, and spurious soft modes, discrete
 displacements of vanishing energy, are failures of the two hypotheses of
 Brezzi's theorem for the pair of discrete spaces: the inf-sup condition,
 that every discrete pressure is resisted by some discrete displacement with
 a constant independent of the mesh, and coercivity of the deviatoric form on
 the discretely isochoric subspace. The inf-sup constant of the pair is
-measured over a mesh sequence at $0.2968$, against $0.2216$ for the
+measured over a structured mesh sequence at $0.2968$, against $0.2216$ for the
 Taylor--Hood pair (continuous quadratic displacement over continuous linear
 pressure), whose stability is established; of seven element-local pairs two
-are stable and five decay. Under a plastic tangent that removes the shear
+are stable and five decay. On randomly perturbed meshes the constant of the
+pair lies between $0.287$ and $0.295$, and on unstructured meshes between
+$0.319$ and $0.332$ beyond the coarsest one. Under a plastic tangent that removes the shear
 stiffness along the flow direction, the coercivity constant cannot separate
 pairs, and what separates them is the dilatation carried by their softest
 modes: $0.20$ to $0.27$ without decay under refinement for elements with a
-constant pressure, the composite tetrahedron CT10 of Albany-LCM \citep{Foulk.etal:2021} with its
-volume-averaged $J$ among them, against a decay as the square of the mesh
-size $h$ for the Crouzeix--Raviart pair, which in a confined plastic zone has
-no spurious mode among its twenty softest where the constant-pressure
-elements retain between five and nineteen. On Cook's membrane in three
+constant pressure, the composite tetrahedron CT10 \citep{Foulk.etal:2021},
+measured in its Albany implementation with its
+volume-averaged $J$, among them, against a decay at local rates of $3.1$
+to $2.2$ in the mesh size $h$ for the Crouzeix--Raviart pair on structured
+meshes. The smallest energy of a discretely isochoric displacement with a
+prescribed dilatation, a measure that does not depend on the number of
+eigenpairs computed, lies above the infimum of the continuum for the
+Crouzeix--Raviart pair on every mesh except one strongly perturbed mesh,
+and below it for the constant-pressure pairs. On unstructured meshes the
+Crouzeix--Raviart pair has element-scale dilatational members within
+$12\%$ of its lowest eigenvalue. Against a manufactured solution in linear
+elasticity, the error of the element at $\kappa/\mu = 10^6$ is $1.36$ times
+its error at $\kappa/\mu = 1$ on the finest mesh, and its rate of
+convergence at $\kappa/\mu = 10^6$ is $0.047$ below the rate at
+$\kappa/\mu = 1$, a difference that decreases under refinement; the
+quadratic tetrahedron without projection loses $0.94$ in rate. On Cook's membrane in three
 dimensions at Poisson's ratio $0.4999$, on three meshes of $327$ to $14\,475$
 elements, TET15-P1 and CT10 agree in the tip displacement within $0.6\%$ on every mesh, and
 their pressure fields are smooth away from the singular clamped edge, where
@@ -127,22 +143,30 @@ ratio $0.29$ every element converges to the same tip displacement within
 $0.5\%$ on the finest mesh. A fourteen-point quadrature rule exact to degree
 five is the smallest that leaves the element its six rigid-body modes, the
 row-sum lumped mass of the nodal basis is positive, and the explicit stable
-step is $3.3$ times smaller than that of the linear tetrahedron. On the
+step is $3.3$ times smaller than that of the linear tetrahedron. The
+consistent mass matrix requires a rule of degree eight, and both
+implementations integrate it with a conical product rule of degree nine
+with $125$ points. On the
 Taylor bar impact in explicit dynamics, with plastic strains above $3$,
-TET15-P1 gives the final radius within $0.06\%$ of the converged value on
-$25\,029$ elements, where CT10 needs $1.5$ million
-elements for $0.09\%$, at $1/67$ of its core-seconds on the same machine;
-per element and time step on one core it takes $1.40$ times as long. On the
+TET15-P1 gives the final radius within $0.07\%$ of the extrapolated
+converged value on $25\,029$ elements, where CT10 needs $1.5$ million
+elements for $0.09\%$; within Sierra/SM the first costs $1/54$ of the
+core-seconds of the second, and per element and time step it takes at most
+$2.6$ times as long. On the
 indentation of a cylinder by a flat punch at $\kappa/\mu = 10^4$, a plastic
 zone confined by elastic material, on four levels of refinement, two
-independent implementations of the element agree in force within
-$0.035\%$; its element-to-element pressure jumps are the smallest of the
+independent implementations of the element, with different $J_2$ models,
+agree in force within $0.06\%$; its element-to-element pressure jumps are the smallest of the
 elements compared and decay under refinement, and the quadratic tetrahedron
 without projection locks and carries a pressure mode that grows under
 refinement. CT10 shows no element-to-element pressure mode that persists:
-its jumps decay faster than first order on the finest level. The soft modes
+its jumps decay faster than first order on the finest level in case~A. The soft modes
 of the linearized analysis vary within an element and are not resolved by
-that measurement.
+that measurement. In the perfectly plastic case the assembled tangent of
+TET15-P1 loses positive definiteness at an unconverged Newton iterate. Its
+negative eigenvalue comes from the pressure term of the tangent, evaluated
+at a projected pressure of $316$ times the yield stress against $1.8$ to
+$2.3$ times at the converged states.
 \end{abstract}
 
 \section{Problem statement}
@@ -878,7 +902,7 @@ independent strain, whose stationarity conditions are those of
 \paragraph{The case developed in detail.} Table~\ref{tab:split} admits two
 materials with a quadratic $W\supvol$, and they do not agree on the variable:
 Hencky is quadratic in $\log J$ to $1.7\times10^{-15}$, and the Simo--Hughes
-$J_2$ model in its original form is quadratic in $J-1$ to
+$J_2$ model as implemented in Norma \citep{Norma} is quadratic in $J-1$ to
 $5.3\times10^{-15}$. Each is exact in its own variable and wrong by $18\%$ in
 the other. The implemented $J_2$ model replaces its volumetric energy by
 $\tfrac{\kappa}{2}(\log J)^2$ (Remark~\ref{rem:whichj2}), so that both
@@ -1435,7 +1459,7 @@ to one element. \S\ref{sec:basis} measures the two bases; the nodal one is
 used.
 
 \paragraph{Quadrature.} The element is integrated with the fourteen-point
-rule of \citet{Keast:1986}, exact for polynomials of degree five, with
+rule of \citet{Walkington:2000}, exact for polynomials of degree five, with
 positive weights. Its points are three orbits of the symmetry group of the
 tetrahedron: two orbits of four points with barycentric coordinates
 $(1 - 3a, a, a, a)$ and its permutations, and one orbit of six points with
@@ -1453,11 +1477,80 @@ $b_T$ is cubic and the stiffness integrand of its block is of degree six,
 which the rule integrates with an error of $35\%$ on that block
 (\S\ref{sec:basis}); the rules of degree two and three (four and five
 points) leave the element twenty-one zero-energy modes beyond the six
-rigid-body modes and cannot be used. The same rule integrates the mass
-matrix, the projection \eqref{eq:projection} and the residual.
+rigid-body modes and cannot be used. The five-point rule of degree three
+of \citet{Keast:1986} has a negative weight at the centroid and gives an
+indefinite element stiffness, with $15$ zero and $6$ negative eigenvalues.
+The same fourteen-point rule integrates the projection
+\eqref{eq:projection}, the residual and the row-sum lumped mass. The row
+sums are integrals of quartic functions and are exact under the rule.
+
+\paragraph{Consistent mass.} The consistent mass is not exact under the
+fourteen-point rule, and it is singular under it. Under a rule with
+fourteen points the scalar consistent mass of the element is a sum of
+fourteen matrices of rank one, so its rank is at most fourteen for
+fifteen functions. The function of the space that vanishes at the fourteen
+points is in its null space. Assembled on Freudenthal meshes of the unit
+cube with $N = 1$, $2$ and $3$ and no boundary condition, the scalar mass
+under the fourteen-point rule has one zero eigenvalue, and the exactly
+integrated mass has none. The integrand of the mass is a polynomial of
+degree eight, so the consistent mass requires a rule of degree eight.
+The conical product rule with five Gauss--Jacobi points in each direction,
+of degree nine with $125$ positive weights, integrates it exactly. The
+mass is computed once per element in the reference configuration, so the
+cost of the rule is incurred once. Table~\ref{tab:massrule} compares the
+rules on the reference element in the nodal basis.
+
+\begin{table}[tbp]
+\centering
+\caption{Rules for the consistent mass of the enriched element, nodal
+basis, reference element: zero eigenvalues of the scalar element mass,
+its condition number, the largest error of an entry against exact
+integration relative to the largest entry, and the number of zero
+eigenvalues of the assembled scalar mass on the Freudenthal meshes with
+$N = 2$ and $3$ and no boundary condition. The row sums are exact under
+every rule, to $3.3\times10^{-15}$. Script: \code{prototype/mass\_rule.jl}
+and \code{prototype/mass14.jl}.}
+\label{tab:massrule}
+\small
+\begin{tabular}{@{}lrrrrr@{}}
+\toprule
+rule & degree & points & zero eigenvalues & condition number & entry error \\
+\midrule
+Walkington           & 5 & 14  & 1 (assembled 1, 1) & $\infty$ & $1.7\times10^{-1}$ \\
+conical              & 5 & 27  & 0 (0, 0) & 123.0 & $7.3\times10^{-2}$ \\
+conical              & 7 & 64  & 0 (0, 0) & 94.4  & $1.0\times10^{-3}$ \\
+conical              & 9 & 125 & 0 (0, 0) & 93.6  & $2.6\times10^{-15}$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Both implementations, Carina TET15-P1 and Sierra/SM TET15-P1, form the
+consistent mass of the element with the $125$-point rule and the lumped
+mass with the row sums of the fourteen-point rule. In both, the reference
+element mass agrees with the mass computed in rational arithmetic, or with
+a rule of degree fifteen, to within $2.1\times10^{-15}$ in each entry,
+against a largest entry of $0.026$. Its condition number is $93.6$, and it
+has no zero eigenvalue. On an affine element the mass equals the
+reference mass scaled by $\rho\det\nabla\!~x$, its sum equals $\rho V$,
+and its row sums equal the lumped mass, each to within
+$6\times10^{-16}$ relative to $\rho V$ in Sierra/SM and $10^{-14}$ in
+Carina. In Carina the mass assembled on a mesh of the unit cube with
+$891$ unknowns and no boundary condition has no zero eigenvalue. Its
+matrix-free action agrees with the assembled matrix, and between the CPU
+and the GPU, to within $3\times10^{-15}$ relative. The action takes
+$5.3~\mu$s per element on one CPU core, against $3.5~\mu$s with the
+fourteen-point rule. The plain fifteen-node tetrahedron, without the
+projection, still uses the fourteen-point rule for its consistent mass in
+Carina. No result of this note uses the consistent mass: the explicit
+computations use the row-sum lumped mass, and the quasi-static ones have
+no mass. With the implicit integrator the effective matrix $~K + c\,~M$
+of a step is positive definite when $~K$ is, under either rule. An
+operation that inverts the consistent mass alone, such as the computation
+of an initial acceleration, requires the rule of degree eight or higher.
 
 \paragraph{Mass.} The consistent mass matrix in the nodal basis has
-condition number $94$ on the reference element. Its row sums, $m_a = \rho
+condition number $93.6$ on the reference element with exact integration.
+Its row sums, $m_a = \rho
 \int_e N_a \diff V$, are positive at every node because the nodal basis is
 a partition of unity with positive integrals: as fractions of the element
 mass they are $0.020$ at each vertex, $0.038$ at each edge midpoint, $0.096$
@@ -1740,8 +1833,12 @@ makes the isochoric term independent of $J$ by construction --- and its
 $W\supvol$ is quadratic in $\log J$, so the element of
 \S\ref{sec:discretization} uses it in the variable $\theta = \log J$ with no
 change other than the omission of the volumetric term from the stress the
-model returns. The original model of Simo and Hughes has
-$W\supvol = \tfrac{\kappa}{2}(J-1)^2$; the two volumetric laws agree to
+model returns. The implementation of the model in Norma \citep{Norma}, the
+Julia finite element code from which Carina descends and whose material
+library it shares, has $W\supvol = \tfrac{\kappa}{2}(J-1)^2$, and
+\citet[BOX~9.1]{SimoHughes:1998} use
+$W\supvol = \tfrac{\kappa}{2}\bigl[\tfrac12(J^2 - 1) - \log J\bigr]$;
+these volumetric laws and the logarithmic one agree to
 second order in $J - 1$, and the logarithmic one is used so that the
 element projects the volumetric part of the logarithmic strain whatever the
 material, which is also what Sierra/SM TET15-P1 projects. Until 2026-10-16
@@ -1783,8 +1880,8 @@ A count of exact zero-energy modes on one element is therefore not an argument
 against a constant pressure in elasticity; \S\ref{sec:assembled} shows that
 those modes do not persist after assembly.
 
-Under plastic loading the consistent $J_2$ tangent, the derivative of the
-stress returned by \eqref{eq:return} with respect to the strain, is
+Under plastic loading the continuum elastoplastic tangent of $J_2$
+plasticity at infinitesimal strain is
 \begin{equation}
   \label{eq:cep}
   \mathbb{C}^{\mathrm{ep}} = 2\mu \left( \mathbb{I}\supdev - \eta\, ~n \otimes ~n \right),
@@ -1796,7 +1893,12 @@ stress returned by \eqref{eq:return} with respect to the strain, is
   \eta = \frac{2\mu}{2\mu + \tfrac{2}{3}\mathcal{H}''} ,
 \end{equation}
 with $\eta = 1$ for perfect plasticity: the shear stiffness along the flow
-direction is removed.
+direction is removed. The algorithmic tangent of the radial return
+\eqref{eq:return} differs from \eqref{eq:cep}: it also scales the
+deviatoric part by $1 - 2\mu\Delta\gamma/\norm{\sdev^{\mathrm{tr}}}$, and
+at finite strain it has further terms. The measurements of
+\S\ref{sec:plastic} use \eqref{eq:cep} at $\F = \Id$, with one flow
+direction and one value of $\eta$ in the whole domain.
 
 Read as a constant, the second hypothesis cannot separate pairs. For every $~v \in H^1_0(\Omega)$,
 integration by parts gives $\int \lvert\dev\eps\rvert^2 \diff V =
@@ -1827,22 +1929,38 @@ $\kappa \int (\Div ~v)^2 \diff V$ in the continuum and none in the element,
 so once the tangent removes its shear energy the element assigns it zero
 energy. That is the soft
 mode reported for constant-pressure elements, and whether $\ker ~G_h$
-contains such members is a property of the pair. For a pair satisfying the
-inf-sup condition, $\ker ~G_h$ approximates the space of isochoric
-displacements at the rate of $U_h$ \citep[Prop.~5.1.3]{BoffiBrezziFortin:2013},
-so the dilatation carried by any of its members vanishes with $h$. For an
-element-constant pressure on a quadratic displacement, $\ker ~G_h$ contains
-displacements whose dilatation is nonzero pointwise and averages to zero over
-each element, and their dilatation does not vanish with $h$.
+contains such members is a property of the pair.
 
-The claim is therefore the following. Under a plastic tangent, every
-soft mode of the stable pair with a linear discontinuous pressure carries a
-dilatation $\int (\Div ~v)^2 \diff V / \int \lvert\Grad ~v\rvert^2 \diff V$
-that vanishes under refinement, and a constant pressure has soft modes whose
-dilatation does not; the soft modes reported for constant-pressure elements
-are the latter, and no stabilization is needed where they are absent. Both operators are linear at a fixed plastic state,
-so the claim is tested without a nonlinear solve, and \S\ref{sec:plastic}
-tests it. If the dilatation of the soft modes does not separate the pairs,
+The inf-sup condition does not exclude such members. By scaling, a member
+of $\ker ~G_h$ supported on a few elements can carry a dilatation of order
+one at every $h$, for any pair. An earlier version of this note cited
+\citet[Prop.~5.1.3]{BoffiBrezziFortin:2013} for the statement that the
+dilatation of every member of $\ker ~G_h$ vanishes with $h$ for a stable
+pair. That proposition bounds the distance from the continuous kernel to
+the discrete one and not the reverse, and Taylor--Hood, which is stable,
+has members of $\ker ~G_h$ that are dilatation almost entirely
+(\S\ref{sec:plastic}); the statement is withdrawn. A bound specific to the
+pair applies to members that are smooth on the scale of the mesh. For a
+member $~v$ of $\ker ~G_h$ of the Crouzeix--Raviart pair, $\Div ~v$ is
+orthogonal to the linear functions on every element $K$, so
+$\norm{\Div ~v}_{L^2(K)} \le C h_K^2 \lvert \Div ~v \rvert_{H^2(K)}$.
+For a constant pressure the corresponding bound is
+$C h_K \lvert \Div ~v \rvert_{H^1(K)}$. The bound gives no information on
+members that vary on the scale of the element.
+
+A family of members of $\ker ~G_h$ whose dilatation
+$r_v = \int (\Div ~v)^2 \diff V / \int \lvert\Grad ~v\rvert^2 \diff V$
+does not decrease under refinement is called here a family of spurious
+dilatational modes. Its eigenvalue need not tend to zero; it matters when
+it is among the softest modes. The claim is therefore the following, and
+it is a claim about measurements. Under a plastic tangent, the softest
+modes of the pair with a linear discontinuous pressure carry a dilatation
+that decreases under refinement, and those of a constant pressure carry a
+dilatation that does not; the soft modes reported for constant-pressure
+elements are of the latter kind. Both operators are linear at a fixed
+plastic state, so the claim is tested without a nonlinear solve, and
+\S\ref{sec:plastic} tests it, on structured, perturbed and unstructured
+meshes. If the dilatation of the soft modes does not separate the pairs,
 the formulation has no advantage over the constant-pressure elements it is
 meant to replace.
 
@@ -2277,34 +2395,39 @@ pressure mode of that pair (script \code{prototype/infsup.jl}).
 
 \begin{table}[h]
 \centering
-\begin{tabular}{@{}lrrrrrr@{}}
+\footnotesize
+\setlength{\tabcolsep}{3.5pt}
+\begin{tabular}{@{}lrrrrrrrrr@{}}
 \toprule
-Pair & $h = 1/2$ & $1/4$ & $1/6$ & $1/8$ & null & local rate \\
+Pair & $N = 2$ & $3$ & $4$ & $5$ & $6$ & $7$ & $8$ & null & rate \\
 \midrule
-$P_2/P_1$ continuous (control) & 0.1734 & 0.2186 & 0.2214 & \textbf{0.2216} & 1 & $-0.003$ \\
+$P_2/P_1$ continuous (control) & 0.1734 & 0.2096 & 0.2186 & 0.2206 & 0.2214 & 0.2215 & \textbf{0.2216} & 1 & $-0.002$ \\
 \midrule
-$P_2/P_0$                      & 0.1001 & 0.0755 & 0.0544 & 0.0418 & 4 & $0.97$ \\
-$\oplus\, b_{\mathrm{int}}$    & 0.1015 & 0.0756 & 0.0544 & --- & 4 & $0.84$ \\
-$\oplus\, b_{\mathrm{face}}$   & 0.4671 & 0.4228 & 0.4060 & \textbf{0.3967} & 1 & $0.076$ \\
+$P_2/P_0$                      & 0.1001 & 0.0926 & 0.0755 & 0.0633 & 0.0544 & 0.0476 & 0.0418 & 4 & $0.97$ \\
+$\oplus\, b_{\mathrm{int}}$    & 0.1015 & 0.0927 & 0.0756 & 0.0634 & 0.0544 & --- & --- & 4 & $0.84$ \\
+$\oplus\, b_{\mathrm{face}}$   & 0.4671 & 0.4383 & 0.4228 & 0.4129 & 0.4059 & 0.4007 & \textbf{0.3967} & 1 & $0.076$ \\
 \midrule
-$P_2/P_1^{\mathrm{disc}}$      & 0.1132 & 0.0424 & 0.0277 & --- & $n_p - n_u$ & $1.04$ \\
-$\oplus\, b_{\mathrm{int}}$    & 0.0782 & 0.0564 & 0.0406 & --- & 4 & $0.83$ \\
-$\oplus\, b_{\mathrm{face}}$   & 0.0938 & 0.0701 & 0.0497 & --- & 2 & $0.88$ \\
+$P_2/P_1^{\mathrm{disc}}$      & 0.1132 & 0.0572 & 0.0424 & 0.0335 & 0.0277 & --- & --- & $n_p - n_u$ & $1.04$ \\
+$\oplus\, b_{\mathrm{int}}$    & 0.0782 & 0.0692 & 0.0564 & 0.0473 & 0.0406 & --- & --- & 4 & $0.83$ \\
+$\oplus\, b_{\mathrm{face}}$   & 0.0938 & 0.0858 & 0.0701 & 0.0583 & 0.0497 & --- & --- & 2 & $0.88$ \\
 $\oplus\, b_{\mathrm{int}}, b_{\mathrm{face}}$
-                               & 0.2875 & 0.2962 & \textbf{0.2968} & --- & 1 & $-0.003$ \\
+                               & 0.2875 & 0.2945 & 0.2962 & 0.2967 & \textbf{0.2968} & --- & --- & 1 & $-0.003$ \\
 \bottomrule
 \end{tabular}
-\caption{$\beta_h$ over a Freudenthal mesh sequence, whole boundary fixed, ordered as
+\caption{$\beta_h$ over the Freudenthal mesh sequence of the unit cube with
+$N^3$ cubes, whole boundary fixed, ordered as
 the construction of \citet[Example~8.7.2]{BoffiBrezziFortin:2013} runs. ``null''
 is $n_p - \operatorname{rank}~G$, the pressure modes no displacement resists,
-which must be one; ``local rate'' is $\ln(\beta_N/\beta_{N+1})/\ln((N+1)/N)$
-at the last refinement, with $\beta_N$ the constant at refinement $N$, constant for a genuine power law and shrinking toward
-zero for a sequence approaching a limit. Script: \code{prototype/beta.jl}.}
+which must be one; ``rate'' is the local rate $\ln(\beta_N/\beta_{N+1})/\ln((N+1)/N)$
+over the last two columns computed, with $\beta_N$ the constant at refinement $N$, constant for a power law and decreasing toward
+zero for a sequence with a positive limit. The rates of an earlier
+version of this table were taken over refinements not shown in it; every
+$N$ computed is now shown. Script: \code{prototype/beta.jl}.}
 \label{tab:beta}
 \end{table}
 
-The control is reported stable: $\beta_h$ rises and settles on $0.2216$, flat
-to three digits over the last three refinements, which validates the reading
+The control is reported stable: $\beta_h$ rises to $0.2216$, and its last
+three values agree to within $2\times10^{-4}$, which validates the reading
 of the remaining rows.
 
 Every row of Table~\ref{tab:beta} is what \citet{BoffiBrezziFortin:2013}
@@ -2334,8 +2457,9 @@ unstable.
 \paragraph{Face bubbles control the constant pressure.} $P_2 \oplus
 b_{\mathrm{face}}/P_0$ drops the null dimension to one at every mesh and its
 $\beta_h$ approaches from above with a local rate that falls from $0.16$ to
-$0.08$ over the sequence, below the constant rate of a power law and above the
-rate $-0.003$ of the control.
+$0.076$ over the sequence, below the constant rate of a power law and above the
+rate $-0.002$ of the control. Its displacement space contains that of the
+pair of \citet{BernardiRaugel:1985}, whose stability implies its own.
 The seven refinements measured, of which Table~\ref{tab:beta} shows four,
 cannot separate a limit near $0.35$ from a slow decay on their own, and the
 row is reported as consistent with stable; its
@@ -2347,10 +2471,11 @@ pressure mode per mesh and $\beta_h$ decays: controlling the linear modes is
 the function of the interior bubble.
 
 \paragraph{Both together are the three-dimensional Crouzeix--Raviart pair, and
-it is stable.} $\beta_h$ rises monotonically to $0.2968$, flat to three digits
-over the last three refinements, with a local rate of $-0.003$ --- the
-same rate as the control's, and at a higher constant than the control's
-$0.2216$. The pressure null space is one dimensional at every mesh. Each part
+it is stable.} $\beta_h$ rises monotonically to $0.2968$; its last three
+values agree to within $7\times10^{-4}$, and its local rate decreases in
+magnitude from $0.060$ to $0.003$, as does that of the control, at a
+higher constant than the control's $0.2216$. The pressure null space is
+one dimensional at every mesh. Each part
 of the enrichment controls one part of the pressure space, and neither
 controls the other's.
 
@@ -2376,19 +2501,73 @@ pair, and a ratio below one does not admit it.
 
 \begin{remark}[Mesh dependence]
 \label{rem:structured}
-These results are for the Freudenthal subdivision, a structured family, and
-structured meshes are where pair counterexamples characteristically arise:
-the alternating-sign spurious pressure mode of $P_1/P_0$ has its largest
-amplitude on them. A pair can degenerate on a structured mesh and remain well
-behaved on a general one. On this family, $P_2/P_0$,
-$P_2/P_1^{\mathrm{disc}}$ and $P_2 \oplus b_{\mathrm{int}}/P_1^{\mathrm{disc}}$
-decay; confirming that as a property of the pairs rather than of the mesh
-needs a sequence of unstructured meshes, which this study does not have.
-\S\ref{sec:deformed} gives one measurement in the opposite sense: on the
-non-affine images of this mesh the $P_2/P_0$ constant is smaller. The affirmative result
-needs no such confirmation, since \citet[Example~8.7.2]{BoffiBrezziFortin:2013}
-establish it on any shape-regular family; what the sweep adds is the constant.
+These results are for the Freudenthal subdivision, a structured family. A
+pair can degenerate on a structured mesh and remain well behaved on a
+general one. The paragraph below repeats the measurement on two families
+without that structure. It shows that the three additional null modes and
+the decay of $P_2/P_0$ are properties of the Freudenthal family, and that
+the constant of the Crouzeix--Raviart pair does not depend on the
+structure. The affirmative result needs no such confirmation, since
+\citet[Example~8.7.2]{BoffiBrezziFortin:2013} establish it on any
+shape-regular family; what the measurement adds is the constant.
 \end{remark}
+
+\paragraph{Meshes without the Freudenthal structure.} Two families are
+measured. In the first, every interior vertex of the Freudenthal mesh is
+displaced by a random vector with independent components uniform in
+$[-\delta h, \delta h]$, $h = 1/N$; the boundary vertices are kept, and the
+edge nodes are placed at the midpoints, so every element is straight-sided.
+The shape quality of an element is $q = 6\sqrt2\,V/\ell_{\mathrm{rms}}^3$,
+with $V$ its volume and $\ell_{\mathrm{rms}}$ the root mean square of its
+six edge lengths; $q = 1$ for a regular tetrahedron and $0.66$ for the
+Freudenthal elements. At $\delta = 0.25$ the smallest $q$ over the three
+seeds of each mesh is $0.49$, $0.13$, $0.003$, $0.17$ and $0.096$ at
+$N = 2$ to $6$. The second family consists of unstructured meshes of the
+unit cube generated by Cubit with mesh size $1/n$ and the
+condition-number smoother of the punch meshes of \S\ref{sec:punch}, with
+straight edges; their smallest $q$ is between $0.51$ and $0.58$.
+Table~\ref{tab:jitter} gives $\beta_h$. Scripts:
+\code{prototype/jitter.jl} and \code{prototype/cubit\_cube.jl}.
+
+\begin{table}[tbp]
+\centering
+\caption{$\beta_h$ on meshes without the Freudenthal structure, whole
+boundary fixed. Perturbed: the Freudenthal mesh with interior vertices
+moved at random by up to $0.25h$ per component, smallest and largest value
+over three seeds. Cubit: unstructured meshes of size $1/n$. The null
+dimension is given in parentheses where it differs from one.}
+\label{tab:jitter}
+\footnotesize
+\setlength{\tabcolsep}{3pt}
+\begin{tabular}{@{}llccccc@{}}
+\toprule
+mesh & pair & $N, n = 2$ & $3$ & $4$ & $5$ & $6$ \\
+\midrule
+perturbed & $P_2/P_1$ cont. & 0.171--0.173 & 0.206--0.207 & 0.214--0.216 & 0.214--0.218 & 0.217--0.218 \\
+          & $P_2/P_0$ & 0.104--0.106 (4) & 0.043--0.056 & 0.061--0.068 & 0.071--0.074 & 0.071--0.076 \\
+          & $P_2 \oplus b_{\mathrm{face}}/P_0$ & 0.466--0.467 & 0.438 & 0.423 & 0.413 & 0.406--0.407 \\
+          & TET15-P1 & 0.287 & 0.290--0.294 & 0.289--0.295 & 0.293--0.294 & 0.291--0.295 \\
+\midrule
+Cubit & $P_2/P_1$ cont. & 0.212 (4) & 0.327 (7) & 0.328 (6) & 0.328 (6) & 0.328 (5) \\
+      & $P_2/P_0$ & 0.076 (4) & 0.082 (7) & 0.068 (6) & 0.099 (6) & 0.101 (5) \\
+      & $P_2 \oplus b_{\mathrm{face}}/P_0$ & 0.434 & 0.429 & 0.416 & 0.407 & 0.403 \\
+      & TET15-P1 & 0.233 & 0.319 & 0.330 & 0.331 & 0.332 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+On both families the Crouzeix--Raviart pair (TET15-P1 in the table) has
+one null mode. Its $\beta_h$ lies between $0.287$ and $0.295$ on the
+perturbed meshes, and between $0.319$ and $0.332$ on the Cubit meshes from
+$n = 3$ on. $P_2 \oplus b_{\mathrm{face}}/P_0$ also has one null mode on
+both. On the perturbed meshes $P_2/P_0$ has a single null mode from
+$N = 3$ on, and its $\beta_h$ does not decrease: the three additional
+null modes and the decay of $P_2/P_0$ in Table~\ref{tab:beta} are
+properties of the Freudenthal family. On the Cubit meshes, Taylor--Hood
+and $P_2/P_0$ have, besides the constant mode, one null mode for each
+element whose ten nodes all lie on the fixed boundary. There are between
+three and six such elements, at the corners of the cube. The face bubbles
+of the other two pairs control the pressure of these elements.
 
 \subsection{Stability on a deformed configuration}
 \label{sec:deformed}
@@ -2405,9 +2584,13 @@ $Q_2/P_1^{\mathrm{disc}}$) fail to reproduce the range of the parameter over
 which the continuum problem is stable: the discrete problem becomes unstable
 where the continuum one is stable, or stays stable where it is not; and
 \citet{Auricchio.etal:2013} conclude that for such pairs in finite elasticity
-the causes are identified but a general remedy is still missing.  This
-section measures the constant of the pair on deformed configurations for
-that reason. The operators
+the causes are identified but a general remedy is still missing. Their
+analysis concerns the full linearized operator, with the material and
+geometric stiffness on the discrete kernel. This
+section measures a part of that question only, the constant of the
+divergence pairing on deformed configurations. The stability of the full
+tangent at deformed and stressed states is not measured here and remains
+open. The operators
 \eqref{eq:infsup-ops} are assembled on the isoparametric image of the
 quadratic mesh under a prescribed map, with the derivatives, the divergence
 and the volume taken on the image and the pressure basis on the reference
@@ -2449,17 +2632,21 @@ compression        & $0.5$        & 0.192 & 0.333 & 0.213 ($0.00$)   & 4, 0.038 
 
 Three findings follow.
 
-\paragraph{$\beta_h$ is not uniform in the deformation.} It decreases with
-the local shear of the map for every pair, and most for the
+\paragraph{$\beta_h$ is not uniform in the deformation.} It decreases under
+the non-affine maps for every pair, and most for the
 Crouzeix--Raviart pair: from $0.297$ to $0.204$ under the $90^\circ$ twist,
 $0.116$ under the $180^\circ$ twist and $0.183$ under the parabolic shear,
 against $0.221 \to 0.189$, $0.137$, $0.176$ for Taylor--Hood and
 $0.413 \to 0.385$, $0.345$, $0.336$ for the face-bubbled constant-pressure
 pair. The inflation, which changes $J$ by a factor of $2.3$ but shears
-little, leaves the constant at $0.276$. The affine compression gives $0.213$,
-flat to four digits from $N = 3$: the aspect-ratio effect alone.
-The dependence is on the shear of the deformation and not on its volume
-change.
+little, leaves the constant at $0.276$. The affine compression, uniaxial
+with $x_3 = \tfrac12 X_3$, gives $0.213$, flat to four digits from $N = 3$.
+A uniform scaling of the mesh leaves $\beta_h$ unchanged, so the change
+under the compression is due to the change of shape of the elements. The
+data do not separate two explanations of the decrease under the non-affine
+maps: the shear of the deformation, and the loss of shape regularity of
+the image elements on coarse meshes. The volume change alone does not
+explain it.
 
 \paragraph{At a fixed deformation the sequence in $h$ is consistent with a
 positive limit.} The local rate of the Crouzeix--Raviart pair falls with
@@ -2511,7 +2698,18 @@ bands of any width, a decaying eigenvalue is expected of every pair, and only
 the dilatation of the mode says whether the band is physical. The tangent is
 taken at $\eta = 1$ and at $\eta = 0.9$, the boundary is fixed everywhere,
 and each pair is measured elastically ($\eta = 0$) on the same kernel.
-Script: \code{prototype/plastic.jl}.
+Up to $N = 5$ the eigenpairs are computed on an explicit basis of
+$\ker ~G_h$. For $N \ge 6$, where that basis does not fit in memory, they
+are computed by subspace iteration on the inverse of
+$~K^{\mathrm{ep}} + \gamma\, \transpose{~G} ~D^{-1} ~G$, with $~D$ the
+diagonal of $~M$ and $\gamma = 10^9$. The eigenpairs of this penalized
+operator converge to those on $\ker ~G_h$ as $\gamma$ grows, with a
+violation of the constraint of order $1/\gamma$. At $N = 4$ the two
+computations agree to three digits for all four pairs. At $N = 6$ and $8$,
+for TET15-P1 and $P_2/P_0$ under the uniaxial direction, $\gamma = 10^8$,
+$10^9$ and $10^{10}$ give $\lambda_1$, $\lambda_5$ and $r_v$ of the lowest
+mode that agree to six digits. Scripts: \code{prototype/plastic.jl},
+\code{prototype/plastic\_ext.jl} and \code{prototype/gamma\_check.jl}.
 
 \begin{table}[tbp]
 \centering
@@ -2520,10 +2718,13 @@ Script: \code{prototype/plastic.jl}.
 $\lambda_1$ of \eqref{eq:coercivity} and the dilatation $r_v$ of its mode,
 \eqref{eq:rv}, for a shear and a uniaxial flow direction. The elastic lowest
 mode has $\lambda_1 = 0.500$ and $r_v = 0$ on every row, as the identity
-behind \eqref{eq:floor} requires. At $\eta = 0.9$ every $\lambda_1$ exceeds
+behind \eqref{eq:floor} requires (computed for $N \le 5$). At $\eta = 0.9$ every $\lambda_1$ exceeds
 the lower bound $0.05$ of \eqref{eq:floor} and the dilatations agree with those below to two digits.
-Script: \code{prototype/plastic.jl}.}
+$^\dagger$: the subspace iteration did not reach its tolerance of
+$10^{-7}$ in $3000$ iterations.
+Scripts: \code{prototype/plastic.jl} and \code{prototype/plastic\_ext.jl}.}
 \label{tab:plastic}
+\small
 \begin{tabular}{@{}lrrrrr@{}}
 \toprule
 & & \multicolumn{2}{c}{$~n = \sym(~e_1 \otimes ~e_2)/\sqrt2$}
@@ -2533,18 +2734,29 @@ Pair & $N$ & $\lambda_1$ & $r_v$ & $\lambda_1$ & $r_v$ \\
 \midrule
 $P_2/P_0$                       & 3 & 0.109  & 0.065  & 0.117 & 0.208 \\
                                 & 4 & 0.067  & 0.034  & 0.106 & 0.217 \\
-                                & 5 & 0.047  & 0.029  & 0.101 & \textbf{0.220} \\
+                                & 5 & 0.047  & 0.029  & 0.101 & 0.220 \\
+                                & 6 & 0.035  & 0.020  & 0.098 & 0.220 \\
+                                & 7 & 0.026  & 0.016  & 0.097 & 0.220 \\
+                                & 8 & 0.020  & 0.012  & 0.096 & \textbf{0.220} \\
 $P_2 \oplus b_{\mathrm{face}}/P_0$
                                 & 3 & 0.044  & 0.044  & 0.082 & 0.274 \\
                                 & 4 & 0.026  & 0.028  & 0.074 & 0.268 \\
-                                & 5 & 0.017  & 0.019  & 0.071 & \textbf{0.261} \\
+                                & 5 & 0.017  & 0.019  & 0.071 & 0.261 \\
+                                & 6 & 0.012  & 0.014  & 0.069 & 0.257 \\
+                                & 7 & 0.0084 & 0.010  & 0.069 & \textbf{0.254} \\
 $P_2 \oplus b_{\mathrm{int}} \oplus b_{\mathrm{face}}/P_1^{\mathrm{disc}}$
                                 & 3 & 0.074  & 0.036  & 0.147 & 0.018 \\
                                 & 4 & 0.049  & 0.019  & 0.139 & 0.0074 \\
-                                & 5 & 0.032  & 0.0066 & 0.134 & \textbf{0.0042} \\
+                                & 5 & 0.032  & 0.0066 & 0.134 & 0.0042 \\
+                                & 6 & 0.022  & 0.0039 & 0.131 & 0.0027 \\
+                                & 7 & 0.016  & 0.0026 & 0.130 & 0.0019 \\
+                                & 8 & 0.012  & 0.0018 & 0.129 & \textbf{0.0014} \\
 $P_2/P_1$ continuous (control)  & 3 & 0.056  & 0.051  & 0.053 & 0.861 \\
                                 & 4 & 0.030  & 0.029  & 0.026 & 0.929 \\
-                                & 5 & 0.019  & 0.020  & 0.016 & \textbf{0.956} \\
+                                & 5 & 0.019  & 0.020  & 0.016 & 0.956 \\
+                                & 6 & 0.013  & 0.013  & 0.011 & 0.970 \\
+                                & 7 & 0.0093 & 0.014  & 0.0071$^\dagger$ & 0.875$^\dagger$ \\
+                                & 8 & 0.0070 & 0.010  & 0.0044$^\dagger$ & 0.895$^\dagger$ \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -2570,28 +2782,155 @@ control's $0.067$.
 
 \paragraph{The dilatation of the soft modes separates them, in the direction
 claimed.} Under the uniaxial direction the lowest modes of both
-constant-pressure pairs carry $r_v = 0.20$--$0.27$ at every refinement, with
-no decay. These are the modes of \S\ref{sec:prediction}: the element assigns
+constant-pressure pairs carry $r_v$ between $0.20$ and $0.29$ at every $N$,
+without decrease, and so do their five lowest modes from $N = 6$ on. These
+are the modes of \S\ref{sec:prediction}: the element assigns
 them no energy for a dilatation the continuum resists with $\kappa$, and they
-are the softest modes the element has. The lowest modes of the
-Crouzeix--Raviart pair carry $0.040$, $0.018$, $0.0074$ and $0.0042$ over
-$N = 2$ to $5$, decaying as $h^2$, the rate at which
-\citet[Prop.~5.1.3]{BoffiBrezziFortin:2013} makes $\ker ~G_h$ approximate the
-isochoric space; its soft modes are physical. Under the shear direction the
-lowest modes of every pair are shear bands whose dilatation decays, the
-Crouzeix--Raviart pair's three to four times smaller than the others' at
-$N = 5$. Counted over the twenty lowest modes, with a mode called spurious when
-$r_v > 0.1$ (the stable pair's soft modes lie below $0.02$ from $N = 4$ on,
-the spurious ones at $0.2$--$0.4$): under the uniaxial direction at $N = 5$
-all twenty of each constant-pressure pair's and of Taylor--Hood's are
-spurious, and none of the Crouzeix--Raviart pair's at any $N$; under the
-shear direction the twenty lowest of every element-local pair are bands at
-$N = 5$. The spurious modes of a constant pressure are therefore present in
-both directions but are the lowest modes only where the flow admits no band;
-the next paragraph therefore counts them among the twenty lowest in a zone
-with a varying flow direction.
+are the softest modes the element has. The lowest mode of the
+Crouzeix--Raviart pair carries $0.040$ at $N = 2$, $0.018$ at $N = 3$ and
+$0.0014$ at $N = 8$, at local rates of $3.1$, $2.6$, $2.4$, $2.3$ and
+$2.2$ from $N = 3$ to $8$, and its five lowest modes carry at most
+$0.0017$ at $N = 8$. At every $N \ge 3$ the three lowest modes of the
+Crouzeix--Raviart pair have $r_v$ below $0.023$ and those of the
+constant-pressure pairs above $0.19$, so any threshold between these two
+values gives the same classification of them. Under the shear direction
+the lowest modes of every pair are shear bands whose dilatation decreases:
+from $N = 5$ to $8$ by a factor of $2.5$ for $P_2/P_0$ and $3.6$ for the
+Crouzeix--Raviart pair. The separation of the pairs appears under the
+uniaxial direction only.
 
-\paragraph{A confined zone with a varying flow direction.} The flow
+\paragraph{A reference for the eigenvalues.} On divergence-free fields in
+the whole space, the Fourier symbol of the form in \eqref{eq:coercivity}
+at $\eta = 1$ for a plane wave of unit amplitude $~a$ and unit wave vector
+$~k$, orthogonal to each other, is $\tfrac12 - (~n : \sym(~a \otimes
+~k))^2$. Its minimum is
+$\lambda_\infty = \tfrac12 - \tfrac14(n_{\max} - n_{\min})^2$, with
+$n_{\max}$ and $n_{\min}$ the extreme eigenvalues of $~n$:
+$\lambda_\infty = \tfrac18$ under the uniaxial direction and $0$ under the
+shear direction. Under the uniaxial direction, $\lambda_1$ of the
+Crouzeix--Raviart pair decreases to $0.129$ at $N = 8$, above $\tfrac18$.
+$\lambda_1$ of $P_2/P_0$ and of $P_2 \oplus b_{\mathrm{face}}/P_0$
+converges to about $0.096$ and $0.069$, below it. The softest modes of the
+constant-pressure pairs thus have a smaller energy than any
+divergence-free continuum field: they are spurious by energy as well as by
+dilatation.
+
+\paragraph{A criterion independent of the number of eigenpairs.} An
+earlier version of this note counted the modes with $r_v > 0.1$ among the
+twenty lowest. Such a count depends on the number of eigenpairs computed:
+the spectrum near $\lambda_\infty$ becomes dense under refinement, and a
+fixed number of eigenpairs covers a narrowing interval of eigenvalues. A
+dilatational member can therefore lie above the twentieth eigenvalue
+and still lie in the low part of the spectrum. The criterion used instead
+is the smallest energy of a member with a prescribed dilatation,
+\begin{equation}
+  \label{eq:lamstar}
+  \lambda_\ast(r_0) = \inf\Big\{ \frac{a(~v, ~v)}{\int\lvert\Grad~v\rvert^2 \diff V} :
+     ~v \in \ker ~G_h,\ r_v(~v) \ge r_0 \Big\},
+\end{equation}
+with $a$ the form in the numerator of \eqref{eq:coercivity}. For every
+$s \ge 0$, let $g(s)$ be the smallest eigenvalue of
+$a(~v, ~v) - s \int (\Div ~v)^2 \diff V$ on $\ker ~G_h$ against
+$\int \lvert\Grad~v\rvert^2 \diff V$. Every admissible $~v$ has a quotient
+of at least $g(s) + s\,r_0$, so $\max_s [g(s) + s\,r_0]$ is a lower bound
+of $\lambda_\ast(r_0)$. The constraint is a single quadratic inequality,
+and by the convexity of the joint range of two quadratic forms on the unit
+sphere \citep{Brickman:1961} the bound is attained. $g(s)$ is computed
+with the penalized subspace iteration above, and the maximizing $s$ by
+bisection on the dilatation of the minimizer, which increases with $s$, to
+a relative width of $10^{-4}$. The value reported is the bound. Where the
+minimizer at the maximizing $s$ is unique, a field with $r_v = 0.1$
+attains it to three digits. On the Freudenthal meshes with $N \ge 6$ the
+minimizer changes at that $s$ between a smooth and a dilatational
+eigenvector, and the field that attains the bound is a combination of the
+two. Table~\ref{tab:dilbound} gives $\lambda_\ast(0.1)$ under the uniaxial
+direction on the Freudenthal meshes and on the two families of
+\S\ref{sec:beta} without that structure. Script:
+\code{prototype/dil\_bound.jl}.
+
+\begin{table}[tbp]
+\centering
+\caption{Smallest energy $\lambda_\ast(0.1)$ \eqref{eq:lamstar} of a member
+of $\ker ~G_h$ with $r_v \ge 0.1$, uniaxial flow direction, $\eta = 1$,
+whole boundary fixed; $\lambda_\infty = 0.125$. For the Crouzeix--Raviart
+pair (TET15-P1): the smallest shape quality $q_{\min}$ of the mesh, its
+lowest eigenvalue $\lambda_1$, and the share of $\int(\Div~v)^2$ of the
+minimizing field in its three largest elements, where the minimizer is
+unique. Where the minimizer is a combination of a smooth and a
+dilatational eigenvector, ``share'' gives in parentheses the eigenvalue
+and $r_v$ of the dilatational one. $^\ast$: the minimizer is the lowest
+eigenmode. For the two constant-pressure pairs the minimizer is the lowest
+eigenmode on every mesh. Perturbed meshes: seed~1.}
+\label{tab:dilbound}
+\footnotesize
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{@{}ll rrrr rr@{}}
+\toprule
+& & \multicolumn{4}{c}{TET15-P1} & $P_2/P_0$ & $P_2 \oplus b_{\mathrm{face}}/P_0$ \\
+\cmidrule(lr){3-6}\cmidrule(lr){7-7}\cmidrule(lr){8-8}
+mesh & & $q_{\min}$ & $\lambda_1$ & $\lambda_\ast(0.1)$ & share & $\lambda_\ast(0.1)$ & $\lambda_\ast(0.1)$ \\
+\midrule
+Freudenthal & $N = 4$ & 0.66 & 0.139 & 0.167 & 0.14 & 0.106 & 0.074 \\
+            & $N = 6$ & 0.66 & 0.131 & 0.163 & (0.226, 0.27) & 0.098 & 0.069 \\
+            & $N = 8$ & 0.66 & 0.129 & 0.162 & (0.226, 0.28) & 0.096 & 0.068 \\
+$\delta = 0.1$ & $N = 6$ & 0.46 & 0.134 & 0.160 & 0.33 & 0.099 & 0.067 \\
+               & $N = 7$ & 0.49 & ---   & 0.156 & 0.47 & 0.097 & 0.065 \\
+$\delta = 0.25$ & $N = 6$ & 0.15 & 0.138 & 0.139 & 0.74 & 0.080 & 0.048 \\
+                & $N = 7$ & 0.21 & 0.106 & 0.106$^\ast$ & 0.80 & 0.064 & 0.037 \\
+Cubit & $n = 3$  & 0.58 & 0.160 & 0.160$^\ast$ & 0.98 & 0.190 & 0.115 \\
+      & $n = 4$  & 0.57 & 0.152 & 0.152$^\ast$ & 0.76 & 0.119 & 0.065 \\
+      & $n = 5$  & 0.55 & 0.143 & 0.144$^\ast$ & 0.97 & 0.115 & 0.065 \\
+      & $n = 6$  & 0.54 & 0.132 & 0.132$^\ast$ & 0.96 & 0.088 & 0.044 \\
+      & $n = 7$  & 0.53 & 0.144 & 0.149 & 0.75 & 0.092 & 0.053 \\
+      & $n = 8$  & 0.53 & 0.142 & 0.144 & 0.95 & 0.088 & 0.044 \\
+      & $n = 10$ & 0.52 & 0.138 & 0.144 & (0.155, 0.25) & 0.089 & 0.051 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{The constant-pressure pairs on every mesh.} For the
+constant-pressure pairs the lowest eigenmode has $r_v$ between $0.17$ and
+$0.55$ on every mesh of Table~\ref{tab:dilbound}. Their
+$\lambda_\ast(0.1)$ lies below $\lambda_\infty$ on every mesh except the
+coarsest Cubit mesh for $P_2/P_0$. For $P_2 \oplus b_{\mathrm{face}}/P_0$
+it decreases from $0.074$ on the Freudenthal meshes to $0.037$ at
+$\delta = 0.25$. Their dilatational softest modes are spread over the
+mesh on the Freudenthal meshes, with $1$ to $9\%$ of $\int(\Div~v)^2$ in
+the three largest elements, and have between $6$ and $84\%$ in three
+elements on the perturbed and unstructured meshes.
+
+\paragraph{The Crouzeix--Raviart pair on unstructured meshes.} For the
+Crouzeix--Raviart pair, $\lambda_\ast(0.1)$ is above $\lambda_\infty$ on
+every mesh except the strongly perturbed mesh at $N = 7$, where the lowest
+eigenmode itself has $r_v = 0.28$ at $\lambda_1 = 0.106$. On the
+Freudenthal meshes and the mildly perturbed meshes $\lambda_\ast(0.1)$
+exceeds $\lambda_1$ by $19$ to $26\%$. On the Cubit meshes the minimizer
+is the lowest eigenmode up to $n = 6$. At $n = 7$ and $8$ the minimizer is
+unique, and $\lambda_\ast(0.1)$ exceeds $\lambda_1$ by $4$ and $1\%$. At
+$n = 10$ the bound $0.144$ is attained by a combination of a smooth and a
+dilatational eigenvector; the dilatational one, with $r_v = 0.25$, lies at
+$0.155$, $12\%$ above $\lambda_1$, and has $89\%$ of its dilatation in
+three elements. On the Cubit meshes the minimizing field has $75$ to
+$98\%$ of its dilatation in three elements, whose smallest shape quality
+is between $0.54$ and $0.68$. The kernel of the Crouzeix--Raviart pair on
+unstructured meshes thus contains element-scale members with
+$r_v \ge 0.1$ whose energy lies within $12\%$ of the lowest eigenvalue at
+every $n$ measured. These members do not disappear under refinement up to
+$n = 10$, and they are spurious dilatational modes in the sense of
+\S\ref{sec:prediction}. An earlier conclusion of this study, that such
+modes are absent from $n = 7$ on, rested on the count among the twenty
+lowest eigenpairs and is withdrawn: from $n = 7$ on the members lie above
+the twentieth eigenvalue and still lie within $12\%$ of the lowest one. Their energy remains above
+$\lambda_\infty$, the infimum of the continuum, on every mesh except the
+strongly perturbed one; the energy of the dilatational modes of the
+constant-pressure pairs lies below it. The separation of the pairs is
+therefore a separation by energy on unstructured meshes, and a separation
+by both energy and dilatation on structured ones.
+
+\paragraph{A confined zone with a varying flow direction.} The counts in
+this paragraph are taken over the twenty lowest eigenpairs and are
+subject to the limitation stated above; they are kept as a record of the
+lowest part of the spectrum at $N \le 5$. The flow
 direction and the plastic zone are taken from a prescribed displacement
 field: $~n = \dev\eps(~u)/\norm{\dev\eps(~u)}$ at each quadrature point and
 $\eta = 1$ where $\lvert\dev\eps(~u)\rvert$ exceeds $0.35$ of its peak,
@@ -2636,7 +2975,11 @@ $0.74$. With the base alone fixed the softest modes of every pair are
 long-wavelength motions of the block and the counts fall for the
 constant-pressure pairs too, to zero at $N = 5$ for $P_2/P_0$ and four for
 the face-bubbled pair, so the spurious modes are then above the twentieth;
-they are not absent, as the whole-boundary rows show. Whether a nonlinear
+they are not absent, as the whole-boundary rows show. The number of modes
+with $r_v > 0.1$ among the twenty lowest decreases with $N$ for every pair
+with the whole boundary fixed, and in this configuration the dilatational
+modes of the constant-pressure pairs lie above physical modes; the
+separation is weaker than under the uniform uniaxial direction. Whether a nonlinear
 solve excites them is not settled: the indentation benchmark of
 \S\ref{sec:punch} finds no persistent element-to-element pressure mode in
 CT10, but its measure compares element averages and does not resolve a
@@ -2645,8 +2988,9 @@ dilatation that varies within an element (\S\ref{sec:verify}).
 \paragraph{Taylor--Hood is the worst pair on this measure.} Its pressure is
 continuous, so its kernel is divergence-free only against continuous linear
 test functions, and under the uniaxial direction its lowest modes are
-dilatation almost entirely: $r_v = 0.86$, $0.93$, $0.96$ at $N = 3$, $4$, $5$,
-with $\lambda_1$ decaying to $0.016$. Those modes have no counterpart in the
+dilatation almost entirely: $r_v$ between $0.86$ and $0.97$ at $N = 3$
+to $6$, where its iteration converged, with $\lambda_1$ decaying to
+$0.011$. Those modes have no counterpart in the
 continuum, which resists them with $\kappa$. Taylor--Hood is therefore an
 alternative for elasticity only (\S\ref{sec:risks}).
 
@@ -2675,6 +3019,139 @@ of the element's own zero-energy modes, because the Albany runs of
 \S\ref{sec:cook} use none.
 
 
+\subsection{Locking measured against a known solution}
+\label{sec:kappa}
+
+The rank count of \S\ref{sec:assembled} and the constant $\beta_h$ are
+indirect measures of locking. This section measures locking directly, by
+the error against a known solution as $\kappa/\mu$ grows. The problem is
+isotropic linear elasticity on the unit cube with the whole boundary
+fixed, on the Freudenthal meshes, with the manufactured displacement
+\begin{equation}
+  \label{eq:manufactured}
+  ~u = \operatorname{curl}(B\,~a) + \frac{\nabla\phi}{\lambda + \mu},
+  \qquad
+  B = \big(x(1-x)\,y(1-y)\,z(1-z)\big)^2,
+\end{equation}
+with $\phi = 3B$, $~a = (1, 2, 3)$, the Lam\'e constant
+$\lambda = \kappa - \tfrac23\mu$ and $\mu = 1$. Then
+$\Div~u = \Delta\phi/(\lambda + \mu)$, and the mean stress $\kappa\Div~u$
+tends to $\Delta\phi$ as $\kappa \to \infty$. The body force
+$-\mu\Delta~u - (\lambda + \mu)\nabla\Div~u$ is bounded uniformly in
+$\kappa$, and $~u$ vanishes on the boundary because $B$ and $\nabla B$ do.
+The load is integrated with a rule of degree $12$. The measured quantities
+are the relative $H^1$-seminorm error $e_u$ of the displacement and the
+relative $L^2$ error $e_p$ of the mean stress. The mean stress is $\kappa$
+times the projected dilatation for the projected elements and $\kappa$
+times the pointwise dilatation for the others. Five elements are
+compared: TET10 and TET15 with the volumetric response at each quadrature
+point (``pointwise''), $P_2/P_0$, TET15-P0 and TET15-P1.
+Table~\ref{tab:kappa} gives the result. Scripts:
+\code{prototype/kappa\_sweep.jl}, \code{prototype/quasiopt.jl} and
+\code{prototype/pressure\_bestapprox.jl}.
+
+\begin{table}[tbp]
+\centering
+\caption{Linear elasticity with the manufactured solution
+\eqref{eq:manufactured}: relative $H^1$-seminorm error $e_u$ of the
+displacement for four values of $\kappa/\mu$, and relative $L^2$ error
+$e_p$ of the mean stress at $\kappa/\mu = 10^4$, on the Freudenthal mesh
+with $N^3$ cubes. ``Rate'' is the local rate of $e_u$ between the last
+two meshes of each element, at $\kappa/\mu = 1$ and at $10^6$.}
+\label{tab:kappa}
+\small
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{@{}lr rrrr r rr@{}}
+\toprule
+& & \multicolumn{4}{c}{$e_u$ at $\kappa/\mu =$} & $e_p$ & \multicolumn{2}{c}{rate of $e_u$} \\
+\cmidrule(lr){3-6}\cmidrule(lr){8-9}
+element & $N$ & $1$ & $10^2$ & $10^4$ & $10^6$ & $10^4$ & $1$ & $10^6$ \\
+\midrule
+TET10, pointwise & 2 & 0.557 & 0.921 & 0.999 & 1.000 & 3.15 & & \\
+                 & 3 & 0.304 & 0.616 & 0.742 & 0.744 & 3.88 & & \\
+                 & 4 & 0.189 & 0.424 & 0.555 & 0.557 & 3.80 & & \\
+                 & 6 & 0.092 & 0.230 & 0.365 & 0.369 & 3.74 & & \\
+                 & 8 & 0.053 & 0.141 & 0.270 & 0.275 & 3.67 & & \\
+                 & 10 & 0.035 & 0.093 & 0.213 & 0.219 & 3.58 & & \\
+                 & 12 & 0.024 & 0.065 & 0.175 & 0.182 & 3.49 & 1.95 & 1.01 \\
+$P_2/P_0$        & 2 & 0.623 & 0.814 & 0.892 & 0.894 & 3.36 & & \\
+                 & 3 & 0.377 & 0.527 & 0.600 & 0.601 & 2.89 & & \\
+                 & 4 & 0.261 & 0.381 & 0.446 & 0.448 & 2.58 & & \\
+                 & 6 & 0.158 & 0.241 & 0.294 & 0.296 & 2.35 & 1.24 & 1.02 \\
+TET15, pointwise & 2 & 0.497 & 0.767 & 0.995 & 1.000 & 6.97 & & \\
+                 & 3 & 0.244 & 0.426 & 0.729 & 0.744 & 10.3 & & \\
+                 & 4 & 0.150 & 0.269 & 0.531 & 0.557 & 10.8 & & \\
+                 & 6 & 0.073 & 0.131 & 0.331 & 0.367 & 9.46 & 1.78 & 1.03 \\
+TET15-P0         & 2 & 0.580 & 0.670 & 0.671 & 0.671 & 0.924 & & \\
+                 & 3 & 0.342 & 0.448 & 0.449 & 0.449 & 0.634 & & \\
+                 & 4 & 0.243 & 0.340 & 0.341 & 0.341 & 0.479 & & \\
+                 & 6 & 0.152 & 0.229 & 0.229 & 0.229 & 0.321 & & \\
+                 & 8 & 0.111 & 0.172 & 0.173 & 0.173 & 0.241 & & \\
+                 & 10 & 0.087 & 0.138 & 0.139 & 0.139 & 0.193 & & \\
+                 & 12 & 0.072 & 0.116 & 0.116 & 0.116 & 0.160 & 1.05 & 0.99 \\
+TET15-P1         & 2 & 0.504 & 0.630 & 0.642 & 0.642 & 1.06 & & \\
+                 & 3 & 0.247 & 0.308 & 0.314 & 0.314 & 0.543 & & \\
+                 & 4 & 0.151 & 0.190 & 0.195 & 0.195 & 0.339 & & \\
+                 & 6 & 0.073 & 0.094 & 0.096 & 0.096 & 0.171 & & \\
+                 & 8 & 0.0430 & 0.0560 & 0.0575 & 0.0575 & 0.104 & & \\
+                 & 10 & 0.0282 & 0.0371 & 0.0381 & 0.0381 & 0.0696 & & \\
+                 & 12 & 0.0199 & 0.0264 & 0.0271 & 0.0271 & 0.0500 & 1.92 & 1.87 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{The pointwise elements lock.} The error of the two pointwise
+elements at $\kappa/\mu = 10^6$ is $1.8$ (TET10) and $2.0$ (TET15) times
+their error at $\kappa/\mu = 1$ at $N = 2$, and $4.0$ and $5.0$ times at
+$N = 6$. For TET10 the ratio reaches $7.5$ at $N = 12$. There its local
+rate is $1.01$ at $\kappa/\mu = 10^6$ against $1.95$ at
+$\kappa/\mu = 1$, and its mean stress has an error of several hundred
+percent that does not decrease.
+
+\paragraph{TET15-P1.} For TET15-P1 the ratio of the errors at
+$\kappa/\mu = 10^6$ and $1$ is $1.27$ at $N = 2$ and $3$, and $1.29$,
+$1.32$, $1.34$, $1.35$ and $1.36$ at $N = 4$ to $12$. The local rates at
+$\kappa/\mu = 1$ and $10^6$ are $1.79$ and $1.73$ from $N = 4$ to $6$,
+$1.85$ and $1.80$ from $N = 6$ to $8$, $1.89$ and $1.84$ from $N = 8$ to
+$10$, and $1.92$ and $1.87$ from $N = 10$ to $12$. Both rates increase
+toward the order $2$ of the space, and their difference decreases slowly,
+from $0.055$ to $0.051$ to $0.047$ over $N = 6$ to $12$. The mean stress
+converges at a local rate of $1.82$ from $N = 10$ to $12$, and its errors
+at $\kappa/\mu = 10^4$ and $10^6$ agree to three digits on every mesh. The
+$L^2$ projection error of the exact mean stress onto the linear
+discontinuous pressures converges at a local rate between $1.96$ and
+$2.00$ from $N = 8$ on, so the approximation of the pressure does not
+explain the lower rate of the displacement.
+
+\paragraph{Quasi-optimality.} The exact displacement
+\eqref{eq:manufactured} depends on $\kappa$ through its gradient part, so
+the ratio of the errors compares two different solutions. The
+quasi-optimality ratio $Q = e_u / e_{\mathrm{best}}$, with
+$e_{\mathrm{best}}$ the relative error of the best approximation of the
+same solution in the same space in the $H^1$ seminorm, removes that
+dependence. For TET15-P1, $Q$ is $1.04$ to $1.05$ at $\kappa/\mu = 1$ on
+every mesh, and $1.45$, $1.47$, $1.49$, $1.52$, $1.55$, $1.58$ and $1.59$
+at $\kappa/\mu = 10^6$ at $N = 2$, $3$, $4$, $6$, $8$, $10$ and $12$. For
+a pair that satisfies the inf-sup condition with a constant bounded below,
+this ratio is bounded uniformly in $\kappa$ and $h$
+\citep[Chapter~5]{BoffiBrezziFortin:2013}. The measurement shows it
+growing by about $N^{0.06}$ up to $N = 12$, and it does not show where
+the growth ends.
+
+\paragraph{The definition of locking.} A definition by the ratio of the
+errors at large and small $\kappa/\mu$ is met by TET15-P1 itself, whose
+ratio grows slowly. The definition used in this note is therefore by
+rate: an element locks when its rate of convergence at large $\kappa/\mu$
+falls below its rate at $\kappa/\mu = 1$ by an amount that does not
+vanish under refinement. On this definition the measured loss of
+TET15-P1 is $0.047$ at the finest pair of meshes and decreasing, against
+$0.94$ for TET10. A slowly decreasing loss is not a proof that the loss
+vanishes. TET15-P0 does not lock either, but its errors converge at first
+order, the order of the constant pressure. $P_2/P_0$, whose pressure has
+three uncontrolled modes on this mesh family (Table~\ref{tab:beta}),
+converges at first order in the displacement and has a mean-stress error
+above $200\%$ on every mesh.
+
 \subsection{Quadrature rule and basis}
 \label{sec:basis}
 
@@ -2699,7 +3176,7 @@ leave
 $21$ zero modes and are inadmissible. The eight-point conical rule (a
 tensor-product Gauss rule mapped onto the tetrahedron) is rank sufficient and softens the element to $0.03$--$0.10$ of its stiffness in
 the worst direction, which is also inadmissible. Two degree-5 rules are
-admissible: the $14$-point symmetric rule of \citet{Keast:1986}, which
+admissible: the $14$-point symmetric rule of \citet{Walkington:2000}, which
 integrates every monomial through degree $5$ to $4\times10^{-16}$ and
 over-stiffens the interior bubble's own block by $35\%$ since its
 gradient-squared is of degree $6$, and the $27$-point conical rule, which
@@ -2731,7 +3208,7 @@ rule & points & zero($~K_e$) & min & max & zero($~K_e$) & min & max \\
 RFE degree 2            & 4   & 21 & 0     & 1.30 & 21 & 0     & 1.30 \\
 RFE degree 3            & 5   & 21 & $<0$  & 1.13 & 21 & $<0$  & 1.12 \\
 conical degree 3        & 8   & 6  & 0.10  & 1.14 & 6  & 0.03  & 1.21 \\
-Keast degree 5          & 14  & 6  & 1.00  & 1.35 & 6  & 1.00  & 1.35 \\
+Walkington degree 5     & 14  & 6  & 1.00  & 1.35 & 6  & 1.00  & 1.35 \\
 conical degree 5        & 27  & 6  & 0.91  & 1.00 & 6  & 0.88  & 1.00 \\
 conical degree 7        & 64  & 6  & 1.00  & 1.00 & 6  & 1.00  & 1.00 \\
 \bottomrule
@@ -2746,7 +3223,8 @@ midpoints, face centroids, centroid. The space is the same, so every
 stiffness and stability result is the same; what differs is conditioning,
 lumping, and the coefficients of a rigid translation. Table~\ref{tab:basis}
 gives the measurements at $\kappa/\mu = 2$. The nodal basis conditions the
-consistent mass eight times better ($94$ against $778$) and the stiffness
+consistent mass eight times better ($94$ against $766$ with exact
+integration; an earlier value of $778$ came from a rule of degree seven) and the stiffness
 better ($559$ against $797$). Under HRZ lumping the hierarchical basis loses
 $51\%$ of the momentum of a rigid translation unless the normalization runs
 over the Lagrange functions alone (\S\ref{sec:dynamics}); the nodal basis conserves it without
@@ -2773,7 +3251,7 @@ element bound. Script: \code{prototype/basis.jl}.}
 \toprule
 basis, lumping & cond $~K_e$ & cond $~M$ & min $m/\rho V$ & momentum & Courant \\
 \midrule
-hierarchical, consistent            & 797 & 778 & ---    & ---   & 0.092 \\
+hierarchical, consistent            & 797 & 766 & ---    & ---   & 0.092 \\
 hierarchical, HRZ over all 15       & --- & --- & 0.014  & 0.486 & 0.097 \\
 hierarchical, HRZ over Lagrange 10  & --- & --- & 0.028  & 1.000 & 0.114 \\
 nodal, consistent                   & 559 & 94  & ---    & ---   & 0.092 \\
@@ -3138,7 +3616,13 @@ $7.2211$ and $7.2242$~mm at $h = 0.75$, $0.38$ and $0.19$, within $0.07\%$ of
 that value, and at $7.2405$ on the coarsest mesh, where CT10 did not
 reach $80~\mu$s. CT10 is $0.78\%$, $0.27\%$ and
 $0.09\%$ from the extrapolated value at $h = 0.75$, $0.38$ and $0.19$. Both
-elements approach the reference within $0.1\%$ in the limit. TET15-P0
+elements approach the reference within $0.1\%$ in the limit. The
+extrapolation and the Q1/P0 value of \citet{Foulk.etal:2021}, $7.22$~mm,
+given to three significant digits, differ by $0.08\%$, which is taken as
+the uncertainty of the limit. The sequence of TET15-P1 is not monotone,
+and its differences from the two reference values at $h \le 0.75$~mm, and
+the difference of CT10 at $h = 0.19$~mm from the extrapolation, are of
+the order of that uncertainty. TET15-P0
 differs from TET15-P1 only in the constant pressure, and it is sensitive to
 the projected measure where TET15-P1 is not: it is $11\%$ above the
 extrapolated value at $h = 0.75$ and inverts an element at $1~\mu$s at
@@ -3163,6 +3647,23 @@ $3.86 \times 10^{-9}$~s under the element estimate at the Courant number
 $0.25$, and its critical step is $1.77 \times 10^{-8}$~s; that of the
 CT10 is $2.44 \times 10^{-8}$~s.
 
+The comparison above is between two codes. Within one code, Sierra/SM at
+$h = 0.75$~mm, Sierra/SM TET15-P1 takes $20.4~\mu$s and CT10
+$7.8~\mu$s per element and time step on one core, a factor of $2.6$. The
+time of TET15-P1 is an upper bound, because that run shared the machine
+with other work. Per element degree of freedom, $45$ against $30$, the
+factor is $1.7$. In Sierra/SM at $h = 0.75$~mm the time step at
+$1~\mu$s is $3.86\times10^{-9}$~s for TET15-P1 and $2.76\times10^{-8}$~s
+for CT10. The step of CT10 decreases with the deformation, by a factor of
+$24$ at $h = 0.75$~mm and $15$ at $h = 0.38$~mm by $80~\mu$s, against
+$2.9$ and $5.5$ for TET15-P1. At $h = 0.75$~mm the two runs take
+$50\,832$ and $44\,260$ steps. From $h = 0.75$ to $0.38$~mm the step
+count of CT10 grows by a factor of $1.42$, not by the factor of $2$ of a
+step proportional to $h$. This is consistent with a step set by the
+deformation of the most compressed elements rather than by the initial
+element size, and it makes a ratio of costs between the two elements
+depend on the deformation.
+
 \begin{table}[tbp]
 \centering
 \caption{Taylor bar at $h = 0.75$~mm ($25\,029$ elements), both codes on
@@ -3186,13 +3687,53 @@ final radius (mm)                               & $7.2225$ & $7.2820$ \\
 \end{table}
 
 \paragraph{Comparison at equal accuracy.} TET15-P1 at $h = 0.75$~mm is
-closer to the extrapolated radius ($0.05\%$) than CT10 at $h = 0.19$~mm ($0.09\%$). On the machine above, each run
-alone, the first takes $1303$~s on $16$ cores, $2.1 \times 10^{4}$
-core-seconds, and the second $10\,983$~s on $128$ processes,
+closer to the extrapolated radius ($0.06\%$) than CT10 at $h = 0.19$~mm ($0.09\%$). On the machine above, each run
+alone, the first takes $1303$~s on $16$ cores in Carina, $2.1 \times 10^{4}$
+core-seconds, and the second $10\,983$~s on $128$ processes in Sierra/SM,
 $1.41 \times 10^{6}$ core-seconds: a factor of $67$ in core-seconds and of
-$8.4$ in wall time, on $25\,029$ elements against $1\,521\,212$. At equal
+$8.4$ in wall time, on $25\,029$ elements against $1\,521\,212$. That
+factor compares two codes. Table~\ref{tab:taylorcostall} gives the cost
+of every run with the deviation of its radius from the extrapolation. The
+first level at which the radius is within $0.11\%$ of the extrapolation
+is $h = 0.75$~mm for TET15-P1 in both codes and $h = 0.19$~mm for CT10.
+Within Sierra/SM, the first costs $2.6\times10^{4}$ core-seconds and the
+second $1.4\times10^{6}$, a factor of $54$ on $61$ times fewer elements
+and $18$ times fewer displacement unknowns. The factor depends on the
+tolerance, and the tolerance of $0.11\%$ is close to the uncertainty of
+the limit, $0.08\%$. With a tolerance of $0.3\%$, TET15-P1 qualifies at
+$h = 1.5$~mm in both codes ($+0.12\%$ in Sierra/SM, $+0.19\%$ in Carina),
+at $1.6\times10^{3}$ core-seconds in Sierra/SM, and CT10 at
+$h = 0.38$~mm, at $1.0\times10^{5}$ core-seconds, a factor of $63$. The
+core-second counts at different numbers of processes include differences
+of parallel efficiency, and the comparison is indicative. At equal
 mesh CT10 takes $3.6$ times less time to $80~\mu$s on
-$16$ cores, with an error $16$ times larger.
+$16$ cores, with an error $13$ times larger.
+
+\begin{table}[tbp]
+\centering
+\caption{Taylor bar: cost and accuracy of every run. ``Unknowns'' counts
+displacement unknowns. ``Deviation'' is the final radius relative to the
+extrapolation of CT10, $7.2259$~mm. All runs on the same two-socket AMD
+EPYC 9634 machine; the runs marked $^\ast$ were made alone on the
+machine; the others were not, and their times are upper bounds. n.r.: not
+recorded.}
+\label{tab:taylorcostall}
+\small
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{@{}llrrrrrrr@{}}
+\toprule
+element & code & $h$ & unknowns & steps & processes & wall (s) & core-s & deviation \\
+\midrule
+TET15-P1 & Sierra/SM   & $1.5$  & $49\,761$  & $24\,480$  & $16$  & $99$        & $1.6\times10^{3}$ & $+0.12\%$ \\
+TET15-P1 & Carina      & $0.75$ & $339\,993$ & $52\,100$  & $16$  & $1303^\ast$ & $2.1\times10^{4}$ & $-0.06\%$ \\
+TET15-P1 & Sierra/SM   & $0.75$ & $339\,993$ & $50\,832$  & $96$  & $271$       & $2.6\times10^{4}$ & $-0.10\%$ \\
+TET15-P1 & Sierra/SM   & $0.38$ & $2\,536\,719$ & $187\,209$ & $160$ & $6473$  & $1.0\times10^{6}$ & $-0.11\%$ \\
+CT10     & Sierra/SM   & $0.75$ & $109\,998$ & $44\,260$  & $96$  & $90$        & $8.6\times10^{3}$ & $+0.78\%$ \\
+CT10     & Sierra/SM   & $0.38$ & $801\,450$ & $62\,821$  & $160$ & $626$       & $1.0\times10^{5}$ & $+0.27\%$ \\
+CT10     & Sierra/SM   & $0.19$ & $6\,249\,960$ & n.r.    & $128$ & $10\,983^\ast$ & $1.4\times10^{6}$ & $+0.09\%$ \\
+\bottomrule
+\end{tabular}
+\end{table}
 
 \paragraph{The same run on GPUs.} The explicit integration of TET15-P1
 runs on a GPU through the same kernels, with the stable step recomputed on
@@ -3299,9 +3840,13 @@ in Carina.
 Over the run the radii of the two codes differ by at most $0.16\%$, in the
 first $10~\mu$s, and after $40~\mu$s by a nearly constant $0.035$ to $0.084\%$
 that decreases with $h$ (Figure~\ref{fig:taylorsierra}); the two codes'
-$J_2$ implementations and time steps differ. Without the projection,
-TETRA15 at $h = 1.5$~mm ends at $7.1268$~mm, $1.5\%$ below, which is the
-volumetric locking the projection removes. The step used makes the
+$J_2$ implementations and time steps differ. Without the projection, the
+plain \code{TETRA15} element in Sierra/SM ends at $7.1268$~mm at
+$h = 1.5$~mm, $1.57\%$ below TET15-P1 in Carina at the same $h$ and
+$1.37\%$ below the extrapolation, and at $7.1900$~mm at $h = 0.75$~mm,
+$0.40\%$ below Sierra/SM TET15-P1 and $0.50\%$ below the extrapolation.
+Its deficit decreases by a factor of $2.7$ over this halving of $h$. Two
+levels do not separate locking from discretization error. The step used makes the
 Sierra/SM TET15-P1's step $7$ times smaller than CT10's at
 $1~\mu$s. The critical step $2/\sqrt{\lambda}$, with $\lambda$ from a
 converged global estimate, is $2.2$ to $3.1$ times the element estimate
@@ -3389,13 +3934,16 @@ element. Bottom: TET15-P1, the quadratic fitted in each element.}
 
 \paragraph{What the benchmark establishes.} In explicit dynamics with plastic
 strains above $3$, TET15-P1 gives the final radius of the Taylor bar within
-$0.05\%$ of the converged value on a mesh of $25\,029$ elements, where the
-CT10 needs $1.5$ million elements to reach $0.09\%$, and
-the constant-pressure variant on the same displacement space is $2.1$ to
-$3.4\%$ from it. On $3522$ elements its largest pressure on the impact
+$0.06\%$ of the extrapolated value on a mesh of $25\,029$ elements, where the
+CT10 needs $1.5$ million elements to reach $0.09\%$; both differences are
+of the order of the uncertainty of the limit, $0.08\%$. The
+constant-pressure variant on the same displacement space is $11\%$ from
+it at $h = 0.75$~mm. On $3522$ elements its largest pressure on the impact
 face at $12~\mu$s is $5.2\%$ above that of CT10 on
-$1.5$ million, and on $1.5$ million elements the two differ by $3\%$. Its time per element and step is $1.40$ times
-that of CT10 on one core. The element estimate of the
+$1.5$ million, and on $1.5$ million elements the two differ by $3\%$.
+Within Sierra/SM its time per element and step is at most $2.6$ times
+that of CT10 on one core, and the cost at a tolerance of $0.11\%$ is
+$1/54$ of that of CT10. The element estimate of the
 stable step used by Carina is not a bound on distorted elements; the
 eigenvalue estimate replaces it. The equivalent plastic strain was not
 written in these runs and is not compared.
@@ -3422,10 +3970,12 @@ $u_x$ and $u_y$ free) and is indented on its top face by a frictionless
 rigid flat punch of radius $a$ centered on the axis: $u_z = -d(t)$ on every
 node of the footprint faces, including the nodes on the circle $r = a$, with
 $u_x$ and $u_y$ free, and $d(t) = 0.2a\,t$ for $t \in [0, 1]$, with output
-at the twenty times $t = 0.05, 0.10, \dots, 1$. Under a flat punch every
-footprint node stays in compression and the material outside piles up beside
-the punch without meeting it, so this is frictionless contact without a
-contact algorithm, with the contact set fixed to the footprint. The
+at the twenty times $t = 0.05, 0.10, \dots, 1$. The problem is a
+displacement-controlled problem with a fixed footprint, not a contact
+problem. It coincides with frictionless contact by a rigid punch if every
+footprint node stays in compression and the material outside the
+footprint does not meet the punch. The sign of the nodal reactions was not
+checked, so this coincidence is not established. The
 computational domain is the quarter $x \ge 0$, $y \ge 0$, with $u_x = 0$ on
 the plane $x = 0$ and $u_y = 0$ on the plane $y = 0$; these conditions
 remove the rigid-body translations in $x$ and $y$ and the rotation about $z$,
@@ -3438,12 +3988,15 @@ $H = 10^7$~Pa (case~A) or $H = 0$ (case~B); the Simo--Hughes model
 (Remark~\ref{rem:whichj2}) in Carina and both the hypoelastic rate form and
 the multiplicative hyperelastic form of the Sierra material library, which
 agree with each other to five or six digits in force and to three in the
-field statistics in every pair of runs. The mean pressure under a smooth
-circular punch on a rigid-perfectly-plastic half-space is about
-$5.7\,\sigma_y/\sqrt{3}$, so the full force approaches about $10.3$~N in
-case~B as the depth grows, modified by the finite body and the pile-up; at
-small depth it is the elastic flat-punch value $8\mu a d$ of an
-incompressible half-space.
+field statistics in every completed pair of runs but one (see Results). The mean pressure under a smooth
+circular punch on a rigid-perfectly-plastic half-space at incipient flow is about
+$5.7\,\sigma_y/\sqrt{3}$ \citep{Shield:1955}, a full force of about
+$10.3$~N in case~B; at
+small depth the force is the elastic flat-punch value $8\mu a d$ of an
+incompressible half-space. The computed forces of case~B at $t = 1$,
+about $14.0$~N, exceed $10.3$~N by $36\%$. The estimate does not include
+the elastic deformation, the finite depth of $0.2a$ with its pile-up, or
+the finite body of radius $4a$.
 
 \paragraph{Meshes and elements.} The quarter is meshed by Cubit with
 four-node tetrahedra of size $h$ within $r \le 2a$, $z \ge H - 2a$ and $4h$
@@ -3453,8 +4006,11 @@ smoother only, so that the footprint circle and the symmetry planes stay
 exact. Four levels, $h = a/2$, $a/4$, $a/8$ and $a/16$, have $944$, $6187$,
 $38\,818$ and $277\,530$ tetrahedra, $1566$, $9146$, $54\,582$ and $380\,564$
 nodes as \code{TETRA10} meshes and $4537$, $28\,129$, $172\,391$ and
-$1\,218\,149$ as \code{TETRA15} meshes; the smallest shape quality is
-$0.58$ to $0.65$. Four
+$1\,218\,149$ as \code{TETRA15} meshes. The \code{TETRA10} meshes place
+the edge nodes on the lateral surface on the cylinder and those on the
+footprint circle on that circle. The smallest shape quality
+$6\sqrt2\,V/\ell_{\mathrm{rms}}^3$ of the elements (\S\ref{sec:beta}) is
+between $0.45$ and $0.49$ on the three finer levels. Four
 elements are compared on each mesh: the Sierra/SM CT10
 with its stabilization parameter $\alpha = 0.1$ and with $\alpha = 0$
 (\code{TETRA10} meshes), Sierra/SM TET15-P1
@@ -3563,6 +4119,17 @@ solver to four digits. The
 preconditioner, not the Krylov method, limits the iterative solver on this
 problem.
 
+The Carina runs of case~B at $h = a/8$ use the conjugate-gradient
+iteration with the re-estimated smoother bound, on one NVIDIA A100 GPU
+each. TET15-P1 uses the general form of the projected volumetric term
+(\S\ref{sec:general}) with the V-cycle built on the tangent with
+$\kappa' = \mu$, and plain \code{TETRA15} the same V-cycle. On
+2026-10-20 at 05:10~UTC they had reached $t = 0.59$ and $t = 0.63$. The
+Carina runs at $h = a/16$ were stopped on 2026-10-17, and Carina results
+are reported up to $h = a/8$. Per conjugate-gradient iteration, the
+operator of the general form with $\theta = \log J$ costs $1.9$ times
+that of the default form.
+
 \paragraph{The jump measure.} Each code writes one value of the pressure
 $p = -\operatorname{tr}\sigma/3$ and of the equivalent plastic strain per
 element: in Carina the mean of the fourteen quadrature-point values, in
@@ -3620,11 +4187,15 @@ $10^{-4}$~N.
 \begin{table}[tbp]
 \centering
 \caption{Punch indentation, quarter model: full punch force in N at $t = 1$.
-Carina TET15-P1 projects $\log J$; its case~B row at $h = a/8$ is running,
-and the Carina runs at $h = a/16$ were stopped before $t = 1$. Sierra/SM TET15-P1, case~B, $h = a/16$, is running. Plain
+Carina TET15-P1 projects $\log J$; its case~B run at $h = a/8$ is in
+progress ($t = 0.59$ on 2026-10-20 at 05:10~UTC), and the Carina runs at
+$h = a/16$ were stopped before $t = 1$ on 2026-10-17. The Sierra/SM
+TET15-P1 runs of case~B at $h = a/16$ are in progress. Plain
 \code{TETRA15}: Carina (the Sierra/SM runs at $a/8$ ended at a time limit
-at $t \approx 0.08$); the Carina case~B row at $a/8$ is running; the two
-codes agree to $0.02\%$ at $a/2$ and $a/4$.}
+at $t \approx 0.08$); the Carina case~B run at $a/8$ is in progress
+($t = 0.63$ on 2026-10-20 at 05:10~UTC); the two
+codes agree to $0.02\%$ at $a/2$ and $a/4$. Entries marked --- are in
+progress or were not computed.}
 \label{tab:punchforce}
 \small
 \begin{tabular}{l rrrr rrrr}
@@ -3680,12 +4251,20 @@ plain \code{TETRA15} & mean / p99         & 0.345 / 1.504 & 0.198 / 1.034 & --- 
 \end{tabular}
 \end{table}
 
-\paragraph{The two implementations.} With the same projected measure, the
+\paragraph{The two implementations.} With the same projected measure and
+different $J_2$ models, hyperelastic in Carina and hypoelastic in
+Sierra/SM, the
 two implementations of TET15-P1 agree in force to $0.035\%$ (case~A) and
 $0.06\%$ (case~B) at $h = a/2$ and to $0.017\%$ at $a/4$, at every output time
 to $0.09\%$, and in the jump statistics and the axisymmetry measure to two or
 three digits. At $h = a/8$ in case~A the Carina force is $0.015\%$ below
-that of Sierra/SM. In case~B at $h = a/4$ the Carina runs with the direct
+that of Sierra/SM. The agreement is a consistency check between two
+implementations with different material models, not a verification to
+the tolerance of the nonlinear solve. The source of the remaining
+difference, $0.02$ to $0.06\%$, has not been identified. The Sierra/SM
+multiplicative model gives the same force as its hypoelastic model to five
+digits, which leaves the volumetric law inside the Sierra/SM model and the
+implementation as candidates. In case~B at $h = a/4$ the Carina runs with the direct
 solver and with the conjugate-gradient solver give $14.1121$ and
 $14.1124$~N, against $14.1153$~N (multiplicative model) and
 $14.1158$~N (hypoelastic model) in Sierra/SM, differences of $-0.023\%$ and
@@ -3706,28 +4285,60 @@ and $a/8$. Its normalized jumps decrease only because the peak by which they
 are divided grows faster, which is the limitation of the normalization
 stated above.
 
-\paragraph{Pressure jumps of TET15-P1 and CT10.} TET15-P1 has the smallest
+\begin{table}[tbp]
+\centering
+\caption{Punch indentation: ratio of the jump statistics of
+Table~\ref{tab:punchjump} between successive levels, a factor of $2$ per
+halving of $h$ being first order, computed from the unrounded statistics.
+For CT10 with $\alpha = 0$ in case~B the $a/8$ level is the multiplicative
+hyperelastic model, whose statistics at $a/16$ agree with those of the
+hypoelastic model to three digits. Some ratios quoted in an earlier
+version of this note were computed from rounded statistics; the values
+below replace them.}
+\label{tab:punchrates}
+\small
+\begin{tabular}{@{}ll ccc ccc@{}}
+\toprule
+& & \multicolumn{3}{c}{normalized 99th percentile} & \multicolumn{3}{c}{mean} \\
+\cmidrule(lr){3-5}\cmidrule(lr){6-8}
+case & element & $\tfrac{a/2}{a/4}$ & $\tfrac{a/4}{a/8}$ & $\tfrac{a/8}{a/16}$
+                & $\tfrac{a/2}{a/4}$ & $\tfrac{a/4}{a/8}$ & $\tfrac{a/8}{a/16}$ \\
+\midrule
+A & CT10, $\alpha = 0.1$ & 1.55 & 1.78 & 2.74 & 3.28 & 2.33 & 2.45 \\
+A & CT10, $\alpha = 0$   & 1.20 & 1.75 & 3.52 & 2.60 & 2.29 & 3.07 \\
+A & TET15-P1             & 1.99 & 2.17 & 3.03 & 2.67 & 2.43 & 2.99 \\
+B & CT10, $\alpha = 0.1$ & 1.61 & 1.87 & 1.71 & 2.52 & 2.59 & 2.37 \\
+B & CT10, $\alpha = 0$   & 1.56 & 1.79 & 1.90 & 2.65 & 2.26 & 2.44 \\
+B & TET15-P1             & 2.40 & 1.63 & --- & 2.26 & 2.00 & --- \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{Pressure jumps of TET15-P1 and CT10.} Table~\ref{tab:punchrates}
+gives the ratios of the statistics between levels. TET15-P1 has the smallest
 jumps of the four elements at every level and in both cases: at $h = a/8$
 its mean jump is $0.52$ (case~A) and $0.67$ (case~B) of that of CT10 without
 stabilization, and its 99th percentile in MPa is $0.24$ and $0.27$ of it. At
 $h = a/16$ in case~A its mean jump is $0.53$ and its 99th percentile in MPa
 is $0.31$ of those of CT10 without stabilization. In
-case~A its normalized 99th percentile falls by $2.0$, $2.2$ and $3.0$ per
-halving of $h$, at least first order from $h = a/2$ on; in MPa it falls by
+case~A its normalized 99th percentile falls by $1.99$, $2.17$ and $3.03$ per
+halving of $h$, about first order or faster from $h = a/2$ on; in MPa it falls by
 $1.3$, $1.6$ and $1.9$, because the largest $|p|$ rises as the punch edge is
-resolved ($4.9$, $7.5$, $10.4$, $16.3$~MPa). Its mean falls by $3.0$ from
+resolved ($4.9$, $7.5$, $10.4$, $16.3$~MPa). Its mean falls by $2.99$ from
 $a/8$ to $a/16$. CT10 without stabilization falls by $1.20$, $1.75$ and $3.52$ per
 halving in the normalized 99th percentile, and in MPa rises from $a/2$ to
 $a/4$ and falls by $1.6$ and $2.5$ from $a/4$ to $a/8$ and from $a/8$ to
-$a/16$; its mean falls by $2.6$, $2.3$ and $3.1$. With the stabilization the
+$a/16$; its mean falls by $2.60$, $2.29$ and $3.07$. With the stabilization the
 normalized 99th percentile falls by $1.55$, $1.78$ and $2.73$, and in MPa by
 $0.76$, $1.61$ and $2.32$. Up to $h = a/8$ the decay of CT10 is
 pre-asymptotic, and from $a/8$ to $a/16$ it is faster than first order in
-both measures, with and without stabilization. In case~B the mean of TET15-P1 falls at first order ($2.3$,
-$2.0$) and its normalized 99th percentile by $2.4$ and then $1.6$, while
-that of CT10 without stabilization falls by $1.6$ and $1.8$. From $a/8$ to
-$a/16$ in case~B the mean of CT10 falls by $2.4$ without stabilization and
-by $2.4$ with it, and its normalized 99th percentile by $1.9$ and $1.7$.
+both measures, with and without stabilization. In case~B the mean of TET15-P1 falls at first order ($2.26$,
+$2.00$) and its normalized 99th percentile by $2.40$ and then $1.63$, while
+that of CT10 without stabilization falls by $1.56$ and $1.79$. From $a/8$ to
+$a/16$ in case~B the mean of CT10 falls by $2.44$ without stabilization and
+by $2.37$ with it, and its normalized 99th percentile by $1.90$ and $1.71$.
+In case~B the means of the three elements decrease by factors between
+$2.00$ and $2.65$ per halving at every pair of levels computed.
 The equivalent plastic strain shows no mode in any element: its jump
 statistics are of the same size for all four elements and decay by $2.1$ to
 $3.9$ per halving.
@@ -3753,13 +4364,127 @@ $3.125 \times 10^{-3}$; the repetitions use $1.5625 \times 10^{-3}$, the
 maximum step at $a/16$, and $7.8125 \times 10^{-4}$. Their forces differ
 from that of the original $a/8$ run by at most $0.019\%$ and $0.035\%$ over
 the twenty output times. The difference between $a/8$ and $a/16$ is
-therefore an effect of the mesh, not of the time step. The force of
+therefore an effect of the mesh, not of the time step. In the CT10 runs
+the equilibrium residual is at most $3\times10^{-5}$ of the force, so the
+difference is not an effect of the nonlinear tolerance either. The force of
 TET15-P1 in case~B changes by $-0.51\%$ from $a/4$ to $a/8$; its value at
 $a/16$ is not yet available.
 
+\paragraph{Loss of positive definiteness of the tangent in case~B.} In
+the case~B run of Carina at $h = a/4$ with the direct solver
+(\S\ref{sec:punch}, linear solver), the Cholesky factorization first
+failed in the step from $t = 0.0813$ to $0.0875$. A second computation of
+the same case wrote the tangent at every factorization and was stopped
+after the first failure. In it the tangent loses positive definiteness in
+the step from $t = 0.0625$ to $0.0688$. The tangent at the converged state
+at $t = 0.0625$ and the tangents of the predictor and of the first two
+Newton iterations of the step have a Cholesky factor, and the tangent of
+the third Newton iteration has none. The loss therefore occurs at an
+unconverged Newton iterate. The last two assembled tangents were analyzed
+by shift-and-invert subspace iteration for the smallest eigenvalues, with
+the inertia, the numbers of positive, zero and negative eigenvalues, from
+an $LDL^{\mathsf T}$ factorization. The first is positive definite. Its
+six smallest eigenvalues, $7.1\times10^{-9}$ to $3.3\times10^{-8}$ times
+the largest diagonal entry, belong to modes with $r_v$ between $0.04$ and
+$0.13$, $80$ to $87\%$ of whose dilatation lies in three elements, with
+the largest displacement at $r = 1.06a$ to $1.09a$ on the top surface. The
+second has exactly one negative eigenvalue, $-8.7\times10^{-8}$ times the
+largest diagonal entry. Its mode has $r_v = 0.075$ and $84\%$ of both its
+gradient energy and its dilatation in three elements. These elements are
+adjacent to the punch edge, at $r = 1.07a$ to $1.12a$ on the top surface,
+and their shape quality is $0.72$, $0.73$ and $0.94$, against $0.49$ for
+the worst element of the mesh. The loss of definiteness is therefore
+accompanied by an element-scale mode localized at the punch edge, of the
+kind found in \S\ref{sec:plastic} on unstructured meshes, with a
+dilatation below the threshold $r_v = 0.1$, and not by a mode on the
+scale of the plastic zone. The same tangents give
+$\norm{~K - \transpose{~K}}_F / \norm{~K}_F = 1.7\times10^{-15}$ in a
+plastic state in which $65\%$ of the elements have yielded. Script:
+\code{prototype/tangent\_modes.jl}.
+
+The punch edge is a singular point, at which perfect plasticity can also
+localize, and the only comparator available locks. The plain fifteen-node
+tetrahedron, the same displacement element without the projection, keeps
+a tangent with a Cholesky factor at every iterate to $t = 0.125$ on the
+same mesh. The tangent of CT10 cannot be extracted from Sierra/SM, and a
+constant-pressure comparator in Carina was not computed.
+
+A third computation of the same case, whose step sequence differs from
+that of the second, loses definiteness at the second Newton iterate of the
+step from $t = 0.0125$ to $0.0187$. Its tangent has one negative
+eigenvalue, $-8.9\times10^{-8}$ times the largest diagonal entry, and the
+largest contribution to its mode comes from the same element. For this
+tangent the energy $~v^{\mathsf T}~K~v$ of the unit eigenvector $~v$ is
+split, element by element, into the three terms of the tangent of the
+split form (\S\ref{sec:algorithm}): the isochoric material term, the
+pressure term
+$\bar p_q\, \Grad~v_q : (\partial~g/\partial\F)_q : \Grad~v_q$, and the
+projected volumetric term
+$\kappa\, (\transpose{~D}~v) \cdot ~M^{-1} \transpose{~D}~v$. Here
+$\bar p_q$ is the projected pressure at quadrature point $q$, and
+$\partial ~g/\partial\F$ is the derivative of the volumetric direction
+$~g = \partial\theta/\partial\F$. Table~\ref{tab:pdsplit} gives the
+split. The sum of the element contributions equals the eigenvalue,
+$-1.835\times10^{3}$~N/m, to four digits. Script:
+\code{prototype/pd\_split.jl}.
+
+\begin{table}[tbp]
+\centering
+\caption{Punch, case~B, $h = a/4$, Carina TET15-P1: the energy
+$~v^{\mathsf T}~K~v$ of the unit eigenvector of the negative eigenvalue
+of the tangent at the second Newton iterate of the step from $t = 0.0125$
+to $0.0187$, split into the three terms of the tangent, in N/m, over the
+mesh and in the element with the largest contribution. Last column: the
+largest magnitude of the projected pressure at a quadrature point of that
+element, in units of $\sigma_y$.}
+\label{tab:pdsplit}
+\small
+\begin{tabular}{@{}lrrrrr@{}}
+\toprule
+& total & isochoric & pressure & projected volumetric & $\max|\bar p_q|/\sigma_y$ \\
+\midrule
+mesh            & $-1.835\times10^{3}$ & $+7.19\times10^{3}$ & $-9.03\times10^{3}$ & $0.14$ & $316$ \\
+largest element & $-6.61\times10^{3}$ & $+2.29\times10^{3}$ & $-8.90\times10^{3}$ & $0.021$ & $316$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+In the element with the largest contribution the largest magnitude of the
+projected pressure at a quadrature point is $316\,\sigma_y$ at the
+iterate that fails and $278\,\sigma_y$ at the preceding iterate. At the
+converged states of a computation of the same case, at $t = 0.05$ to
+$0.3$, the largest magnitude of the pressure at a quadrature point of that
+element is $1.8$ to $2.3\,\sigma_y$, and the largest over the mesh is
+$2.8$ to $4.0\,\sigma_y$. The minimum over unit vectors $~a$ and $~k$ of
+the acoustic quantity
+$(~a\otimes~k) : \partial\P\supiso/\partial\F : (~a\otimes~k)$ of the
+isochoric tangent is negative at $128$ of the $6187$ elements, with a
+least value of $-6.1\times10^{-4}\,\mu$, of the order of
+$\sigma_y/\mu = 10^{-3}$. With the pressure term added it is
+$-6.8\times10^{-2}\,\mu$ in the element that carries the mode. The
+negative eigenvalue therefore comes from the pressure term of the tangent,
+evaluated at a projected pressure about $150$ times its value at the
+converged states, on a displacement that the projection leaves free of
+volumetric energy and on which the isochoric tangent of the perfectly
+plastic material is close to singular. In the three computations the
+tangents at all converged states up to the step in which definiteness is
+lost have a Cholesky factor. The plain fifteen-node tetrahedron, whose
+pressure at converged states reaches $770$ to $2140\,\sigma_y$ at
+$t = 0.05$ to $0.3$, keeps a positive definite tangent because its
+pointwise volumetric term gives the same displacement an energy
+proportional to $\kappa$. The stalled nonlinear iterations of the
+Sierra/SM TET15-P1 runs at $h = a/16$ in case~B were localized at the
+face-bubble nodes of the first ring of elements outside the punch edge,
+the same location. After the loss of definiteness the conjugate-gradient
+iteration of Carina reaches its limit of $1000$ iterations in $1666$ of
+its $1866$ solves at $h = a/4$, and the direct solver changes from
+Cholesky to LU decomposition. These are properties of the nonlinear and
+linear solvers at unconverged iterates, and the converged solutions of the
+two solvers agree in force to $0.002\%$.
+
 \paragraph{What the benchmark establishes, and what it does not.} The two
-implementations of TET15-P1 agree to the stopping tolerance of the nonlinear
-solve; TET15-P1 does not lock, carries the smallest pressure jumps of the
+implementations of TET15-P1, with different $J_2$ models, agree in force
+within $0.06\%$; TET15-P1 does not lock, carries the smallest pressure jumps of the
 elements compared, and its jumps decay under refinement from the coarsest
 level on. The plain element locks and carries a pressure mode that grows
 under refinement. CT10, with and without stabilization, does not show an
@@ -3772,8 +4497,12 @@ averages to zero over it; the jump measure compares element averages and
 does not see such a mode (\S\ref{sec:punch}, the jump measure), so the
 benchmark neither confirms nor refutes them. A measure that resolves the
 pressure within an element (the quadrature-point values of TET15-P1 and the
-sub-tetrahedron values of CT10) is the measurement that would. Sierra/SM
-TET15-P1 in case~B at $h = a/16$ is running. The definition of the problem,
+sub-tetrahedron values of CT10) is the measurement that would. In
+case~B the tangent of TET15-P1 loses positive definiteness at unconverged
+iterates through the pressure term at large projected pressures; the
+tangents at the converged states are positive definite. Sierra/SM
+TET15-P1 in case~B at $h = a/16$ and Carina TET15-P1 and plain
+\code{TETRA15} in case~B at $h = a/8$ are in progress. The definition of the problem,
 the drivers, the meshes and the extraction are in
 \code{benchmark/tet15-p1/punch}.
 
@@ -3799,8 +4528,27 @@ step converges after the cutback. The lower limit shortens such a failed
 attempt from about $40$~h to about $4.5$~h. In single runs the maximum step
 is halved to $7.8125 \times 10^{-4}$ after an attempt makes no progress
 over more than $100$ iterations. The three CT10 runs of case~B at $a/16$
-are complete with these changes. The TET15-P1 runs reached $t = 0.42$
+are complete with these changes: $14.576$~N with $\alpha = 0.1$ and the
+hypoelastic model, $14.051$~N with $\alpha = 0$ and the multiplicative
+model, and $14.0511$~N with $\alpha = 0$ and the hypoelastic model, at
+$t = 1$. The TET15-P1 runs reached $t = 0.42$
 (hypoelastic) and $t = 0.29$ (multiplicative) on 2026-10-18.
+
+Two further changes of the solver settings were made for the TET15-P1
+runs after 2026-10-18. The overlap of the GDSW subdomains was set to one,
+which halves the setup time of the preconditioner,
+$33$~s against $65$~s, with an unchanged convergence of the nonlinear
+iteration. Without overlap the Krylov iteration (GMRES) needs about $550$
+iterations per linear solve. The limit on the nonlinear iterations of a
+step was lowered from $200$ to $30$, so that an attempt that does not
+converge is cut back sooner. Two other changes were tested and gave no
+improvement: the reuse of the preconditioner over several linear solves,
+and a variant of the line search. The hypoelastic run was restarted from
+$t = 0.73125$ with these settings. The multiplicative run with the limit
+of $200$ was stopped at $t = 0.444$; a run restarted from
+$t = 0.3564453125$ with an overlap of one layer and the limit of $30$
+replaces it and had reached $t = 0.477$ on 2026-10-20 at 05:10~UTC. Both
+runs are in progress.
 
 \paragraph{Domain decomposition in Sierra/SM.} At $16$ ranks and more the
 default partition of the mesh, recursive inertial bisection, leaves single
@@ -3819,7 +4567,7 @@ with face adjacency and the connected-domain option) removes the hinges for
 every element; with it the $16$-rank run of case~A at $h = a/4$ reproduces
 the $8$-rank run to $9.2\times10^{-6}$ in force. An element tangent in
 closed form does not remove the defect: in an unstressed hinged element it
-gives the hinge a pivot at round-off ($10^{-17}$ in a prototype on the
+gives the hinge a pivot at round-off ($10^{-17}$ in a stand-alone script on the
 hinged element of the $a/4$ partition), which FETI-DP detects, but under
 stress the hinge carries its physical initial-stress stiffness, small and
 negative in compression ($-6.4\times10^{-8}$ of the largest entry at a strain
@@ -3841,13 +4589,17 @@ the Crouzeix--Raviart pair has $\beta_h = 0.2968$ at a local rate of $-0.003$,
 above the Taylor--Hood control's $0.2216$, with a one-dimensional pressure
 null space at every mesh; the constant-pressure pair with face bubbles is
 stable with a constant decreasing toward a limit near $0.35$, and the five
-other element-local pairs decay. The face bubbles are the necessary part of
+other element-local pairs decay. On randomly perturbed meshes the constant
+of the Crouzeix--Raviart pair lies between $0.287$ and $0.295$, and on
+unstructured Cubit meshes between $0.319$ and $0.332$ from $n = 3$ on, with
+one null mode on both (Table~\ref{tab:jitter}); the decay of $P_2/P_0$ is a
+property of the Freudenthal family. The face bubbles are the necessary part of
 the enrichment; the interior bubble alone is
 not sufficient (Remark~\ref{rem:whyface}). Uniformity in $\kappa/\mu$ follows
 from stability of the incompressible limit
 \citep[\S5.5.2, \S8.12.1, Remark~8.12.1]{BoffiBrezziFortin:2013}. On deformed
-configurations (\S\ref{sec:deformed}) the constant decreases with the shear
-of the deformation, to $0.204$ at a $90^\circ$ twist and $0.116$ at
+configurations (\S\ref{sec:deformed}) the constant decreases under the
+non-affine maps, to $0.204$ at a $90^\circ$ twist and $0.116$ at
 $180^\circ$, and by $7\%$ under a volume change of $2.3$, and at each fixed
 deformation the sequence in $h$ is consistent with a positive limit; the
 constant is not uniform in the deformation.
@@ -3858,17 +4610,30 @@ three exact zero-energy modes per element of a constant pressure
 (\S\ref{sec:firstresult}) do not persist after assembly
 (\S\ref{sec:assembled}). Under a plastic tangent (\S\ref{sec:plastic}) the
 coercivity constant is bounded below by \eqref{eq:floor} for every pair, and
-the dilatation of the soft modes separates them: $0.20$--$0.27$ without
+the dilatation of the soft modes separates them on the Freudenthal meshes:
+$0.20$--$0.29$ without
 decay for the constant-pressure pairs, CT10 with its
-averaged $J$ among them at $0.22$--$0.25$, $h^2$ decay for the
-Crouzeix--Raviart pair, and in a confined zone with a varying flow direction
-no spurious mode among the twenty softest of the Crouzeix--Raviart pair at
-$N = 5$ against five to nineteen for the constant-pressure elements. In
+averaged $J$ among them at $0.22$--$0.25$, and a decay at local rates of
+$3.1$ to $2.2$ for the Crouzeix--Raviart pair, to $0.0014$ at $N = 8$.
+The smallest energy $\lambda_\ast(0.1)$ of a discretely isochoric member
+with $r_v \ge 0.1$ (Table~\ref{tab:dilbound}) lies above the continuum
+infimum $\lambda_\infty = \tfrac18$ for the Crouzeix--Raviart pair on every
+mesh except one strongly perturbed mesh, and below it for the
+constant-pressure pairs. The heading of this paragraph holds in that
+sense only. On unstructured meshes the Crouzeix--Raviart pair has
+element-scale members with $r_v \ge 0.1$ within $12\%$ of its lowest
+eigenvalue up to $n = 10$; they are spurious dilatational modes by the
+definition of \S\ref{sec:prediction}, with an energy above
+$\lambda_\infty$. In
 the nonlinear indentation benchmark (\S\ref{sec:punch}) the element-to-element
 pressure jumps of TET15-P1 are the smallest of the elements compared and
 decay under refinement, and those of CT10 decay as well, in case~A faster
 than first order on the finest level; that measurement compares element averages and
-does not resolve the modes above.
+does not resolve the modes above. In case~B the tangent of TET15-P1 loses
+positive definiteness at an unconverged Newton iterate, through its
+pressure term at a projected pressure of $316\,\sigma_y$, with a negative
+mode of the element-scale kind localized at the punch edge
+(Table~\ref{tab:pdsplit}).
 
 \paragraph{No volumetric locking.} \S\ref{sec:assembled}: the discretely
 isochoric fraction $\dim\ker ~G / n_u$ is $0.61$--$0.63$ for the
@@ -3877,13 +4642,21 @@ $0.03$--$0.07$ for $P_2/P_1^{\mathrm{disc}}$, which locks. \S\ref{sec:cook}:
 on Cook's membrane at $\nu = 0.4999$ the element agrees with CT10 in the tip displacement within $0.6\%$ on meshes of $327$ to
 $14\,475$ elements, and its pressure is smooth away from the singular
 clamped edge, where the quadratic tetrahedron without projection oscillates
-in sign inside every element.
+in sign inside every element. \S\ref{sec:kappa}: against a manufactured
+solution in linear elasticity, the rate of convergence of TET15-P1 at
+$\kappa/\mu = 10^6$ is $0.047$ below its rate at $\kappa/\mu = 1$ from
+$N = 10$ to $12$, a difference that decreases under refinement, against
+$0.94$ for TET10 with the volumetric response at each quadrature point.
+Its quasi-optimality ratio at $\kappa/\mu = 10^6$ grows from $1.45$ to
+$1.59$ over $N = 2$ to $12$, about as $N^{0.06}$.
 
 \paragraph{Accuracy in explicit dynamics.} \S\ref{sec:taylor}: on the
-Taylor bar the final radius is within $0.06\%$ of the converged value on
+Taylor bar the final radius is within $0.06\%$ of the extrapolated value on
 $25\,029$ elements, against $0.09\%$ for CT10 on
-$1\,521\,212$, at $1/67$ of its core-seconds on the same machine; the
-constant-pressure variant is $2.1$ to $3.4\%$ from it.
+$1\,521\,212$, both of the order of the uncertainty of the limit,
+$0.08\%$. Within Sierra/SM the first costs $1/54$ of the core-seconds of
+the second, and $1/63$ at a tolerance of $0.3\%$. The
+constant-pressure variant is $11\%$ from it at $h = 0.75$~mm.
 
 \paragraph{Element-local elimination.} \S\ref{sec:local}: the pressure is
 discontinuous, so its elimination is element by element and the tangent has
@@ -3895,13 +4668,22 @@ displacement unknowns, $2.6$ times those of $P_2/P_0$ at $N = 12$
 rule keeps six zero-energy modes and the assembled constant within $1\%$; the
 nodal basis has a positive row-sum lumped mass that conserves the momentum
 of a rigid translation, and a Courant number of $0.145$ under HRZ lumping
-against $0.476$ for TET4.
+against $0.476$ for TET4. The consistent mass is singular under the
+$14$-point rule and is integrated in both implementations with the
+$125$-point conical rule of degree nine, with condition number $93.6$
+(Table~\ref{tab:massrule}).
 
-\paragraph{Open measurements.} Four remain. An unstructured mesh sequence
-for the negative stability results, which are established here on the
-Freudenthal family only (Remark~\ref{rem:structured}). The finest level of
+\paragraph{Open measurements.} Six remain. A measurement showing whether
+the quasi-optimality ratio of TET15-P1 at large $\kappa/\mu$ levels off;
+it grows through $N = 12$ (\S\ref{sec:kappa}). The finest level of
 the indentation benchmark of \S\ref{sec:punch}: TET15-P1 in case~B at
-$h = a/16$, which Sierra/SM solves only with changed solver settings. A
+$h = a/16$, which Sierra/SM solves only with changed solver settings, and
+Carina TET15-P1 and plain \code{TETRA15} in case~B at $h = a/8$; these runs
+are in progress. A comparator for the loss of positive definiteness of the
+case-B tangent: the tangent of CT10 cannot be extracted from Sierra/SM,
+and a constant-pressure element in Carina has not been computed. The
+source of the force difference of $0.02$ to $0.06\%$ between the two
+implementations of TET15-P1. A
 measurement of the pressure within each element on that
 benchmark, which alone can show the soft modes of constant-pressure elements
 found in the linearized analysis: their dilatation varies within an element
@@ -3929,7 +4711,7 @@ same mesh, a factor of $2.6$, and $2.5$ times Taylor--Hood's $38{,}698$
 (\S\ref{sec:infsup}); the implementation does not condense the interior
 bubble, and on the Cook meshes of \S\ref{sec:cook} the factor is $3.0$.
 On the Taylor bar (\S\ref{sec:taylor}) the accuracy on a coarser mesh
-more than compensates for that factor: the final radius within $0.05\%$ on
+more than compensates for that factor: the final radius within $0.06\%$ on
 $25\,029$ elements, against $1.5$ million elements for CT10 at $0.09\%$. On other problems it is not established; for
 elasticity that is the
 comparison with Taylor--Hood, whose pressure is global and whose displacement
@@ -3941,7 +4723,9 @@ is with CT10.
 \S\ref{sec:basis} the enriched element evaluates the constitutive law at $14$
 points on $45$ displacement degrees of freedom, against $4$ or $5$ points on
 $30$ for TET10 and one on $12$ for TET4. On the Taylor bar the time per
-element and explicit step on one core is $1.40$ times that of CT10 in Sierra/SM (\S\ref{sec:taylor}).
+element and explicit step on one core of Carina TET15-P1 is $1.40$ times
+that of CT10 in Sierra/SM, and within Sierra/SM the time of Sierra/SM
+TET15-P1 is at most $2.6$ times that of CT10 (\S\ref{sec:taylor}).
 
 \paragraph{The explicit stable step.} Row-sum lumping in the nodal basis gives
 positive masses and conserves momentum, and the stable step is $3.3$ times
