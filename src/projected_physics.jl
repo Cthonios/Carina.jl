@@ -412,10 +412,26 @@ end
     end
 end
 
-@inline function FEC.stiffness(
+@inline FEC.stiffness(
     physics::_SplitProjected, ref_fe, x_el, t, dt, u_el, u_el_old,
     states::FEC.ElementState, props_el,
-)
+) = _split_stiffness(physics, ref_fe, x_el, dt, u_el, states, props_el, Val(true))
+
+# The tangent without the pressure term p̄ ∂g/∂F : ∇v, for the modified Newton
+# iteration that the direct solver takes when the full tangent is not positive
+# definite (see `_factorize_modified!`).  The isochoric and projected
+# volumetric terms are unchanged, so the converged solution is too.  Every
+# other physics keeps its full tangent.
+@inline stiffness_without_pressure_term(physics, args...) = FEC.stiffness(physics, args...)
+@inline stiffness_without_pressure_term(
+    physics::_SplitProjected, ref_fe, x_el, t, dt, u_el, u_el_old,
+    states::FEC.ElementState, props_el,
+) = _split_stiffness(physics, ref_fe, x_el, dt, u_el, states, props_el, Val(false))
+
+@inline function _split_stiffness(
+    physics::_SplitProjected, ref_fe, x_el, dt, u_el,
+    states::FEC.ElementState, props_el, ::Val{pressure_term},
+) where pressure_term
     model = physics.constitutive_model
     PD = Val(projection_degree(physics))
     NC = _num_projection_functions(PD)
@@ -434,7 +450,8 @@ end
         vol = _volumetric(model, ∇u)
         χ = _projection_basis(PD, interps.ξ)
         p̄ = κ * dot(χ, θ̄)
-        A_v = FEC.extract_stiffness(FEC.ThreeDimensional(), A) + p̄ * _dg_matrix(vol)
+        A_v = FEC.extract_stiffness(FEC.ThreeDimensional(), A)
+        A_v = pressure_term ? A_v + p̄ * _dg_matrix(vol) : A_v
         G = FEC.discrete_gradient(FEC.ThreeDimensional(), cell.∇N_X)
         K = K + cell.JxW * (G * A_v * G')
         D = D + _scatter_qp(cell.∇N_X, _g(vol), cell.JxW) * χ'

@@ -151,6 +151,14 @@ solver:
                 end
                 @test worst < 1e-6
 
+                # 2b. the tangent without the pressure term, used by the direct
+                # solver when the full tangent is not positive definite: it is
+                # symmetric and differs from the full tangent where p̄ ≠ 0
+                FEC.assemble_stiffness!(asm, Carina.stiffness_without_pressure_term, U, p)
+                K_mod = copy(FEC.stiffness(asm))
+                @test K_mod ≈ K_mod' rtol = 1e-10
+                @test norm(K - K_mod) > 1e-6 * norm(K)
+
                 # 3. matrix-free action and diagonal kernels
                 v = [cos(0.37 * i) for i in 1:length(U)]
                 Kv = K * v

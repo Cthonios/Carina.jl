@@ -1174,7 +1174,7 @@ const _direct_use_lu = Ref(false)
 #
 # So 5.6x faster and more accurate, at ~6.8 GB of retained factor.  RSS is flat
 # across repetitions, which is the property that matters.
-function _factorize_direct(K)
+function _factorize_direct(K; modified::Bool = false)
     if !_direct_use_lu[] && _check_tangent_symmetry!(K)
         try
             if _direct_chol[] === nothing
@@ -1185,6 +1185,9 @@ function _factorize_direct(K)
             return _direct_chol[]
         catch e
             e isa LinearAlgebra.PosDefException || rethrow()
+            # With the modified tangent requested, the caller replaces this
+            # iteration's tangent and the full one is tried again next time.
+            modified && return nothing
             # Buckling, softening, an everted element: the tangent is no longer
             # positive definite.  Drop the factor and stay on LU for the rest of
             # the run rather than paying a failed factorization every iteration.
@@ -1197,12 +1200,40 @@ function _factorize_direct(K)
     return lu(K)
 end
 
+# A quasi-static Newton iteration whose full tangent fails Cholesky uses
+# instead the tangent without the pressure term of the projected element,
+# reassembled at the same iterate, and the next iteration tries the full
+# tangent again.  The residual is unchanged, so the converged solution is too.
+# On the TET15-P1 punch, a/4, H = 0 (CPU, 32 threads), the full tangent failed
+# in 6 of 1608 iterations; this kept Cholesky in the others and ran in 2816 s,
+# against 10244 s when the first failure switched the run to LU for good, with
+# the same steps and punch forces equal to within 1.4e-6.  Other physics keep their
+# full tangent in `stiffness_without_pressure_term`, so a run without a split
+# projected block, and the Newmark path, keep the switch to LU.
+_modified_tangent_requested(ig, p) =
+    ig isa QuasiStaticIntegrator && any(ph -> ph isa _SplitProjected, values(p.physics))
+
+function _factorize_modified!(ig, p)
+    FEC.assemble_stiffness!(ig.asm, stiffness_without_pressure_term, ig.U, p)
+    K = FEC.stiffness(ig.asm)
+    F = _factorize_direct(K; modified = true)
+    if F === nothing
+        _carina_log(4, :solve, "Tangent without the pressure term is not positive definite either; LU.")
+        _direct_chol[] = nothing
+        return lu(K)
+    end
+    _carina_log(4, :solve, "Tangent not positive definite; modified tangent without the pressure term.")
+    return F
+end
+
 function _linear_solve!(::DirectLinearSolver, ig, p, _ops)
     K  = FEC.stiffness(ig.asm)
     af = _asm_flags
     t  = @elapsed begin
         if af.compute_factorization
-            F = _factorize_direct(K)
+            modified = _modified_tangent_requested(ig, p)
+            F = _factorize_direct(K; modified)
+            F === nothing && (F = _factorize_modified!(ig, p))
             if af.is_linear
                 _factorization_cache[] = F
                 af.compute_factorization = false
