@@ -562,9 +562,8 @@ end
 # The diagonal of cρ times the consistent mass, in the layout of `d`.
 @inline function _mass_diagonal_element(ref_fe, x_el, cρ, d::SVector{NDOF, T}) where {NDOF, T}
     m = zero(SVector{NDOF, T})
-    for q in 1:RFE.num_cell_quadrature_points(ref_fe)
-        cell = FEC.map_interpolants(FEC._cell_interpolants(ref_fe, q), x_el)
-        (; N, JxW) = cell
+    for q in 1:_num_mass_points(ref_fe)
+        N, JxW = _mass_point(ref_fe, x_el, q)
         m = m + SVector{NDOF, T}(ntuple(Val(NDOF)) do k
             n = (k - 1) ÷ 3 + 1
             cρ * JxW * N[n] * N[n]
@@ -1042,17 +1041,61 @@ end
     return acc
 end
 
-# The consistent mass: the scalar matrix ρ N Nᵀ summed over the quadrature
-# points, expanded to the three components once.
+# --------------------------------------------------------------------------- #
+# The quadrature rule of the consistent mass
+# --------------------------------------------------------------------------- #
+#
+# The consistent mass ρ ∫ N_a N_b dV is integrated with the rule of the
+# element, except on the fifteen-node tetrahedron.  Its integrand N_a N_b is
+# of degree 8 on a straight-sided element, and the 14-point degree-5 rule of
+# the element gives a scalar element mass of rank 14 for 15 functions, so the
+# consistent mass has a zero eigenvalue per component, and the assembled mass
+# has one as well.  On TETRA15 the mass is integrated instead with the
+# collapsed Gauss-Jacobi product rule of degree 9 (5 points per direction,
+# 125 points, positive weights), which integrates it exactly on a
+# straight-sided element; the condition number of the reference element mass
+# in the nodal basis is then 93.6.  The lumped (row-sum) mass ρ ∫ N_a dV has
+# an integrand of degree 4, which the element's rule already integrates
+# exactly, and stays on that rule.  The mass, its action and its diagonal all
+# use the same rule, so that the matrix-free and the assembled operators agree.
+# (The interpolants are set up directly: a ReferenceFE of the tetrahedron
+# also builds a surface rule from the cell degree, and the triangle rules stop
+# at degree 6.)
+const _TET15_MASS_RULE = let
+    interps = RFE._setup_cell_interpolants(RFE.Tet{RFE.EnrichedLagrange, 2}(),
+                                           RFE.GaussLegendre(9), RFE.StaticH1OrL2Interpolants)
+    SVector{length(interps), eltype(interps)}(interps)
+end
+
+const _Tet15ReferenceFE = RFE.ReferenceFE{<:RFE.Tet{RFE.EnrichedLagrange, 2}}
+
+@inline _num_mass_points(ref_fe) = RFE.num_cell_quadrature_points(ref_fe)
+@inline _num_mass_points(::_Tet15ReferenceFE) = length(_TET15_MASS_RULE)
+
+# The shape function values and the weight times the Jacobian determinant at
+# point q of the mass rule.
+@inline function _mass_point(ref_fe, x_el, q)
+    cell = FEC.map_interpolants(FEC._cell_interpolants(ref_fe, q), x_el)
+    return cell.N, cell.JxW
+end
+
+@inline function _mass_point(::_Tet15ReferenceFE, x_el, q)
+    interps = @inbounds _TET15_MASS_RULE[q]
+    X = FEC.reshape_element_level_coordinates(interps, x_el)
+    return interps.N, det(X * interps.∇N_ξ) * interps.w
+end
+
+# The consistent mass: the scalar matrix ρ N Nᵀ summed over the points of the
+# mass rule, expanded to the three components once.
 @inline function FEC.mass(
     physics::ProjectedSolidMechanics, ref_fe, x_el, t, dt, u_el, u_el_old,
     states::FEC.ElementState, props_el,
 )
-    cell = FEC.map_interpolants(FEC._cell_interpolants(ref_fe, 1), x_el)
-    NN = (cell.JxW * props_el[1]) * (cell.N * cell.N')
-    for q in 2:RFE.num_cell_quadrature_points(ref_fe)
-        cell = FEC.map_interpolants(FEC._cell_interpolants(ref_fe, q), x_el)
-        NN = NN + (cell.JxW * props_el[1]) * (cell.N * cell.N')
+    N, JxW = _mass_point(ref_fe, x_el, 1)
+    NN = (JxW * props_el[1]) * (N * N')
+    for q in 2:_num_mass_points(ref_fe)
+        N, JxW = _mass_point(ref_fe, x_el, q)
+        NN = NN + (JxW * props_el[1]) * (N * N')
     end
     return _expand_mass(NN)
 end
@@ -1069,11 +1112,29 @@ end
     T = eltype(x_el)
     NDOF = 3 * RFE.num_cell_dofs(ref_fe)
     Mv = zero(SVector{NDOF, T})
-    for q in 1:RFE.num_cell_quadrature_points(ref_fe)
-        cell = FEC.map_interpolants(FEC._cell_interpolants(ref_fe, q), x_el)
-        Mv = Mv + _mass_qp_action(cell.N, cell.JxW, props_el[1], v_el)
+    for q in 1:_num_mass_points(ref_fe)
+        N, JxW = _mass_point(ref_fe, x_el, q)
+        Mv = Mv + _mass_qp_action(N, JxW, props_el[1], v_el)
     end
     return Mv
+end
+
+# The action on TETRA15.  At each of the 125 points of the mass rule the
+# 3 × 15 matrix of the result receives the rank-one update JxW (V N) Nᵀ, where
+# V is the 3 × 15 matrix of v_el: 90 multiply-adds per point.
+# `_mass_qp_action` rebuilds a 45-entry vector with `setindex` 45 times per
+# point.  On the 49-element cube-tet15 mesh on one CPU core, the loop over
+# `_mass_qp_action` took 24.8 μs per element on the 125-point rule, against
+# 3.5 μs on the 14-point rule; this form takes 5.3 μs.
+@inline function _mass_action_element(::ProjectedSolidMechanics, ref_fe::_Tet15ReferenceFE,
+                                      x_el, v_el::SVector{45}, props_el)
+    V = SMatrix{3, 15}(v_el)
+    MV = zero(SMatrix{3, 15, eltype(v_el)})
+    for q in 1:_num_mass_points(ref_fe)
+        N, JxW = _mass_point(ref_fe, x_el, q)
+        MV = MV + (JxW * (V * N)) * N'
+    end
+    return props_el[1] * SVector{45}(MV)
 end
 
 @inline function FEC.mass_action(
