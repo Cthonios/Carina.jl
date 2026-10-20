@@ -40,3 +40,32 @@ P2+face/P0          n=4   3927   0.045   0.0818  0   0.0506   0.0479   0.0505   
 P2+face/P0          n=5   7785   0.0275  0.0611  0   0.0284   0.0287   0.0332   0.0424   0.0378   | -  (744 it)
 P2+face/P0          n=6   14808  0.0232  0.0467  0   0.0241   0.0233   0.0262   0.0302   0.032    | -  (69 it)
 P2+face/P0          n=7   24945  0.0152  0.0339  0   0.0169   0.016    0.0192   0.0195   0.0184   | -  (1538 it)
+P2+face/P0          n=8   37029  0.0126  0.0271  0   0.0138   0.0129   0.0123   0.0158   0.0168   | -  (3000 it)
+P2+face/P0          n=10  71889  0.00953 0.0208  0   0.00883  0.0115   0.0118   0.0119   0.0156   | -  (773 it)
+P2/P0               n=3   447    0.118   0.228   16  0.082    0.0721   0.0862   0.102    0.0984   | lam 0.133 r_v 0.102 top3 0.22 q 0.79  (25 it)
+P2/P0               n=4   1383   0.0881  0.151   3   0.0541   0.047    0.0546   0.0614   0.0633   | lam 0.137 r_v 0.102 top3 0.11 q 0.643  (34 it)
+P2/P0               n=5   2793   0.0548  0.112   0   0.0326   0.0338   0.0324   0.0392   0.0391   | -  (33 it)
+P2/P0               n=6   5424   0.0377  0.0764  0   0.0223   0.026    0.0292   0.0272   0.029    | -  (27 it)
+P2/P0               n=7   9273   0.0288  0.056   0   0.0163   0.0163   0.0197   0.0181   0.0206   | -  (26 it)
+P2/P0               n=8   13875  0.0252  0.0461  0   0.0131   0.0137   0.0145   0.0156   0.0164   | -  (27 it)
+P2/P0               n=10  27321  0.0177  0.0337  0   0.00921  0.0106   0.011    0.00917  0.0109   | -  (88 it)
+P2/P1c (TH)         n=3   447    0.0739  0.184   17  0.0871   0.0784   0.107    0.141    0.0969   | lam 0.0966 r_v 0.107  (27 it)
+P2/P1c (TH)         n=4   1383   0.0562  0.118   12  0.0783   0.0744   0.0767   0.0917   0.0847   | lam 0.0891 r_v 0.134  (33 it)
+P2/P1c (TH)         n=5   2793   0.034   0.0833  1   0.0386   0.0401   0.0474   0.0518   0.0517   | lam 0.0777 r_v 0.102  (37 it)
+P2/P1c (TH)         n=6   5424   0.0278  0.0571  0   0.0312   0.028    0.0445   0.0424   0.0408   | -  (65 it)
+┌ Warning: kernel_modes: not converged
+└ @ Main ~/Repos/Carina.jl/research/tet15-p1/prototype/plastic_ext.jl:37
+┌ Warning: kernel_modes: not converged
+└ @ Main ~/Repos/Carina.jl/research/tet15-p1/prototype/plastic_ext.jl:37
+┌ Warning: kernel_modes: not converged
+└ @ Main ~/Repos/Carina.jl/research/tet15-p1/prototype/plastic_ext.jl:37
+┌ Warning: kernel_modes: not converged
+└ @ Main ~/Repos/Carina.jl/research/tet15-p1/prototype/plastic_ext.jl:37
+┌ Warning: kernel_modes: not converged
+└ @ Main ~/Repos/Carina.jl/research/tet15-p1/prototype/plastic_ext.jl:37
+┌ Warning: kernel_modes: not converged
+└ @ Main ~/Repos/Carina.jl/research/tet15-p1/prototype/plastic_ext.jl:37
+┌ Warning: kernel_modes: not converged
+└ @ Main ~/Repos/Carina.jl/research/tet15-p1/prototype/plastic_ext.jl:37
+┌ Warning: kernel_modes: not converged
+└ @ Main ~/Repos/Carina.jl/research/tet15-p1/prototype/plastic_ext.jl:37
