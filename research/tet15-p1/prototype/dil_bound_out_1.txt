@@ -1,0 +1,16 @@
+
+flow axial, r0 = 0.1: L = max_s g(s) + s r0 is a lower bound and U the lam of a member with r_v >= r0 (an upper bound) on the smallest lam among members of ker G with r_v >= r0; top3 = share of int(div v)^2 of that member in its 3 largest elements, q3 = min quality of those
+P2+int+face/P1disc   Freud N=4      4197    qmin 0.657   L 0.1672   U 0.1673   s* 0.368    r_v(U) 0.100  top3 0.14  q3 0.657  (2212 it, 18 s)
+P2+int+face/P1disc   Freud N=6      15009   qmin 0.657   L 0.1633   U 0.2256   s* 0.3592   r_v(U) 0.273  top3 0.04  q3 0.657  (3736 it, 133 s)
+P2+int+face/P1disc   Freud N=8      36621   qmin 0.657   L 0.1615   U 0.2256   s* 0.3501   r_v(U) 0.283  top3 0.02  q3 0.657  (4302 it, 804 s)
+P2+int+face/P1disc   d=0.1 N=6      15009   qmin 0.458   L 0.1598   U 0.1606   s* 0.2784   r_v(U) 0.103  top3 0.33  q3 0.633  (2415 it, 105 s)
+P2+int+face/P1disc   d=0.1 N=7      24231   qmin 0.485   L 0.1561   U 0.1562   s* 0.2589   r_v(U) 0.101  top3 0.47  q3 0.585  (2180 it, 166 s)
+P2+int+face/P1disc   d=0.25 N=6     15009   qmin 0.152   L 0.1391   U 0.1391   s* 0.01672  r_v(U) 0.100  top3 0.74  q3 0.397  (2419 it, 88 s)
+P2+int+face/P1disc   d=0.25 N=7     24231   qmin 0.210   L 0.1056   U 0.1056   s* 1e-09    r_v(U) 0.275  top3 0.80  q3 0.298  (35 it, 4 s)
+P2+int+face/P1disc   Cubit n=3      1905    qmin 0.582   L 0.1601   U 0.1601   s* 1e-09    r_v(U) 0.100  top3 0.98  q3 0.678  (47 it, 0 s)
+P2+int+face/P1disc   Cubit n=4      5343    qmin 0.573   L 0.1518   U 0.1518   s* 1e-09    r_v(U) 0.102  top3 0.76  q3 0.587  (102 it, 1 s)
+P2+int+face/P1disc   Cubit n=5      10515   qmin 0.554   L 0.1435   U 0.1435   s* 1e-09    r_v(U) 0.123  top3 0.97  q3 0.586  (70 it, 2 s)
+P2+int+face/P1disc   Cubit n=6      19851   qmin 0.544   L 0.1323   U 0.1323   s* 1e-09    r_v(U) 0.123  top3 0.96  q3 0.544  (39 it, 3 s)
+P2+int+face/P1disc   Cubit n=7      33267   qmin 0.526   L 0.1493   U 0.1496   s* 0.08415  r_v(U) 0.103  top3 0.75  q3 0.568  (2024 it, 233 s)
+P2+int+face/P1disc   Cubit n=8      49245   qmin 0.531   L 0.1436   U 0.1437   s* 0.02229  r_v(U) 0.102  top3 0.95  q3 0.581  (2594 it, 479 s)
+P2+int+face/P1disc   Cubit n=10     95145   qmin 0.515   L 0.1444   U 0.1545   s* 0.06924  r_v(U) 0.246  top3 0.89  q3 0.680  (4309 it, 3933 s)

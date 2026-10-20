@@ -1,0 +1,69 @@
+Cubit meshes of the unit cube, whole boundary fixed.
+
+beta_h (null = n_p - rank G)
+P2/P1c (TH)         n=2: 0.212 (4)  n=3: 0.3265 (7)  n=4: 0.3278 (6)  n=5: 0.328 (6)  n=6: 0.3277 (5)
+P2/P0               n=2: 0.0764 (4)  n=3: 0.08191 (7)  n=4: 0.06842 (6)  n=5: 0.09883 (6)  n=6: 0.1012 (5)
+P2+face/P0          n=2: 0.4335 (1)  n=3: 0.429 (1)  n=4: 0.4155 (1)  n=5: 0.4069 (1)  n=6: 0.4034 (1)
+P2+int+face/P1disc  n=2: 0.2334 (1)  n=3: 0.3185 (1)  n=4: 0.3302 (1)  n=5: 0.3313 (1)  n=6: 0.3324 (1)
+
+beta = 1, flow axial; twenty lowest modes on ker G: lam_1, lam_20, n_dil = #(r_v > 0.1), r_v of the five lowest; lowest dilatational mode: lam, r_v, share of int (div v)^2 in its 3 largest elements, min quality of those
+P2/P1c (TH)         n=3   447    0.0605  0.204   20  0.75     0.579    0.548    0.499    0.458    | lam 0.0605 r_v 0.75  (27 it)
+P2/P1c (TH)         n=4   1383   0.0257  0.097   20  0.861    0.795    0.716    0.622    0.693    | lam 0.0257 r_v 0.861  (34 it)
+P2/P1c (TH)         n=5   2793   0.02    0.0633  20  0.887    0.821    0.795    0.722    0.748    | lam 0.02 r_v 0.887  (1733 it)
+P2/P1c (TH)         n=6   5424   0.0224  0.0494  20  0.857    0.774    0.819    0.821    0.723    | lam 0.0224 r_v 0.857  (249 it)
+
+[4014602] signal 15: Terminated
+in expression starting at /home/amota/Repos/Carina.jl/research/tet15-p1/prototype/cubit_cube.jl:114
+__futex_abstimed_wait_common at /lib64/libc.so.6 (unknown line)
+pthread_cond_wait at /lib64/libc.so.6 (unknown line)
+uv_cond_wait at /workspace/srcdir/libuv/src/unix/thread.c:822
+ijl_task_get_next at /cache/build/builder-amdci4-4/julialang/julia-ci/src/scheduler.c:599
+wait at ./task.jl:1296
+#wait#392 at ./condition.jl:141
+wait at ./condition.jl:136 [inlined]
+_trywait at ./asyncevent.jl:186
+profile_printing_listener at ./Base.jl:335
+#start_profile_listener##0 at ./Base.jl:355
+jfptr_YY.start_profile_listenerYY.YY.0_13562.1 at /home/amota/.julia/juliaup/julia-1.13.0+0.x64.linux.gnu/lib/julia/sys.so (unknown line)
+jl_apply at /cache/build/builder-amdci4-4/julialang/julia-ci/src/julia.h:2318 [inlined]
+start_task at /cache/build/builder-amdci4-4/julialang/julia-ci/src/task.c:1285
+unknown function (ip: (nil)) at (unknown file)
+cholmod_l_super_lsolve at /home/amota/.julia/juliaup/julia-1.13.0+0.x64.linux.gnu/bin/../lib/julia/libcholmod.so.5 (unknown line)
+cholmod_l_solve2 at /home/amota/.julia/juliaup/julia-1.13.0+0.x64.linux.gnu/bin/../lib/julia/libcholmod.so.5 (unknown line)
+cholmod_l_solve at /home/amota/.julia/juliaup/julia-1.13.0+0.x64.linux.gnu/bin/../lib/julia/libcholmod.so.5 (unknown line)
+cholmod_l_solve at /cache/build/builder-amdci4-4/julialang/julia-ci/usr/share/julia/stdlib/v1.13/SparseArrays/src/solvers/wrappers.jl:1447
+unknown function (ip: 0x7f1965371f18) at (unknown file)
+solve at /cache/build/builder-amdci4-4/julialang/julia-ci/usr/share/julia/stdlib/v1.13/SparseArrays/src/solvers/cholmod.jl:682
+\ at /cache/build/builder-amdci4-4/julialang/julia-ci/usr/share/julia/stdlib/v1.13/SparseArrays/src/solvers/cholmod.jl:1857 [inlined]
+\ at /cache/build/builder-amdci4-4/julialang/julia-ci/usr/share/julia/stdlib/v1.13/SparseArrays/src/solvers/cholmod.jl:1866 [inlined]
+#kernel_modes#39 at /home/amota/Repos/Carina.jl/research/tet15-p1/prototype/plastic_ext.jl:26
+kernel_modes at /home/amota/Repos/Carina.jl/research/tet15-p1/prototype/plastic_ext.jl:18 [inlined]
+main at /home/amota/Repos/Carina.jl/research/tet15-p1/prototype/cubit_cube.jl:93
+unknown function (ip: 0x7f1965320c4f) at (unknown file)
+jl_apply at /cache/build/builder-amdci4-4/julialang/julia-ci/src/julia.h:2318 [inlined]
+do_call at /cache/build/builder-amdci4-4/julialang/julia-ci/src/interpreter.c:123
+eval_value at /cache/build/builder-amdci4-4/julialang/julia-ci/src/interpreter.c:243
+eval_stmt_value at /cache/build/builder-amdci4-4/julialang/julia-ci/src/interpreter.c:194 [inlined]
+eval_body at /cache/build/builder-amdci4-4/julialang/julia-ci/src/interpreter.c:679
+jl_interpret_toplevel_thunk at /cache/build/builder-amdci4-4/julialang/julia-ci/src/interpreter.c:884
+jl_toplevel_eval_flex at /cache/build/builder-amdci4-4/julialang/julia-ci/src/toplevel.c:742
+jl_eval_toplevel_stmts at /cache/build/builder-amdci4-4/julialang/julia-ci/src/toplevel.c:585
+jl_toplevel_eval_flex at /cache/build/builder-amdci4-4/julialang/julia-ci/src/toplevel.c:683
+ijl_toplevel_eval at /cache/build/builder-amdci4-4/julialang/julia-ci/src/toplevel.c:754
+ijl_toplevel_eval_in at /cache/build/builder-amdci4-4/julialang/julia-ci/src/toplevel.c:799
+eval at ./boot.jl:489
+include_string at ./loading.jl:3016
+_include at ./loading.jl:3076
+include at ./Base.jl:309
+exec_options at ./client.jl:344
+_start at ./client.jl:577
+jfptr__start_59126.1 at /home/amota/.julia/juliaup/julia-1.13.0+0.x64.linux.gnu/lib/julia/sys.so (unknown line)
+jl_apply at /cache/build/builder-amdci4-4/julialang/julia-ci/src/julia.h:2318 [inlined]
+true_main at /cache/build/builder-amdci4-4/julialang/julia-ci/src/jlapi.c:985
+jl_repl_entrypoint at /cache/build/builder-amdci4-4/julialang/julia-ci/src/jlapi.c:1152
+main at /cache/build/builder-amdci4-4/julialang/julia-ci/cli/loader_exe.c:58
+__libc_start_call_main at /lib64/libc.so.6 (unknown line)
+__libc_start_main at /lib64/libc.so.6 (unknown line)
+unknown function (ip: 0x4010b8) at /workspace/srcdir/glibc-2.17/csu/../sysdeps/x86_64/start.S
+unknown function (ip: (nil)) at (unknown file)
+Allocations: 446820007 (Pool: 446819623; Big: 384); GC: 2186

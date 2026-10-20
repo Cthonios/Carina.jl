@@ -1,0 +1,16 @@
+
+flow axial, r0 = 0.1: L = max_s g(s) + s r0 is a lower bound and U the lam of a member with r_v >= r0 (an upper bound) on the smallest lam among members of ker G with r_v >= r0; top3 = share of int(div v)^2 of that member in its 3 largest elements, q3 = min quality of those
+P2/P0                Freud N=4      1029    qmin 0.657   L 0.1059   U 0.1059   s* 1e-09    r_v(U) 0.217  top3 0.08  q3 0.657  (38 it, 0 s)
+P2/P0                Freud N=6      3993    qmin 0.657   L 0.09834  U 0.09834  s* 1e-09    r_v(U) 0.220  top3 0.02  q3 0.657  (54 it, 1 s)
+P2/P0                Freud N=8      10125   qmin 0.657   L 0.09571  U 0.09571  s* 1e-09    r_v(U) 0.220  top3 0.01  q3 0.657  (75 it, 2 s)
+P2/P0                d=0.1 N=6      3993    qmin 0.458   L 0.09873  U 0.09873  s* 1e-09    r_v(U) 0.231  top3 0.06  q3 0.590  (57 it, 1 s)
+P2/P0                d=0.1 N=7      6591    qmin 0.485   L 0.0969   U 0.0969   s* 1e-09    r_v(U) 0.246  top3 0.07  q3 0.555  (74 it, 1 s)
+P2/P0                d=0.25 N=6     3993    qmin 0.152   L 0.08007  U 0.08007  s* 1e-09    r_v(U) 0.338  top3 0.52  q3 0.397  (26 it, 0 s)
+P2/P0                d=0.25 N=7     6591    qmin 0.210   L 0.06432  U 0.06432  s* 1e-09    r_v(U) 0.364  top3 0.60  q3 0.298  (19 it, 0 s)
+P2/P0                Cubit n=3      447     qmin 0.582   L 0.1899   U 0.1899   s* 1e-09    r_v(U) 0.173  top3 0.18  q3 0.633  (23 it, 0 s)
+P2/P0                Cubit n=4      1383    qmin 0.573   L 0.1189   U 0.1189   s* 1e-09    r_v(U) 0.378  top3 0.40  q3 0.643  (22 it, 0 s)
+P2/P0                Cubit n=5      2793    qmin 0.554   L 0.1148   U 0.1148   s* 1e-09    r_v(U) 0.305  top3 0.35  q3 0.731  (38 it, 0 s)
+P2/P0                Cubit n=6      5424    qmin 0.544   L 0.08827  U 0.08827  s* 1e-09    r_v(U) 0.515  top3 0.45  q3 0.735  (22 it, 0 s)
+P2/P0                Cubit n=7      9273    qmin 0.526   L 0.09247  U 0.09247  s* 1e-09    r_v(U) 0.429  top3 0.32  q3 0.835  (28 it, 1 s)
+P2/P0                Cubit n=8      13875   qmin 0.531   L 0.0883   U 0.0883   s* 1e-09    r_v(U) 0.498  top3 0.54  q3 0.704  (35 it, 2 s)
+P2/P0                Cubit n=10     27321   qmin 0.515   L 0.08902  U 0.08902  s* 1e-09    r_v(U) 0.438  top3 0.35  q3 0.827  (44 it, 7 s)

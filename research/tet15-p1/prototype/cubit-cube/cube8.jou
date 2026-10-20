@@ -1,0 +1,11 @@
+reset
+brick x 1 y 1 z 1
+move volume 1 x 0.5 y 0.5 z 0.5
+volume 1 size {1.0/8}
+volume 1 scheme tetmesh
+mesh volume 1
+volume 1 smooth scheme condition number beta 2.0 cpu 10
+smooth volume 1
+block 1 volume 1
+block 1 element type TETRA4
+export mesh "cube8.g" overwrite

@@ -1,0 +1,10 @@
+Scalar consistent mass of the enriched space (rank is basis independent).
+  one element, 14-point rule         n = 15     lam_max = 1.032e-01  lam_min = 1.050e-17  #(lam < 1e-12 lam_max) = 1
+  one element, exact                 n = 15     lam_max = 1.051e-01  lam_min = 1.372e-04  #(lam < 1e-12 lam_max) = 0
+  Freudenthal N = 1, 14-point        n = 51     lam_max = 2.001e-01  lam_min = -5.204e-18  #(lam < 1e-12 lam_max) = 1
+  Freudenthal N = 1, exact           n = 51     lam_max = 2.013e-01  lam_min = 2.036e-04  #(lam < 1e-12 lam_max) = 0
+  Freudenthal N = 2, 14-point        n = 293    lam_max = 3.645e-02  lam_min = 2.606e-18  #(lam < 1e-12 lam_max) = 1
+  Freudenthal N = 2, exact           n = 293    lam_max = 3.660e-02  lam_min = 3.111e-05  #(lam < 1e-12 lam_max) = 0
+  Freudenthal N = 3, 14-point        n = 883    lam_max = 1.221e-02  lam_min = -9.143e-19  #(lam < 1e-12 lam_max) = 1
+  Freudenthal N = 3, exact           n = 883    lam_max = 1.226e-02  lam_min = 9.854e-06  #(lam < 1e-12 lam_max) = 0
+Reference element, exact integration: cond M hierarchical = 766.0, nodal = 93.6

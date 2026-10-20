@@ -1,0 +1,23 @@
+
+last_pd.bin: 82521 free DOFs, ||K - K'||/||K|| = 1.67e-15
+  modes nearest 0 (11 it); lam / max diag K:
+  lam +7.094e-09  r_v 0.099  div share top3 0.81  grad share top3 0.44  max node at r = 1.061 a, z = 4.000 a
+  lam +1.508e-08  r_v 0.0887  div share top3 0.85  grad share top3 0.46  max node at r = 1.091 a, z = 4.000 a
+  lam +2.262e-08  r_v 0.0424  div share top3 0.80  grad share top3 0.20  max node at r = 1.091 a, z = 4.000 a
+  lam +2.664e-08  r_v 0.115  div share top3 0.86  grad share top3 0.57  max node at r = 1.091 a, z = 4.000 a
+  lam +2.990e-08  r_v 0.125  div share top3 0.87  grad share top3 0.58  max node at r = 1.061 a, z = 4.000 a
+  lam +3.273e-08  r_v 0.125  div share top3 0.86  grad share top3 0.61  max node at r = 1.091 a, z = 4.000 a
+
+first_indef.bin: 82521 free DOFs, ||K - K'||/||K|| = 1.67e-15
+  modes nearest 0 (14 it); lam / max diag K:
+  lam +7.364e-09  r_v 0.037  div share top3 0.69  grad share top3 0.37  max node at r = 1.061 a, z = 4.000 a
+  lam +1.523e-08  r_v 0.00729  div share top3 0.55  grad share top3 0.07  max node at r = 1.061 a, z = 4.000 a
+  lam +1.983e-08  r_v 0.00543  div share top3 0.27  grad share top3 0.02  max node at r = 0.000 a, z = 3.125 a
+  lam +2.632e-08  r_v 0.00435  div share top3 0.50  grad share top3 0.04  max node at r = 1.129 a, z = 3.566 a
+  lam +2.937e-08  r_v 0.0209  div share top3 0.65  grad share top3 0.19  max node at r = 1.061 a, z = 4.000 a
+  lam +3.423e-08  r_v 0.0352  div share top3 0.70  grad share top3 0.49  max node at r = 1.061 a, z = 4.000 a
+
+first_indef.bin: lam_min / dmax in [-8.7478e-08, -8.7478e-08]
+  lam -8.7478e-08  r_v 0.0754  div share top3 0.84  grad share top3 0.84  max node at r = 1.061 a, z = 4.000 a; elements [1976, 2291, 1582]
+  lam +7.3640e-09  r_v 0.037  div share top3 0.69  grad share top3 0.37  max node at r = 1.061 a, z = 4.000 a; elements [1976, 2291, 1582]
+  lam +1.5231e-08  r_v 0.00729  div share top3 0.55  grad share top3 0.07  max node at r = 1.061 a, z = 4.000 a; elements [1976, 2291, 1750]

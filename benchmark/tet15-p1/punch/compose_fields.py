@@ -123,7 +123,7 @@ for i, (key, label) in enumerate(ROWS):
             ax.text(0.5, -0.01, f"{thin(NODES[mesh_of(key)][h])} nodes", ha="center", va="top",
                     fontsize=10, color="0.3", transform=ax.transAxes)
         else:
-            ax.text(0.5, 0.5, "pending", ha="center", va="center", fontsize=13, color="0.5",
+            ax.text(0.5, 0.5, "not available", ha="center", va="center", fontsize=13, color="0.5",
                     transform=ax.transAxes)
         if transpose:
             if j == 0:

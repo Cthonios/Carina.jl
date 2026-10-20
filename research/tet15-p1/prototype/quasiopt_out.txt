@@ -1,0 +1,8 @@
+TET15-P1: relative H1 error e_u, best approximation e_best in the same space, Q = e_u/e_best
+  N = 2     k/mu = 1e+00  e_u 5.0357e-01 e_best 4.7759e-01 Q 1.054   k/mu = 1e+06  e_u 6.4235e-01 e_best 4.4463e-01 Q 1.445
+  N = 3     k/mu = 1e+00  e_u 2.4666e-01 e_best 2.3563e-01 Q 1.047   k/mu = 1e+06  e_u 3.1440e-01 e_best 2.1410e-01 Q 1.468
+  N = 4     k/mu = 1e+00  e_u 1.5110e-01 e_best 1.4476e-01 Q 1.044   k/mu = 1e+06  e_u 1.9476e-01 e_best 1.3094e-01 Q 1.487
+  N = 6     k/mu = 1e+00  e_u 7.3245e-02 e_best 7.0357e-02 Q 1.041   k/mu = 1e+06  e_u 9.6445e-02 e_best 6.3278e-02 Q 1.524
+  N = 8     k/mu = 1e+00  e_u 4.2976e-02 e_best 4.1328e-02 Q 1.040   k/mu = 1e+06  e_u 5.7488e-02 e_best 3.7009e-02 Q 1.553
+  N = 10    k/mu = 1e+00  e_u 2.8187e-02 e_best 2.7119e-02 Q 1.039   k/mu = 1e+06  e_u 3.8139e-02 e_best 2.4210e-02 Q 1.575
+  N = 12    k/mu = 1e+00  e_u 1.9882e-02 e_best 1.9135e-02 Q 1.039   k/mu = 1e+06  e_u 2.7134e-02 e_best 1.7044e-02 Q 1.592
