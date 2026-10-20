@@ -1,0 +1,16 @@
+Scalar consistent mass of the enriched space (rank is basis independent).
+  one element, 14-point rule         n = 15     lam_max = 1.032e-01  lam_min = 1.050e-17  #(lam < 1e-12 lam_max) = 1
+  one element, exact                 n = 15     lam_max = 1.051e-01  lam_min = 1.372e-04  #(lam < 1e-12 lam_max) = 0
+  Freudenthal N = 1, 14-point        n = 51     lam_max = 2.001e-01  lam_min = -5.204e-18  #(lam < 1e-12 lam_max) = 1
+  Freudenthal N = 1, exact           n = 51     lam_max = 2.013e-01  lam_min = 2.036e-04  #(lam < 1e-12 lam_max) = 0
+  Freudenthal N = 2, 14-point        n = 293    lam_max = 3.645e-02  lam_min = 2.606e-18  #(lam < 1e-12 lam_max) = 1
+  Freudenthal N = 2, exact           n = 293    lam_max = 3.660e-02  lam_min = 3.111e-05  #(lam < 1e-12 lam_max) = 0
+  Freudenthal N = 3, 14-point        n = 883    lam_max = 1.221e-02  lam_min = -9.143e-19  #(lam < 1e-12 lam_max) = 1
+  Freudenthal N = 3, exact           n = 883    lam_max = 1.226e-02  lam_min = 9.854e-06  #(lam < 1e-12 lam_max) = 0
+Reference element, exact integration: cond M hierarchical = 766.0, nodal = 93.6
+
+Rules for the consistent mass (nodal basis, reference element):
+  14-point, degree 5                   zero eigenvalues 1  cond Inf       max entry error 1.7e-01  row-sum error 1.5e-15  assembled zeros N=2,3: 1, 1
+  conical n=3, degree 5, 27 points     zero eigenvalues 0  cond 123.0     max entry error 7.3e-02  row-sum error 1.1e-15  assembled zeros N=2,3: 0, 0
+  conical n=4, degree 7, 64 points     zero eigenvalues 0  cond 94.4      max entry error 1.0e-03  row-sum error 9.6e-16  assembled zeros N=2,3: 0, 0
+  conical n=5, degree 9, 125 points    zero eigenvalues 0  cond 93.6      max entry error 2.6e-15  row-sum error 3.3e-15  assembled zeros N=2,3: 0, 0
