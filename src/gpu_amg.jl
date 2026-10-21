@@ -1,3 +1,9 @@
+# Carina: Copyright 2026 National Technology & Engineering Solutions of
+# Sandia, LLC (NTESS). Under the terms of Contract DE-NA0003525 with NTESS,
+# the U.S. Government retains certain rights in this software. This software
+# is released under the BSD license detailed in the file LICENSE.md in the
+# top-level Carina.jl directory.
+
 # GPU-resident AMG V-cycle over a host-built smoothed-aggregation hierarchy.
 #
 # Design (benchmark/design.md): the hierarchy is built on the CPU by the

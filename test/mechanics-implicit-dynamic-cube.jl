@@ -1,3 +1,9 @@
+# Carina: Copyright 2026 National Technology & Engineering Solutions of
+# Sandia, LLC (NTESS). Under the terms of Contract DE-NA0003525 with NTESS,
+# the U.S. Government retains certain rights in this software. This software
+# is released under the BSD license detailed in the file LICENSE.md in the
+# top-level Carina.jl directory.
+
 @testset "Mechanics Implicit Dynamic Cube (Rigid Body)" begin
     # Free-free cube (no Dirichlet BCs), initial velocity v_z = 1.0 on all nodes.
     # Linear elastic E=1e9, ν=0.25, density=1000.  Newmark-β (β=0.25, γ=0.5).

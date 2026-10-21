@@ -1,3 +1,9 @@
+# Carina: Copyright 2026 National Technology & Engineering Solutions of
+# Sandia, LLC (NTESS). Under the terms of Contract DE-NA0003525 with NTESS,
+# the U.S. Government retains certain rights in this software. This software
+# is released under the BSD license detailed in the file LICENSE.md in the
+# top-level Carina.jl directory.
+
 @testset "Mechanics Torsion" begin
     # Cylinder: R = 25 mm, L = 1 m, neo-Hookean (E=1e9 Pa, ν=0.25, ρ=1000 kg/m³).
     # Initial velocity: rigid-body torsion about z, ω(z) = a·z with a = 8000 s⁻¹.

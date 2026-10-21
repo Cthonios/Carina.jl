@@ -1,3 +1,9 @@
+# Carina: Copyright 2026 National Technology & Engineering Solutions of
+# Sandia, LLC (NTESS). Under the terms of Contract DE-NA0003525 with NTESS,
+# the U.S. Government retains certain rights in this software. This software
+# is released under the BSD license detailed in the file LICENSE.md in the
+# top-level Carina.jl directory.
+
 # Material parsing: maps YAML strings to ConstitutiveModels.jl instances
 # and assembles the property dict that CM's initialize_props expects.
 

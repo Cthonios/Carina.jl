@@ -1,3 +1,9 @@
+# Carina: Copyright 2026 National Technology & Engineering Solutions of
+# Sandia, LLC (NTESS). Under the terms of Contract DE-NA0003525 with NTESS,
+# the U.S. Government retains certain rights in this software. This software
+# is released under the BSD license detailed in the file LICENSE.md in the
+# top-level Carina.jl directory.
+
 @testset "Nodal recovery on the vertex space" begin
     # The nodal recovery projects the quadrature-point fields onto the
     # continuous piecewise-linear space on the vertices and interpolates the

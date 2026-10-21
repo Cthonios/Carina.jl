@@ -1,3 +1,9 @@
+# Carina: Copyright 2026 National Technology & Engineering Solutions of
+# Sandia, LLC (NTESS). Under the terms of Contract DE-NA0003525 with NTESS,
+# the U.S. Government retains certain rights in this software. This software
+# is released under the BSD license detailed in the file LICENSE.md in the
+# top-level Carina.jl directory.
+
 @testset "AMG compressible operator" begin
     # The key `operator: compressible` of the AMG preconditioner builds the
     # hierarchy on the tangent of the material with its bulk modulus set to

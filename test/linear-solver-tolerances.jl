@@ -1,3 +1,9 @@
+# Carina: Copyright 2026 National Technology & Engineering Solutions of
+# Sandia, LLC (NTESS). Under the terms of Contract DE-NA0003525 with NTESS,
+# the U.S. Government retains certain rights in this software. This software
+# is released under the BSD license detailed in the file LICENSE.md in the
+# top-level Carina.jl directory.
+
 @testset "Linear solver tolerances" begin
     # The iterative linear solver takes a relative and an absolute tolerance,
     # as Norma's do: `relative tolerance` (alias `tolerance`) and `absolute

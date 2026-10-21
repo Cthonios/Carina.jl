@@ -1,4 +1,10 @@
 #!/usr/bin/env julia
+# Carina: Copyright 2026 National Technology & Engineering Solutions of
+# Sandia, LLC (NTESS). Under the terms of Contract DE-NA0003525 with NTESS,
+# the U.S. Government retains certain rights in this software. This software
+# is released under the BSD license detailed in the file LICENSE.md in the
+# top-level Carina.jl directory.
+
 # Normalize YAML files to Norma-style minimal quoting.
 #
 # Strips unnecessary "..." from keys and values:

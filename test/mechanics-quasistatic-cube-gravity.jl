@@ -1,3 +1,9 @@
+# Carina: Copyright 2026 National Technology & Engineering Solutions of
+# Sandia, LLC (NTESS). Under the terms of Contract DE-NA0003525 with NTESS,
+# the U.S. Government retains certain rights in this software. This software
+# is released under the BSD license detailed in the file LICENSE.md in the
+# top-level Carina.jl directory.
+
 @testset "Mechanics Quasi-static Cube (Gravity)" begin
     # Unit cube [-0.5, 0.5]³, linear elastic, E=1e9, ν=0.
     # Symmetry BCs on all faces except z=+0.5 (free).

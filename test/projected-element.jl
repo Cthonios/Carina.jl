@@ -1,3 +1,9 @@
+# Carina: Copyright 2026 National Technology & Engineering Solutions of
+# Sandia, LLC (NTESS). Under the terms of Contract DE-NA0003525 with NTESS,
+# the U.S. Government retains certain rights in this software. This software
+# is released under the BSD license detailed in the file LICENSE.md in the
+# top-level Carina.jl directory.
+
 # The projected volumetric formulation (model.volumetric projection): the
 # volumetric strain θ(J) is replaced element by element by its L² projection
 # onto polynomials of degree 0 or 1, and the kernels are assembled by element

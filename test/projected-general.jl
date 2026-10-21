@@ -1,3 +1,9 @@
+# Carina: Copyright 2026 National Technology & Engineering Solutions of
+# Sandia, LLC (NTESS). Under the terms of Contract DE-NA0003525 with NTESS,
+# the U.S. Government retains certain rights in this software. This software
+# is released under the BSD license detailed in the file LICENSE.md in the
+# top-level Carina.jl directory.
+
 # The general form of the projected volumetric formulation
 # (model.volumetric form: general; src/projected_physics.jl, "General form"):
 # any material is evaluated at F̃ = (J̃/J)^{1/3} F with J̃ = θ⁻¹(P_h θ(J)).

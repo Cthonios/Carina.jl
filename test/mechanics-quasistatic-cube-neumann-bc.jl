@@ -1,3 +1,9 @@
+# Carina: Copyright 2026 National Technology & Engineering Solutions of
+# Sandia, LLC (NTESS). Under the terms of Contract DE-NA0003525 with NTESS,
+# the U.S. Government retains certain rights in this software. This software
+# is released under the BSD license detailed in the file LICENSE.md in the
+# top-level Carina.jl directory.
+
 @testset "Mechanics Quasi-static Cube (Neumann BC)" begin
     # Unit cube [0,1]³, linear elastic (infinitesimal strain), E=1e9, ν=0.25.
     # BCs: u_x=0 on ssx-, u_y=0 on ssy-, u_z=0 on ssz-.

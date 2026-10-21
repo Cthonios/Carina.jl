@@ -2,7 +2,7 @@ using Documenter
 
 makedocs(;
     sitename="Carina",
-    authors="Carina contributors",
+    authors="Alejandro Mota <amota@sandia.gov> and Carina contributors",
     format=Documenter.HTML(; prettyurls=get(ENV, "CI", "false") == "true"),
     pages=[
         "Home" => "index.md",

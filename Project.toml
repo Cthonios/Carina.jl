@@ -1,7 +1,7 @@
 name = "Carina"
 uuid = "d047b710-4602-46ef-9874-677b04211908"
 version = "0.1.0"
-authors = ["Alejandro Mota <lxmota@gmail.com>"]
+authors = ["Alejandro Mota <amota@sandia.gov>"]
 
 [deps]
 Adapt = "79e6a3ab-5dfb-504d-930d-738a2a938a0e"

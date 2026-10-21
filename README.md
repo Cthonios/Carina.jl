@@ -1,7 +1,7 @@
 [![CI](https://github.com/Cthonios/Carina.jl/actions/workflows/ci.yml/badge.svg)](https://github.com/Cthonios/Carina.jl/actions/workflows/ci.yml)
 [![docs](https://img.shields.io/badge/docs-dev-blue.svg)](https://cthonios.github.io/Carina.jl/dev/)
 [![codecov](https://codecov.io/gh/Cthonios/Carina.jl/branch/main/graph/badge.svg)](https://codecov.io/gh/Cthonios/Carina.jl)
-[![License: BSD 3-Clause](https://img.shields.io/badge/license-BSD%203--Clause-blue.svg)](LICENSE)
+[![License: BSD 3-Clause](https://img.shields.io/badge/license-BSD%203--Clause-blue.svg)](LICENSE.md)
 
 # Carina.jl
 
@@ -176,4 +176,10 @@ julia --project=docs -e 'using Pkg; Pkg.instantiate(); include("docs/make.jl")'
 
 ## License
 
-BSD 3-Clause.  See [LICENSE](LICENSE).
+Carina is licensed under the BSD 3-Clause License. See [LICENSE.md](LICENSE.md)
+for details.
+
+## Contact
+
+Point of contact: Alejandro Mota (amota@sandia.gov), Sandia National
+Laboratories.
