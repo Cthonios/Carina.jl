@@ -127,7 +127,7 @@ with the $J_2$ plasticity model of Simo and Hughes. The element implemented
 projects $\theta = \log J$, the volumetric part of the logarithmic strain,
 in both forms, and the $J_2$ model is used with the volumetric energy
 $\tfrac{\kappa}{2}(\log J)^2$ in place of its original
-$\tfrac{\kappa}{2}(J-1)^2$ (\cref{rem:whichj2}).
+$\tfrac{\kappa}{2}\big[\tfrac12(J^2-1) - \log J\big]$ (\cref{rem:whichj2}).
 
 The discrete spaces are the
 three-dimensional Crouzeix--Raviart pair: the quadratic tetrahedron enriched
@@ -1777,7 +1777,9 @@ $W\supvol$ is quadratic in $\log J$, so the element of
 \cref{sec:discretization} uses it in the variable $\theta = \log J$ with no
 change other than the omission of the volumetric term from the stress the
 model returns. The original model of Simo and Hughes has
-$W\supvol = \tfrac{\kappa}{2}(J-1)^2$; the two volumetric laws agree to
+$W\supvol = \tfrac{\kappa}{2}\big[\tfrac12(J^2-1) - \log J\big]$
+\cite[eq.~(9.2.3)]{SimoHughes:1998}, and the instance implemented until
+2026-10-16 used $\tfrac{\kappa}{2}(J-1)^2$; the three volumetric laws agree to
 second order in $J - 1$, and the logarithmic one is used so that the
 element projects the volumetric part of the logarithmic strain whatever the
 material, which is also what Sierra/SM TET15-P1 projects. Until 2026-10-16
