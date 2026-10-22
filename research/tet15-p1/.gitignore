@@ -27,3 +27,5 @@
 .DS_Store
 *.swp
 *~
+*.bcf
+*.run.xml
