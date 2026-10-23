@@ -10,11 +10,12 @@
 #          (1,2,3), (0,2,3), (0,1,3)
 #
 # Usage:
-#   tetra15-reorder --to cubit|ioss <input.e> <output.e>
+#   tetra15-reorder --to cubit|paraview|ioss <input.e> <output.e>
 #
-# `--to cubit` makes a Carina or Sierra/SM TET15-P1 output display correctly
-# in ParaView; `--to ioss` makes a Cubit `tetra15` mesh usable by Carina and
-# Sierra/SM TET15-P1.  Only the connectivity of the TETRA15 blocks changes;
+# `--to cubit` (or `--to paraview`, the same) makes a Carina or Sierra/SM
+# TET15-P1 output display correctly in ParaView; `--to ioss` makes a Cubit
+# `tetra15` mesh usable by Carina and Sierra/SM TET15-P1.  Only the
+# connectivity of the TETRA15 blocks changes;
 # coordinates, variables, side sets (element/side pairs) and node sets are
 # copied unchanged.  The present order of each block is found from the
 # coordinates: the centroid node is the one of nodes 10 and 14 nearest to the
@@ -56,10 +57,12 @@ def present_order(conn, X, name):
 
 def main():
     p = argparse.ArgumentParser(description="Reorder TETRA15 connectivity between the IOSS and Cubit orders.")
-    p.add_argument("--to", required=True, choices=["cubit", "ioss"])
+    p.add_argument("--to", required=True, choices=["cubit", "paraview", "ioss"])
     p.add_argument("input")
     p.add_argument("output")
     a = p.parse_args()
+    if a.to == "paraview":
+        a.to = "cubit"
 
     with Dataset(a.input) as nc:
         X = coordinates(nc)
