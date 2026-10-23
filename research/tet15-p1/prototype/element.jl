@@ -25,7 +25,7 @@ end
 
 """
 The 14-point degree-5 symmetric rule with positive weights
-(Keast 1986), verified in quadrature.jl to integrate every monomial
+(Walkington 2000; Keast's 14-point rule is of degree 4), verified in quadrature.jl to integrate every monomial
 through degree 5 to 4e-16 and to fail at degree 6.
 """
 function keast14()

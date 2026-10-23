@@ -1496,7 +1496,7 @@ to one element. \cref{sec:basis} measures the two bases; the nodal one is
 used.
 
 \paragraph{Quadrature.} The element is integrated with the fourteen-point
-rule of \textcite{Keast:1986}, exact for polynomials of degree five, with
+rule of \textcite{Walkington:2000}, exact for polynomials of degree five, with
 positive weights. Its points are three orbits of the symmetry group of the
 tetrahedron: two orbits of four points with barycentric coordinates
 $(1 - 3a, a, a, a)$ and its permutations, and one orbit of six points with
@@ -2734,7 +2734,7 @@ leave
 $21$ zero modes and are inadmissible. The eight-point conical rule (a
 tensor-product Gauss rule mapped onto the tetrahedron) is rank sufficient and softens the element to $0.03$--$0.10$ of its stiffness in
 the worst direction, which is also inadmissible. Two degree-5 rules are
-admissible: the $14$-point symmetric rule of \textcite{Keast:1986}, which
+admissible: the $14$-point symmetric rule of \textcite{Walkington:2000}, which
 integrates every monomial through degree $5$ to $4\times10^{-16}$ and
 over-stiffens the interior bubble's own block by $35\%$ since its
 gradient-squared is of degree $6$, and the $27$-point conical rule, which
@@ -2766,7 +2766,7 @@ rule & points & zero($~K_e$) & min & max & zero($~K_e$) & min & max \\
 RFE degree 2            & 4   & 21 & 0     & 1.30 & 21 & 0     & 1.30 \\
 RFE degree 3            & 5   & 21 & $<0$  & 1.13 & 21 & $<0$  & 1.12 \\
 conical degree 3        & 8   & 6  & 0.10  & 1.14 & 6  & 0.03  & 1.21 \\
-Keast degree 5          & 14  & 6  & 1.00  & 1.35 & 6  & 1.00  & 1.35 \\
+Walkington degree 5     & 14  & 6  & 1.00  & 1.35 & 6  & 1.00  & 1.35 \\
 conical degree 5        & 27  & 6  & 0.91  & 1.00 & 6  & 0.88  & 1.00 \\
 conical degree 7        & 64  & 6  & 1.00  & 1.00 & 6  & 1.00  & 1.00 \\
 \bottomrule
@@ -2813,7 +2813,7 @@ hierarchical, HRZ over all 15       & --- & --- & 0.014  & 0.486 & 0.097 \\
 hierarchical, HRZ over Lagrange 10  & --- & --- & 0.028  & 1.000 & 0.114 \\
 nodal, consistent                   & 559 & 94  & ---    & ---   & 0.092 \\
 nodal, HRZ                          & --- & --- & 0.021  & 1.000 & 0.145 \\
-nodal, row sum                      & --- & --- & 0.020  & 1.000 & --- \\
+nodal, row sum                      & --- & --- & 0.020  & 1.000 & 0.146 \\
 TET10, HRZ                 & --- & --- & 0.028  & 1.000 & 0.197 \\
 TET10, row sum             & --- & --- & $-0.050$ & 1.000 & --- \\
 TET4, row sum              & --- & --- & 0.250  & 1.000 & 0.476 \\
