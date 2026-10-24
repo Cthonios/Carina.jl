@@ -10,7 +10,8 @@
 # and u_y free there; no other constraint.  Twenty output steps, t = 0.05k,
 # depth d = 0.01a k.  J2 plasticity with linear isotropic hardening (Carina's
 # Simo-Hughes model): mu = 1e9 Pa, kappa = 1e13 Pa, sigma_y = 1e6 Pa,
-# H = 1e7 Pa (case A) or 0 (case B).
+# H = 1e7 Pa (case A) or 0 (case B); cases C and D, H = 1e6 and 1e5 Pa
+# (1e-3 and 1e-4 mu), separate the perfectly plastic limit from the element.
 #
 # Elements:
 #   tet15-p1   TET15-P1, TETRA15 mesh, volumetric projection linear
@@ -35,7 +36,7 @@
 #        [--cg-cap 1000] [--forcing eisenstat-walker|none] [--linear-solver iterative|direct]
 #        [--volumetric-form split|general] [--volumetric-strain "log J"|"J - 1"]
 #        [--recovery lumped|consistent|none] [--tag <suffix>]
-#        [--ti "key: value"]...
+#        [--ti "key: value"]... [--dump-states]
 # --h takes the divisors of a (h = a/4, a/8, a/16, a/32).  A CUDA run needs the
 # vendor package loaded in the calling session, as for the Taylor driver:
 #   julia --project=bin -e 'using CUDA; append!(ARGS, [...]);
@@ -47,6 +48,15 @@
 # solves every CG system to the fixed tolerance 1e-8 instead.  --amg-operator sets
 # the operator the AMG hierarchy is built on (tangent, the default, or
 # compressible: the tangent at the bulk modulus set to the shear modulus).
+# --dump-states writes the converged state at every output stop to
+# states/state_<k>.bin in the run directory, for
+# research/tet15-p1/prototype/punch_ellipticity.jl: three arrays, each as
+# ndims, dims and Float64 data with Int64 sizes, namely the field, the
+# internal variables at the start of the last step and the converged ones.
+# With the first two the material returns the algorithmic tangent of that
+# step, plastic at every point that yielded in it; the converged internal
+# variables alone put every yielded point on the yield surface, where the
+# elastic or plastic branch of the tangent is decided by rounding.
 #
 # Each run writes runs/<element>-<case>-h<d>[-<device>]/ with the deck, the
 # Exodus output (stress and internal variables at every output step, at the
@@ -71,7 +81,7 @@ const MU     = 1.0e9
 const KAPPA  = 1.0e13
 const E_MOD  = 9 * KAPPA * MU / (3 * KAPPA + MU)
 const NU     = (3 * KAPPA - 2 * MU) / (2 * (3 * KAPPA + MU))
-const CASES  = Dict("A" => 1.0e7, "B" => 0.0)
+const CASES  = Dict("A" => 1.0e7, "B" => 0.0, "C" => 1.0e6, "D" => 1.0e5)
 const FIRST  = 0.05 / 4096
 const SYMMETRY = 4                  # full force = SYMMETRY x the quarter's
 
@@ -86,6 +96,8 @@ const VOLSTRAIN = Ref("")           # --volumetric-strain "log J"|"J - 1" (defau
 const TI_EXTRA = String[]
 const CG_CAP  = Ref(1000)
 const TAG     = Ref("")
+const DUMP_STATES = Ref(false)
+const STEP_START = Ref{Any}(nothing)   # internal variables at the start of the step
 
 include(joinpath(DIR, "..", "taylor", "backend.jl"))
 
@@ -225,6 +237,7 @@ function subcycle!(sim, target, growth)
         Carina._carina_logf(4, :advance, "[%.2e, %.2e] : Δt = %.2e", t, t + dt, dt)
         ig.increase_factor = 1.0
         ts0 = ig.time_step
+        DUMP_STATES[] && (STEP_START[] = Array(params.state_old.data))
         Carina._advance_one_step!(sim)
         steps += 1
         # A cut leaves the step at half the step tried or less, below ts0
@@ -295,6 +308,7 @@ function run_case(element, case, d)
             s, c = Base.invokelatest(subcycle!, sim, controller.time, growth)
             steps += s; cuts += c
             Base.invokelatest(Carina.write_output!, sim, k + 1)
+            DUMP_STATES[] && dump_state(params, dir, k)
             F = Base.invokelatest(internal_force, sim)
             fz = SYMMETRY * sum(F[3, n] for n in punch)
             cnt, _ = count_log(logfile)
@@ -346,6 +360,15 @@ function run_case(element, case, d)
     @printf("%s: %s, %.1f s\n", tag, status, wall)
 end
 
+function dump_state(params, dir, k)
+    mkpath(joinpath(dir, "states"))
+    open(joinpath(dir, "states", "state_$k.bin"), "w") do io
+        for a in (Array(params.field.data), STEP_START[], Array(params.state_new.data))
+            write(io, Int64(ndims(a)), Int64.(collect(size(a))), Float64.(vec(a)))
+        end
+    end
+end
+
 device_name() = DEVICE[] == "cuda" ? string(Base.invokelatest(() -> Main.CUDA.name(Main.CUDA.device()))) : DEVICE[]
 
 function parse_args(args)
@@ -354,7 +377,11 @@ function parse_args(args)
     i = 1
     while i <= length(args)
         a = args[i]
-        if a == "--device"
+        if a == "--dump-states"
+            DUMP_STATES[] = true
+            i += 1
+            continue
+        elseif a == "--device"
             DEVICE[] = args[i + 1]
         elseif a == "--preconditioner"
             PRECOND[] = args[i + 1]
