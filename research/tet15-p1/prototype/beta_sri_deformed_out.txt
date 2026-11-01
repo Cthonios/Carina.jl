@@ -1,0 +1,8 @@
+Deformed configurations of deformed.jl at N = 5: exact and four-point coupling on the isoparametric image.
+map       elems   n_u     n_p     exact     null  4pt       null  4pt next  ov      ratio   |dG|/|G|  check
+reference 750     8487    3000    0.29668   1     0.24287   1     0.24289   3.79e-160.8186  0.0389    0.0
+twist 90  750     8487    3000    0.20377   1     0.0067876 0     0.17729   1.0     0.03331 0.0397    0.0
+twist 180 750     8487    3000    0.11587   1     0.012697  0     0.11873   1.0     0.1096  0.0419    0.0
+shear     750     8487    3000    0.18325   1     0.0021847 0     0.15746   1.0     0.01192 0.0391    0.0
+inflate   750     8487    3000    0.27615   1     0.0040702 0     0.23892   1.0     0.01474 0.0398    0.0
+compress  750     8487    3000    0.21271   1     0.18035   1     0.18035   1.3e-17 0.8479  0.0389    0.0
