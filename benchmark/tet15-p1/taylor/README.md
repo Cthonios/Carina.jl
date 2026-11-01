@@ -191,6 +191,34 @@ CT10 converges from above, with an extrapolated limit
 of 7.2259 mm (order 1.53 in h); TET15-P1 in Carina is within 0.07% of that
 limit at h = 0.75, 0.38 and 0.19 mm.
 
+## Pressure on the impact face at 12 μs, five elements (paper fig:taylorpressure)
+
+Sierra/SM runs of TET10, CT10, TET15, TET15-SR4 and TET15-P1 to 12 μs on
+the four levels (TETRA10 meshes for TET10 and CT10, TETRA15 meshes for the
+others; the element settings of the five-element study of 2026-10-30), with
+the element stress written every 1 μs, made 2026-11-01 on two idle
+cee-compute hosts (two Intel Xeon 6980P sockets each): 96 ranks at
+h ≤ 0.38 mm, 128 ranks at h = 0.19 mm.  Pipeline per run directory:
+`pressure.jl` (last frame, surface.vtp/edges.vtp, one value per element),
+`render_pressure.py` with `range=-3e8:1.6e9`, then
+
+    python3 compose_pressure.py <dir of runs> -3e8 1.6e9 ../punch/rainbow-uniform.json \
+        <out> tet10=TET10,ct10=CT10,tet15=TET15,tet15sr4=TET15-SR4,tet15p1=TET15-P1 columns
+
+(elements as columns, levels as rows, one color bar).  Largest pressure on
+the impact face at 12 μs, GPa:
+
+| h (mm) | TET10 | CT10 | TET15 | TET15-SR4 | TET15-P1 |
+|---|---|---|---|---|---|
+| 1.5 | 0.44 | 0.33 | 1.62 | 1.24 | 1.56 |
+| 0.75 | 0.83 | 0.48 | 1.64 | 1.49 | 1.62 |
+| 0.38 | 1.31 | 1.37 | 1.63 | 1.59 | 1.63 |
+| 0.19 | 1.60 | 1.59 | 1.63 | 1.61 | 1.63 |
+
+The CT10 and TET15-P1 values reproduce the earlier runs of the paper.  Wall
+times at h = 0.19 mm on 128 ranks: TET10 266 s, CT10 299 s, TET15 7359 s,
+TET15-SR4 11 661 s, TET15-P1 7943 s.
+
 ## Sierra/SM TET15-P1
 
 Sierra/SM TET15-P1 was run on the same
