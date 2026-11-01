@@ -130,9 +130,9 @@ function run_mesh(coords, conn; bc = _BC_ALL, label = "", bc_coords = coords)
     r4 = beta_of(a.Kh1, a.M, G4, cvec)
     dcoup = norm(G4 - a.G) / norm(a.G)
     println(rpad(label, 10), rpad(string(a.nelem), 8), rpad(string(a.nu), 8), rpad(string(a.np), 8),
-            rpad(string(round(rx.beta, sigdigits = 5)), 10), rpad(string(rx.nnull), 6),
-            rpad(string(round(r4.beta, sigdigits = 5)), 10), rpad(string(r4.nnull), 6),
-            rpad(string(round(r4.nxt, sigdigits = 5)), 10), rpad(string(round(r4.ov, sigdigits = 3)), 8),
+            rpad(string(round(rx.beta, sigdigits = 7)), 10), rpad(string(rx.nnull), 6),
+            rpad(string(round(r4.beta, sigdigits = 7)), 10), rpad(string(r4.nnull), 6),
+            rpad(string(round(r4.nxt, sigdigits = 7)), 10), rpad(string(round(r4.ov, sigdigits = 3)), 8),
             rpad(string(round(r4.beta / rx.beta, sigdigits = 4)), 8),
             rpad(string(round(dcoup, sigdigits = 3)), 10),
             string(round(dG, sigdigits = 2)))
