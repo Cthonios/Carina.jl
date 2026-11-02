@@ -405,7 +405,7 @@ def fig_taylor_cost():
 
 
 # ---------------------------------------------------------------- punch
-ELEMENTS_PUNCH = [944, 6187, 38818, 277530]
+ELEMENTS_PUNCH = [944, 6187, 38818]
 PUNCH_ROWS = [("\\CT, $\\alpha = 0.1$", "CT10", "CT10, $\\alpha = 0.1$", "-", None),
               ("\\CT, $\\alpha = 0$", "CT10", "CT10, $\\alpha = 0$", "--", "white"),
               ("TET10", "TET10", "TET10", "-", None),
@@ -427,8 +427,8 @@ def fig_punch_force():
     rows = {r[0]: r for r in T["tab:punchforce"]}
     for key, e, label, ls, mfc in PUNCH_ROWS:
         r = rows[key]
-        punch_series(ax, [num(c) for c in r[1:5]], e, ls, mfc, label)
-        punch_series(bx, [num(c) for c in r[5:9]], e, ls, mfc)
+        punch_series(ax, [num(c) for c in r[1:4]], e, ls, mfc, label)
+        punch_series(bx, [num(c) for c in r[4:7]], e, ls, mfc)
     for axis, title in ((ax, "case A, $H = 10^7$ Pa"), (bx, "case B, $H = 0$")):
         axis.set_xscale("log")
         axis.set_xlabel("number of elements")
@@ -446,10 +446,10 @@ def punch_jump_rows():
         if r[0]:
             key = r[0]
         if "mean / p99" in r[1]:
-            vals = [[num(v) for v in c.split("/")] if "tbd" not in c else [None, None] for c in r[2:6]]
+            vals = [[num(v) for v in c.split("/")] if "tbd" not in c else [None, None] for c in r[2:5]]
             out.setdefault(key, {}).setdefault("norm", []).append(vals)
         else:
-            vals = [[num(v) for v in c.split(",")] if "tbd" not in c else [None, None] for c in r[2:6]]
+            vals = [[num(v) for v in c.split(",")] if "tbd" not in c else [None, None] for c in r[2:5]]
             out[key].setdefault("mpa", []).append(vals)
     return out
 
@@ -476,7 +476,7 @@ def fig_punch_jump(mpa):
     else:
         ax.set_ylabel("normalized jump of the pressure")
         for axis in (ax, bx):
-            slope_guide(axis, 38818, 277530, 0.03, -1 / 3, "1")
+            slope_guide(axis, 6187, 38818, 0.005, -1 / 3, "1")
         name = "punch-jump.png"
     fig.legend(frameon=False, fontsize=9, loc="upper center", ncol=6, bbox_to_anchor=(0.5, 1.0))
     fig.tight_layout(rect=(0, 0, 1, 0.94))
