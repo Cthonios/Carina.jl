@@ -234,7 +234,23 @@ as before.  The order of the points is that of the degree-2 (4-point) and
 degree-5 (14-point) rules of the reference tetrahedron; it was checked by the
 linearity of the TET15-P1 pressure at its 14 points (relative residual of a
 linear fit at most 0.2%, median 5e-5, at h = 1.5 and 0.75 mm; for TET15 the
-residual is 127%).
+residual is 127%).  Runs of 2026-11-01/02 on cee-compute051 and 048 (the
+15-node 0.19 mm mesh is on 048 only), results in
+`~/sierra/runs-tet15/fig5-taylor12-points/`.  Range of p at the points in
+GPa (paper tab:taylorprange):
+
+| h (mm) | TET10 | CT10 | TET15 | TET15-SR4 | TET15-P1 |
+|---|---|---|---|---|---|
+| 1.5 | -2.37, 2.71 | -0.25, 0.30 | -1.51, 2.62 | -0.35, 1.30 | -0.37, 1.67 |
+| 0.75 | -2.10, 2.37 | -0.25, 0.48 | -1.19, 1.97 | -0.33, 1.52 | -0.37, 1.64 |
+| 0.38 | -1.67, 1.89 | -0.21, 1.37 | -0.80, 1.67 | -0.19, 1.62 | -0.20, 1.64 |
+| 0.19 | -2.47, 2.00 | -0.19, 1.59 | -0.62, 1.65 | -0.20, 1.64 | -0.18, 1.65 |
+
+TET10's range at the points does not shrink with refinement (its element
+means are within -0.6 to 1.6 GPa); TET15's shrinks but at 0.19 mm its
+smallest value is still three times its smallest element mean; CT10,
+TET15-SR4 and TET15-P1 stay within their element means extended by at most
+0.2 GPa (coarse levels) or 0.03 GPa (fine levels).
 
 ### CT10 at h = 0.19 mm to 80 us, rerun for its step count
 
