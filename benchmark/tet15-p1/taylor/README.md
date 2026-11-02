@@ -219,6 +219,43 @@ The CT10 and TET15-P1 values reproduce the earlier runs of the paper.  Wall
 times at h = 0.19 mm on 128 ranks: TET10 266 s, CT10 299 s, TET15 7359 s,
 TET15-SR4 11 661 s, TET15-P1 7943 s.
 
+### Pressure at the integration points (paper fig:taylorpoints)
+
+The same runs repeated with the stress at the integration points written
+(`hydrostatic_stress_<q>`, 4 values for TET10 and CT10, 14 for TET15 and
+TET15-P1, 15 + 4 for TET15-SR4).  `points_pressure.jl` writes the points of
+the elements with a face on the impact face at their current positions
+(points.vtp) with p = -tr σ/3 at the points that enter the internal force
+(TET15-SR4: its 4 pressure points, which follow the 15 full points);
+`render_points.py` draws them as disks of diameter 0.3 h over the white
+deformed surface and the edges of `pressure.jl`, with the same color map and
+range as the element values, and `compose_pressure.py` composes the panels
+as before.  The order of the points is that of the degree-2 (4-point) and
+degree-5 (14-point) rules of the reference tetrahedron; it was checked by the
+linearity of the TET15-P1 pressure at its 14 points (relative residual of a
+linear fit at most 0.2%, median 5e-5, at h = 1.5 and 0.75 mm; for TET15 the
+residual is 127%).
+
+### Time per element and time step on one core (paper tab:taylorcal)
+
+Each element alone on one core of cee-compute051 (Intel Xeon 6980P), h =
+1.5 mm to 20 us and h = 0.75 mm to 5 us, 2026-11-01; the time is the total
+wall time minus initialization and parsing, divided by elements x steps:
+
+| element | h = 1.5 mm | h = 0.75 mm | ratio to CT10 (1.5 / 0.75) |
+|---|---|---|---|
+| TET10 | 3.06 us | 2.92 us | 0.91 / 0.92 |
+| CT10 | 3.37 us | 3.19 us | 1 / 1 |
+| TET15 | 10.60 us | 11.25 us | 3.14 / 3.52 |
+| TET15-SR4 | 14.52 us | 15.60 us | 4.30 / 4.88 |
+| TET15-P1 | 11.89 us | 12.53 us | 3.52 / 3.92 |
+
+The internal force is 97 to 98% of the time of the fifteen-node elements.
+Logs in `~/sierra/runs-tet15/fig5-taylor12/cal2/` (a first batch to 5 and
+1 us is in `cal/`).  With these, the paper's tab:taylorcost reports
+element-steps (elements x time steps) instead of wall times, and the cost
+ratios are element-step ratios times the ratio of these times.
+
 ## Sierra/SM TET15-P1
 
 Sierra/SM TET15-P1 was run on the same
