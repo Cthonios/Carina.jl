@@ -236,6 +236,15 @@ linearity of the TET15-P1 pressure at its 14 points (relative residual of a
 linear fit at most 0.2%, median 5e-5, at h = 1.5 and 0.75 mm; for TET15 the
 residual is 127%).
 
+### CT10 at h = 0.19 mm to 80 us, rerun for its step count
+
+The manuscript's run recorded only its wall time (10 983 s on 128 ranks,
+alone on two EPYC 9634 sockets).  Rerun 2026-11-01 on cee-compute048 (two
+Xeon 6980P sockets, 128 ranks, 7254 s): 111 332 time steps, so 1.7e11
+element-steps, 133 times the element-steps of TET15-P1 at h = 0.75 mm.  With
+the times per element-step below, the estimated time ratio is 34 (the
+0.3% tolerance gives 139 element-steps and 35 in time).
+
 ### Time per element and time step on one core (paper tab:taylorcal)
 
 Each element alone on one core of cee-compute051 (Intel Xeon 6980P), h =
