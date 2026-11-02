@@ -19,15 +19,16 @@ OUT = sys.argv[1] if len(sys.argv) > 1 else HERE
 
 ELEMENTS = {1.5: 3522, 0.75: 25029, 0.38: 190727, 0.19: 1521212}
 REFERENCE = 7.22   # converged Q1/P0 hexahedron, Foulk et al. (2021)
+EXTRAPOLATION = 7.2259   # from the three CT10 levels (tab:taylor); the band between the two is the uncertainty of the limit
 T_END = 80.0       # us; the CT10 run at h = 1.5 mm stops at 41.6 us and is left out
 
 # element: (file pattern, levels with a complete run, color, marker)
 SERIES = [
-    ("TET10", "sierra-taylor-tet10-h{}-history.tsv", (1.5, 0.75, 0.38), "C1", "s"),
-    ("CT10", "sierra-ct-h{}-history.tsv", (0.75, 0.38, 0.19), "C2", "^"),
-    ("TET15", "sierra-taylor-tet15-h{}-history.tsv", (1.5, 0.75, 0.38), "C4", "v"),
-    ("TET15-SR4", "sierra-taylor-tet15-sr4-h{}-history.tsv", (1.5, 0.75, 0.38), "C3", "D"),
-    ("TET15-P1", "sierra-taylor-tet15-p1-h{}-history.tsv", (1.5, 0.75, 0.38, 0.19), "C0", "o"),
+    ("TET10", "sierra-taylor-tet10-h{}-history.tsv", (1.5, 0.75, 0.38), "#E69F00", "s"),
+    ("CT10", "sierra-ct-h{}-history.tsv", (0.75, 0.38, 0.19), "#009E73", "^"),
+    ("TET15", "sierra-taylor-tet15-h{}-history.tsv", (1.5, 0.75, 0.38), "#CC79A7", "v"),
+    ("TET15-SR4", "sierra-taylor-tet15-sr4-h{}-history.tsv", (1.5, 0.75, 0.38), "#D55E00", "D"),
+    ("TET15-P1", "sierra-taylor-tet15-p1-h{}-history.tsv", (1.5, 0.75, 0.38, 0.19), "#0072B2", "o"),
 ]
 
 
@@ -48,14 +49,14 @@ for label, pattern, levels, color, marker in SERIES:
     ax.plot(n, r, color=color, marker=marker, label=label)
     t, rad, _ = history(pattern.format(levels[-1]))
     bx.plot(t, rad, color=color, linewidth=1.6, label=f"{label}, h = {levels[-1]} mm")
-ax.axhline(REFERENCE, color="0.4", linestyle="--", linewidth=1,
-           label="Q1/P0 hexahedron, converged")
+ax.axhline(EXTRAPOLATION, color="0.4", linestyle="--", linewidth=1, label="extrapolation, 7.2259 mm")
+ax.axhspan(REFERENCE, EXTRAPOLATION, color="0.85", linewidth=0,
+           label="uncertainty of the limit, 7.22 to 7.2259 mm")
 ax.set_xscale("log")
 ax.set_xlabel("number of elements")
 ax.set_ylabel("final radius of the impact face (mm)")
 ax.legend(frameon=False, fontsize=9)
-bx.axhline(REFERENCE, color="0.4", linestyle="--", linewidth=1,
-           label="Q1/P0 hexahedron, final")
+bx.axhline(EXTRAPOLATION, color="0.4", linestyle="--", linewidth=1, label="extrapolation, 7.2259 mm")
 bx.set_xlabel("time (μs)")
 bx.set_ylabel("radius of the impact face (mm)")
 bx.set_xlim(0, T_END)
