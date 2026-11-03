@@ -107,6 +107,12 @@ dense matrix is 36 621 × 12 288 (the full enrichment at `N = 8`). Output in
 (0.92), P2 ⊕ interior ⊕ face / P1disc 0.2969 (−0.0001). The paper's tab:beta has all
 eight pairs at `N = 2` to `8`.
 
+`plastic_diag_d01n7.jl` (2026-11-02) is `plastic_diag.jl` restricted to the full
+enrichment on the perturbed meshes with `delta = 0.1`, seed 1, at `N = 6` and `7`; it
+fills the one entry of the paper's tab:dilbound that `plastic_diag.jl` did not cover
+(ζ₁ at `N = 7`). Run on cee-compute051 with 16 BLAS threads. Output in
+`plastic_diag_d01n7_out.txt`: `N = 6` reproduces 0.134 and `N = 7` gives 0.131.
+
 Every row is what Boffi–Brezzi–Fortin (2013, §8.7 and Example 8.7.2) predict;
 the sweep validates the bench and supplies the constants. P2 does not control
 a constant pressure in 3D — it has no face degrees of freedom — and carries

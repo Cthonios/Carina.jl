@@ -1,0 +1,4 @@
+uniaxial flow, beta = 1; twenty lowest modes on ker G
+pair                delta seed N  q_min   lam1    lam20   n_dil lam_dil  rv_dil  top3   q_top3
+P2+int+face/P1disc  0.1   1    6  0.458   0.134   0.142   0     -        -       -      -
+P2+int+face/P1disc  0.1   1    7  0.485   0.131   0.138   0     -        -       -      -
