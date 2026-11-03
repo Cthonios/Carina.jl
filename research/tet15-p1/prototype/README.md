@@ -113,6 +113,14 @@ fills the one entry of the paper's tab:dilbound that `plastic_diag.jl` did not c
 (ζ₁ at `N = 7`). Run on cee-compute051 with 16 BLAS threads. Output in
 `plastic_diag_d01n7_out.txt`: `N = 6` reproduces 0.134 and `N = 7` gives 0.131.
 
+`beta_p1p0.jl` (2026-11-02) is the negative control of the inf-sup measurement: the
+pair P1/P0 (continuous P1 displacement, one constant pressure per element) with the
+procedure of `beta78.jl`, at `N = 2` to `10`. Output in `beta_p1p0_out.txt`. The null
+dimension equals `n_p - n_u = 6N^3 - 3(N-1)^3` on every mesh (45, 138, 303, 558, ...,
+3813), and beta_h on the controlled modes is 0.3333, 0.2287, 0.1652, 0.1294 at `N = 2`
+to `5` (the paper's values) down to 0.0622 at `N = 10`, with a local rate in h of
+1.04 to 1.13 from `N = 3` on. Runs in seconds on cee-compute051.
+
 Every row is what Boffi–Brezzi–Fortin (2013, §8.7 and Example 8.7.2) predict;
 the sweep validates the bench and supplies the constants. P2 does not control
 a constant pressure in 3D — it has no face degrees of freedom — and carries
