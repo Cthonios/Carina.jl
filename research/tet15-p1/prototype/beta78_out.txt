@@ -1,0 +1,69 @@
+Is P2/P0 uniformly inf-sup stable?
+
+beta_h is the smallest NONZERO singular value of M^(-1/2) G L^(-T),
+with the null dimension fixed independently as n_p - rank(G) so the
+cut is selected by index rather than by a threshold.
+
+A uniformly stable pair has beta_h flattening as h -> 0 (rate ~ 0).
+A rate near 0.5 over a widening range is a genuine decay.
+
+P2 / P1 cont. (POSITIVE CONTROL: Taylor-Hood, stable in 3D)
+  N   h       n_u     n_p     rank G  null  beta_h      next below   local rate
+
+P2 / P0
+  N   h       n_u     n_p     rank G  null  beta_h      next below   local rate
+
+P2 + interior bubble / P0
+  N   h       n_u     n_p     rank G  null  beta_h      next below   local rate
+  6   0.167   7881    1296    1292    4     0.054413    7.33e-16     
+  7   0.143   12765   2058    2054    4     0.047607    7.91e-16     0.867
+  8   0.125   19341   3072    3068    4     0.041827    7.78e-16     0.969
+  fitted rate over all points: 0.913
+  fitted rate over last four : 0.913
+  verdict: DECAYING -> not uniformly stable
+
+P2 + face bubbles / P0
+  N   h       n_u     n_p     rank G  null  beta_h      next below   local rate
+
+P2 / P1 disc
+  N   h       n_u     n_p     rank G  null  beta_h      next below   local rate
+  6   0.167   3993    5184    3513    1671  0.027716    1.52e-15     
+  7   0.143   6591    8232    5691    2541  0.023644    1.78e-15     1.03
+  8   0.125   10125   12288   8613    3675  0.020619    2.16e-15     1.03
+  fitted rate over all points: 1.03
+  fitted rate over last four : 1.03
+  verdict: DECAYING -> not uniformly stable
+
+P2 + interior bubble / P1 disc
+  N   h       n_u     n_p     rank G  null  beta_h      next below   local rate
+  6   0.167   7881    5184    5180    4     0.040647    9.66e-16     
+  7   0.143   12765   8232    8228    4     0.035578    1.15e-15     0.864
+  8   0.125   19341   12288   12284   4     0.031612    1.54e-15     0.885
+  fitted rate over all points: 0.874
+  fitted rate over last four : 0.874
+  verdict: DECAYING -> not uniformly stable
+
+P2 + face bubbles / P1 disc
+  N   h       n_u     n_p     rank G  null  beta_h      next below   local rate
+  6   0.167   11121   5184    5182    2     0.049704    8.08e-16     
+  7   0.143   18057   8232    8230    2     0.043259    8.83e-16     0.901
+  8   0.125   27405   12288   12286   2     0.038272    9.32e-16     0.917
+  fitted rate over all points: 0.908
+  fitted rate over last four : 0.908
+  verdict: DECAYING -> not uniformly stable
+
+P2 + interior + face bubbles / P1 disc (Crouzeix-Raviart 3D)
+  N   h       n_u     n_p     rank G  null  beta_h      next below   local rate
+  6   0.167   15009   5184    5183    1     0.29684     6.43e-16     
+  7   0.143   24231   8232    8231    1     0.29688     6.94e-16     -0.000954
+  8   0.125   36621   12288   12287   1     0.29689     7.81e-16     -0.000134
+  fitted rate over all points: -0.000583
+  fitted rate over last four : -0.000583
+  verdict: FLAT -> uniformly stable
+
+The interior bubble cannot affect a P0 pressure.  Its divergence
+integrates to zero against any constant, so its columns of G vanish
+identically and it acts only through enlarging K -- which can raise
+beta_h but never lower it.  P2+interior/P0 sitting just above P2/P0
+with the same null dimension is that statement, measured; the wiring
+check itself is checks.jl, which reads those columns of G directly.

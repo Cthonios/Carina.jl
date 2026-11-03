@@ -218,10 +218,10 @@ def fig_beta():
         axis.set_xlabel(lab)
         axis.set_xticks(Ns if axis is ax else Ns[:5]); axis.set_xticklabels([str(n) for n in (Ns if axis is ax else Ns[:5])])
         axis.minorticks_off()
-        axis.set_yticks([0.03, 0.05, 0.1, 0.2, 0.3, 0.5]); axis.set_yticklabels(["0.03", "0.05", "0.1", "0.2", "0.3", "0.5"])
-    ax.set_ylim(0.025, 0.55)
-    fig.legend(handles=handles, frameon=False, fontsize=8, loc="upper center", ncol=5, bbox_to_anchor=(0.5, 1.0))
-    fig.tight_layout(rect=(0, 0, 1, 0.9))
+        axis.set_yticks([0.02, 0.03, 0.05, 0.1, 0.2, 0.3, 0.5]); axis.set_yticklabels(["0.02", "0.03", "0.05", "0.1", "0.2", "0.3", "0.5"])
+    ax.set_ylim(0.018, 0.55)
+    fig.legend(handles=handles, frameon=False, fontsize=8, loc="lower center", ncol=5, bbox_to_anchor=(0.5, 0.0))
+    fig.tight_layout(rect=(0, 0.12, 1, 1))
     fig.savefig(os.path.join(OUT, "beta.png"), dpi=200)
 
 

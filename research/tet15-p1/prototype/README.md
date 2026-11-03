@@ -98,6 +98,15 @@ runs (`null` = `n_p - rank G`, which must be 1; `local rate` at the last step):
 | P2 ⊕ face / P1disc | 0.0938 | 0.0701 | 0.0497 | — | 2 | 0.88 | decays |
 | **P2 ⊕ interior ⊕ face / P1disc** | 0.2875 | 0.2962 | **0.2968** | — | 1 | **−0.003** | **stable** |
 
+`beta78.jl` (2026-11-02) extends the five pairs that `beta.jl` stops at `N = 6` to
+`N = 7` and `8`, with `N = 6` recomputed as a check (all five agree with `beta_out.txt`
+to four digits). Run on cee-compute051 with 32 BLAS threads in 35 min; the largest
+dense matrix is 36 621 × 12 288 (the full enrichment at `N = 8`). Output in
+`beta78_out.txt`. At `N = 8`: P2 ⊕ interior / P0 0.0418 (rate 0.97), P2 / P1disc
+0.0206 (1.03), P2 ⊕ interior / P1disc 0.0316 (0.89), P2 ⊕ face / P1disc 0.0383
+(0.92), P2 ⊕ interior ⊕ face / P1disc 0.2969 (−0.0001). The paper's tab:beta has all
+eight pairs at `N = 2` to `8`.
+
 Every row is what Boffi–Brezzi–Fortin (2013, §8.7 and Example 8.7.2) predict;
 the sweep validates the bench and supplies the constants. P2 does not control
 a constant pressure in 3D — it has no face degrees of freedom — and carries
