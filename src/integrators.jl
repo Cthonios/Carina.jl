@@ -94,32 +94,6 @@ function _init_assembly_cache!(asm, is_linear::Bool)
 end
 
 # --------------------------------------------------------------------------- #
-# Point loads (Neumann BCs on node sets) — module-level state
-# --------------------------------------------------------------------------- #
-
-const _point_loads = PointLoad[]
-const _point_load_coords = Ref{Vector{Float64}}(Float64[])
-
-function _init_point_loads!(loads::Vector{PointLoad}, coords::AbstractVector{Float64})
-    empty!(_point_loads)
-    append!(_point_loads, loads)
-    _point_load_coords[] = Vector{Float64}(coords)
-    return nothing
-end
-
-# Add point load contributions to the residual vector R_eff (sign: positive = external force).
-function _apply_point_loads!(R_eff, t::Float64)
-    isempty(_point_loads) && return
-    X = _point_load_coords[]
-    for pl in _point_loads
-        pl.unk_idx == 0 && continue   # constrained DOF, skip
-        coords = SVector{3, Float64}(X[(pl.node-1)*3+1], X[(pl.node-1)*3+2], X[(pl.node-1)*3+3])
-        R_eff[pl.unk_idx] += pl.func(coords, t)
-    end
-    return nothing
-end
-
-# --------------------------------------------------------------------------- #
 # QuasiStaticIntegrator{NS, Vec}
 # --------------------------------------------------------------------------- #
 
@@ -501,6 +475,9 @@ function evaluate!(ig::QuasiStaticIntegrator, p)
         FEC.assemble_vector!(asm, FEC.residual, U, p)
         FEC.assemble_vector_neumann_bc!(asm, U, p)
         FEC.assemble_vector_source!(asm, U, p)
+        # for point sources
+        FEC.update_field_bcs!(asm.residual_storage, p.point_source_bcs)
+
     catch e
         e isa _MATH_ERRORS || rethrow()
         _carina_logf(4, :solve, "evaluate!: caught %s during assembly", typeof(e))
@@ -508,7 +485,6 @@ function evaluate!(ig::QuasiStaticIntegrator, p)
     end
     R = FEC.residual(asm)
     @. ig.R_eff = -R
-    _apply_point_loads!(ig.R_eff, FEC.current_time(p.times))
     return isfinite(sqrt(sum(abs2, ig.R_eff)))
 end
 
@@ -523,6 +499,7 @@ function evaluate!(ig::NewmarkIntegrator, p)
         FEC.assemble_vector!(asm, FEC.residual, Uu, p)
         FEC.assemble_vector_neumann_bc!(asm, Uu, p)
         FEC.assemble_vector_source!(asm, Uu, p)
+        FEC.update_field_bcs!(asm.residual_storage, p.point_source_bcs)
         # Inertial residual: M · A on free rows, evaluated via M · (c_M·dU)
         # with full-DOF dU.  The full-DOF action carries M_{f,BC}·dU_BC
         # = M_{f,BC}·g''(t_{n+1})/c_M, so c_M times the result includes
@@ -539,7 +516,6 @@ function evaluate!(ig::NewmarkIntegrator, p)
     R_int = FEC.residual(asm)
     M_dU  = FEC.hvp(asm, Uu)
     @. R_eff = -((1 + α_hht) * R_int + c_M * M_dU - α_hht * F_int_n)
-    _apply_point_loads!(R_eff, FEC.current_time(p.times))
     return isfinite(sqrt(sum(abs2, R_eff)))
 end
 
@@ -550,6 +526,7 @@ function evaluate!(ig::CentralDifferenceIntegrator, p)
         FEC.assemble_vector!(asm, FEC.residual, Uu, p)
         FEC.assemble_vector_neumann_bc!(asm, Uu, p)
         FEC.assemble_vector_source!(asm, Uu, p)
+        FEC.update_field_bcs!(asm.residual_storage, p.point_source_bcs)
     catch e
         e isa _MATH_ERRORS || rethrow()
         _carina_logf(4, :solve, "evaluate!: caught %s during assembly", typeof(e))
@@ -557,7 +534,6 @@ function evaluate!(ig::CentralDifferenceIntegrator, p)
     end
     R_int = FEC.residual(asm)
     @. ig.R_eff = -R_int
-    _apply_point_loads!(ig.R_eff, FEC.current_time(p.times))
     return isfinite(sqrt(sum(abs2, ig.R_eff)))
 end
 

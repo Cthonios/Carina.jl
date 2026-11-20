@@ -243,19 +243,20 @@ function create_simulation(dict::Dict{String,Any}, basedir::String="";
 
     p_cpu = @carina_phase "Building parameters" FEC.create_parameters(
         mesh, asm_cpu, physics, props;
-        dirichlet_bcs = dbcs,
-        neumann_bcs   = nbcs,
-        sources       = bfs,
-        times         = times,
+        dirichlet_bcs    = dbcs,
+        neumann_bcs      = nbcs,
+        point_source_bcs = point_load_entries,
+        sources          = bfs,
+        times            = times,
     )
     n_dofs = length(asm_cpu.dof)
     n_free = length(asm_cpu.dof.unknown_dofs)
     _carina_logf(0, :setup, "DOFs:    %d total, %d free, %d constrained",
                  n_dofs, n_free, n_dofs - n_free)
 
-    # Build point loads (Neumann BCs on node sets) — needs finalized dof
-    _init_point_loads!(_build_point_loads(point_load_entries, mesh, asm_cpu.dof),
-                       p_cpu.coords.data)
+    # # Build point loads (Neumann BCs on node sets) — needs finalized dof
+    # _init_point_loads!(_build_point_loads(point_load_entries, mesh, asm_cpu.dof),
+    #                    p_cpu.coords.data)
 
     output_spec = _parse_output_spec(dict)
     is_dynamic  = _is_dynamic_integrator(dict)

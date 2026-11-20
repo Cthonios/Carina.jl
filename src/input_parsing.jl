@@ -1698,13 +1698,13 @@ end
 
 function _parse_neumann_bcs(dict)
     bc_section = get(dict, "boundary conditions", nothing)
-    bc_section === nothing && return FEC.NeumannBC[], Dict{String,Any}[]
+    bc_section === nothing && return FEC.NeumannBC[], FEC.PointSourceBC[]
     entries = _get_ci(bc_section, "neumann", nothing)
-    entries === nothing && return FEC.NeumannBC[], Dict{String,Any}[]
+    entries === nothing && return FEC.NeumannBC[], FEC.PointSourceBC[]
     entries isa Vector || error("[[boundary_conditions.neumann]] must be a list.")
 
     nbcs = FEC.NeumannBC[]
-    point_load_entries = Dict{String,Any}[]  # deferred: need mesh/dof for PointLoad creation
+    point_loads = FEC.PointSourceBC[]
 
     for (i, entry) in enumerate(entries)
         _require_keys(entry, ("component", "function"), "Neumann BC entry $i")
@@ -1728,14 +1728,16 @@ function _parse_neumann_bcs(dict)
             push!(nbcs, FEC.NeumannBC(var_sym, func, sset))
 
         elseif haskey(entry, "node set")
-            # Point load: apply directly at nodes (deferred to after mesh is built)
-            push!(point_load_entries, entry)
-
+            var_sym = _component_to_string(entry["component"])
+            comp_idx = _component_index(var_sym)
+            scalar = _make_function(entry["function"])
+            nset = entry["node set"]
+            push!(point_loads, FEC.PointSourceBC(var_sym, scalar; nodeset_name = nset))
         else
             error("Neumann BC entry $i must specify side_set or node_set.")
         end
     end
-    return nbcs, point_load_entries
+    return nbcs, point_loads
 end
 
 # ---------------------------------------------------------------------------
@@ -1818,28 +1820,6 @@ function _validate_mesh_names(dict, mesh, material_blocks)
     end
 
     return nothing
-end
-
-function _build_point_loads(entries, mesh, dof)
-    isempty(entries) && return PointLoad[]
-
-    inv_map = zeros(Int, length(dof))
-    for (i, fd) in enumerate(dof.unknown_dofs)
-        inv_map[fd] = i
-    end
-
-    loads = PointLoad[]
-    for entry in entries
-        var_sym  = _component_to_string(entry["component"])
-        func     = _make_function(entry["function"])
-        nset_sym = entry["node set"]
-        bk = FEC.BCBookKeeping(mesh, dof, var_sym; nset_name=nset_sym)
-        for (full_dof, node) in zip(bk.dofs, bk.nodes)
-            unk_idx = inv_map[full_dof]
-            push!(loads, PointLoad(unk_idx, node, func))
-        end
-    end
-    return loads
 end
 
 # ---- Body Forces ----
