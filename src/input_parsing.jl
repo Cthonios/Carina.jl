@@ -988,7 +988,10 @@ function _recovery_vertex_structure(asm_cpu, p_cpu)
     bases   = [_vertex_basis(ref_fe) for ref_fe in fspace.ref_fes]
     is_vertex = falses(n_nodes)
     for (b, ref_fe) in enumerate(fspace.ref_fes)
-        nelem = conns.nelems[b]; coffset = conns.offsets[b]; nv = bases[b].nv
+        # nelem = conns.nelems[b]; coffset = conns.offsets[b]; nv = bases[b].nv
+        nelem = FEC.num_elements(conns, b)
+        coffset = FEC.block_offset(conns, b)
+        nv = bases[b].nv
         for e in 1:nelem
             conn = FEC.connectivity(ref_fe, conns.data, e, coffset)
             for i in 1:nv
@@ -1013,7 +1016,8 @@ function _recovery_vertex_structure(asm_cpu, p_cpu)
         vb = bases[b]
         vb.own && continue
         nnpe = RFE.num_cell_dofs(ref_fe); nv = vb.nv
-        nelem = conns.nelems[b]; coffset = conns.offsets[b]
+        nelem = FEC.num_elements(conns, b)
+        coffset = FEC.block_offset(conns, b)
         for e in 1:nelem
             conn = FEC.connectivity(ref_fe, conns.data, e, coffset)
             x_el = FEC._element_level_fields_flat(p_cpu.coords, ref_fe, conn)
@@ -1053,7 +1057,9 @@ function _build_recovery_data(recovery::Symbol, asm_cpu, p_cpu)
         # tributary to each vertex, Σ_e Σ_q λ_i(ξ_q) w_q |J|, positive.
         vol = zeros(Float64, n_v)
         for (b, ref_fe) in enumerate(fspace.ref_fes)
-            vb = bases[b]; nelem = conns.nelems[b]; coffset = conns.offsets[b]
+            vb = bases[b]
+            nelem = FEC.num_elements(conns, b)
+            coffset = FEC.block_offset(conns, b)
             for e in 1:nelem
                 conn = FEC.connectivity(ref_fe, conns.data, e, coffset)
                 x_el = FEC._element_level_fields_flat(p_cpu.coords, ref_fe, conn)
@@ -1076,7 +1082,9 @@ function _build_recovery_data(recovery::Symbol, asm_cpu, p_cpu)
         # io.jl.
         rows = Int[]; cols = Int[]; vals = Float64[]
         for (b, ref_fe) in enumerate(fspace.ref_fes)
-            vb = bases[b]; nelem = conns.nelems[b]; coffset = conns.offsets[b]
+            vb = bases[b]
+            nelem = FEC.num_elements(conns, b)
+            coffset = FEC.block_offset(conns, b)
             for e in 1:nelem
                 conn = FEC.connectivity(ref_fe, conns.data, e, coffset)
                 x_el = FEC._element_level_fields_flat(p_cpu.coords, ref_fe, conn)
@@ -1698,13 +1706,13 @@ end
 
 function _parse_neumann_bcs(dict)
     bc_section = get(dict, "boundary conditions", nothing)
-    bc_section === nothing && return FEC.NeumannBC[], Dict{String,Any}[]
+    bc_section === nothing && return FEC.NeumannBC[], FEC.PointSourceBC[]
     entries = _get_ci(bc_section, "neumann", nothing)
-    entries === nothing && return FEC.NeumannBC[], Dict{String,Any}[]
+    entries === nothing && return FEC.NeumannBC[], FEC.PointSourceBC[]
     entries isa Vector || error("[[boundary_conditions.neumann]] must be a list.")
 
     nbcs = FEC.NeumannBC[]
-    point_load_entries = Dict{String,Any}[]  # deferred: need mesh/dof for PointLoad creation
+    point_loads = FEC.PointSourceBC[]
 
     for (i, entry) in enumerate(entries)
         _require_keys(entry, ("component", "function"), "Neumann BC entry $i")
@@ -1728,14 +1736,16 @@ function _parse_neumann_bcs(dict)
             push!(nbcs, FEC.NeumannBC(var_sym, func, sset))
 
         elseif haskey(entry, "node set")
-            # Point load: apply directly at nodes (deferred to after mesh is built)
-            push!(point_load_entries, entry)
-
+            var_sym = _component_to_string(entry["component"])
+            comp_idx = _component_index(var_sym)
+            scalar = _make_function(entry["function"])
+            nset = entry["node set"]
+            push!(point_loads, FEC.PointSourceBC(var_sym, scalar; nodeset_name = nset))
         else
             error("Neumann BC entry $i must specify side_set or node_set.")
         end
     end
-    return nbcs, point_load_entries
+    return nbcs, point_loads
 end
 
 # ---------------------------------------------------------------------------
@@ -1818,28 +1828,6 @@ function _validate_mesh_names(dict, mesh, material_blocks)
     end
 
     return nothing
-end
-
-function _build_point_loads(entries, mesh, dof)
-    isempty(entries) && return PointLoad[]
-
-    inv_map = zeros(Int, length(dof))
-    for (i, fd) in enumerate(dof.unknown_dofs)
-        inv_map[fd] = i
-    end
-
-    loads = PointLoad[]
-    for entry in entries
-        var_sym  = _component_to_string(entry["component"])
-        func     = _make_function(entry["function"])
-        nset_sym = entry["node set"]
-        bk = FEC.BCBookKeeping(mesh, dof, var_sym; nset_name=nset_sym)
-        for (full_dof, node) in zip(bk.dofs, bk.nodes)
-            unk_idx = inv_map[full_dof]
-            push!(loads, PointLoad(unk_idx, node, func))
-        end
-    end
-    return loads
 end
 
 # ---- Body Forces ----

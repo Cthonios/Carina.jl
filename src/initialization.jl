@@ -197,8 +197,8 @@ function _compute_initial_acceleration!(integrator::NewmarkIntegrator, asm_cpu, 
     FEC.assemble_vector!(asm_cpu, FEC.residual, Uu_cpu, p_cpu)
     FEC.assemble_vector_neumann_bc!(asm_cpu, Uu_cpu, p_cpu)
     FEC.assemble_vector_source!(asm_cpu, Uu_cpu, p_cpu)
+    FEC.update_field_bcs!(asm_cpu.residual_storage, p_cpu.point_source_bcs)
     rhs = -copy(FEC.residual(asm_cpu))   # F_ext − F_int(U₀)
-    _apply_point_loads!(rhs, FEC.current_time(p_cpu.times))
 
     norm_rhs = sqrt(sum(abs2, rhs))
     if norm_rhs < eps(Float64)
@@ -237,8 +237,8 @@ function _compute_initial_acceleration!(integrator::CentralDifferenceIntegrator,
     FEC.assemble_vector!(asm_cpu, FEC.residual, Uu_cpu, p_cpu)
     FEC.assemble_vector_neumann_bc!(asm_cpu, Uu_cpu, p_cpu)
     FEC.assemble_vector_source!(asm_cpu, Uu_cpu, p_cpu)
+    FEC.update_field_bcs!(asm_cpu.residual_storage, p_cpu.point_source_bcs)
     rhs = -copy(FEC.residual(asm_cpu))   # F_ext − F_int(U₀)
-    _apply_point_loads!(rhs, FEC.current_time(p_cpu.times))
 
     norm_rhs = sqrt(sum(abs2, rhs))
     if norm_rhs < eps(Float64)

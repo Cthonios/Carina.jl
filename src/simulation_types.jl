@@ -90,16 +90,6 @@ struct ConsistentRecovery <: AbstractRecoveryData
 end
 
 # ---------------------------------------------------------------------------
-# Point loads (Neumann BCs on node sets — applied as direct forces)
-# ---------------------------------------------------------------------------
-
-struct PointLoad
-    unk_idx ::Int           # index into the unknown DOF vector (0 = constrained, skip)
-    node    ::Int           # node index (for coordinate lookup)
-    func    ::FEC.Expressions.ScalarExpressionFunction{Float64}  # (coords, t) → scalar force value
-end
-
-# ---------------------------------------------------------------------------
 # Single-domain simulation
 # ---------------------------------------------------------------------------
 
