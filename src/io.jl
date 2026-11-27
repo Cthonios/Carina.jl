@@ -238,8 +238,8 @@ function _write_recovered_fields!(sim, step)
     for (b, (block_physics, ref_fe)) in enumerate(zip(
         values(params_cpu.physics), values(fspace.ref_fes),
     ))
-        nelem   = conns.nelems[b]
-        coffset = conns.offsets[b]
+        nelem   = FEC.num_elements(conns, b)
+        coffset = FEC.block_offset(conns, b)
         vb = bases[b]
         for e in 1:nelem
             conn = FEC.connectivity(ref_fe, conns.data, e, coffset)

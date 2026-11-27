@@ -988,7 +988,10 @@ function _recovery_vertex_structure(asm_cpu, p_cpu)
     bases   = [_vertex_basis(ref_fe) for ref_fe in fspace.ref_fes]
     is_vertex = falses(n_nodes)
     for (b, ref_fe) in enumerate(fspace.ref_fes)
-        nelem = conns.nelems[b]; coffset = conns.offsets[b]; nv = bases[b].nv
+        # nelem = conns.nelems[b]; coffset = conns.offsets[b]; nv = bases[b].nv
+        nelem = FEC.num_elements(conns, b)
+        coffset = FEC.block_offset(conns, b)
+        nv = bases[b].nv
         for e in 1:nelem
             conn = FEC.connectivity(ref_fe, conns.data, e, coffset)
             for i in 1:nv
@@ -1013,7 +1016,8 @@ function _recovery_vertex_structure(asm_cpu, p_cpu)
         vb = bases[b]
         vb.own && continue
         nnpe = RFE.num_cell_dofs(ref_fe); nv = vb.nv
-        nelem = conns.nelems[b]; coffset = conns.offsets[b]
+        nelem = FEC.num_elements(conns, b)
+        coffset = FEC.block_offset(conns, b)
         for e in 1:nelem
             conn = FEC.connectivity(ref_fe, conns.data, e, coffset)
             x_el = FEC._element_level_fields_flat(p_cpu.coords, ref_fe, conn)
@@ -1053,7 +1057,9 @@ function _build_recovery_data(recovery::Symbol, asm_cpu, p_cpu)
         # tributary to each vertex, Σ_e Σ_q λ_i(ξ_q) w_q |J|, positive.
         vol = zeros(Float64, n_v)
         for (b, ref_fe) in enumerate(fspace.ref_fes)
-            vb = bases[b]; nelem = conns.nelems[b]; coffset = conns.offsets[b]
+            vb = bases[b]
+            nelem = FEC.num_elements(conns, b)
+            coffset = FEC.block_offset(conns, b)
             for e in 1:nelem
                 conn = FEC.connectivity(ref_fe, conns.data, e, coffset)
                 x_el = FEC._element_level_fields_flat(p_cpu.coords, ref_fe, conn)
@@ -1076,7 +1082,9 @@ function _build_recovery_data(recovery::Symbol, asm_cpu, p_cpu)
         # io.jl.
         rows = Int[]; cols = Int[]; vals = Float64[]
         for (b, ref_fe) in enumerate(fspace.ref_fes)
-            vb = bases[b]; nelem = conns.nelems[b]; coffset = conns.offsets[b]
+            vb = bases[b]
+            nelem = FEC.num_elements(conns, b)
+            coffset = FEC.block_offset(conns, b)
             for e in 1:nelem
                 conn = FEC.connectivity(ref_fe, conns.data, e, coffset)
                 x_el = FEC._element_level_fields_flat(p_cpu.coords, ref_fe, conn)

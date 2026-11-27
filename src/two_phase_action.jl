@@ -61,8 +61,10 @@ function _build_inverse_adjacency(asm_cpu)
 
     blocks = _InverseAdjacency{Vector{Int32}}[]
     for (b, ref_fe) in enumerate(values(fspace.ref_fes))
-        nelems  = conns_all.nelems[b]
-        coffset = conns_all.offsets[b]
+        # nelems  = conns_all.nelems[b]
+        # coffset = conns_all.offsets[b]
+        nelems  = FEC.num_elements(conns_all, b)
+        coffset = FEC.block_offset(conns_all, b)
         nnpe    = RFE.num_cell_dofs(ref_fe)
 
         counts = zeros(Int32, n_nodes)
@@ -121,7 +123,7 @@ function _two_phase_device_ws(storage, fspace, backend)
     upload(v) = (d = KA.allocate(backend, eltype(v), length(v)); copyto!(d, v); d)
     ws = map(enumerate(values(fspace.ref_fes))) do (b, ref_fe)
         adj = _InverseAdjacency(upload(host[b].offsets), upload(host[b].pairs))
-        nelems  = conns_all.nelems[b]
+        nelems  = FEC.num_elements(conns_all, b)
         nq      = RFE.num_cell_quadrature_points(ref_fe)
         ndof_el = RFE.num_cell_dofs(ref_fe) * size(storage, 1)
         staging = KA.allocate(backend, eltype(storage.data), ndof_el, nq, nelems)
@@ -210,8 +212,8 @@ function _assemble_action_two_phase!(asm, func_action::F, Uu, Vu, p) where {F <:
     nd = size(storage, 1)
     n_nodes = size(storage, 2)
     FEC.foreach_block(fspace, p) do physics, ref_fe, b
-        nelems  = conns_all.nelems[b]
-        coffset = conns_all.offsets[b]
+        nelems  = FEC.num_elements(conns_all, b)
+        coffset = FEC.block_offset(conns_all, b)
         nq      = RFE.num_cell_quadrature_points(ref_fe)
         nnpe    = RFE.num_cell_dofs(ref_fe)
         _two_phase_qp_kernel!(backend)(
